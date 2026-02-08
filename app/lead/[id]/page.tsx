@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Phone, DollarSign, Home } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ArrowLeft, Phone, Home, DollarSign, Calendar, ExternalLink } from 'lucide-react';
+import { ChatBubble } from '@/components/ChatBubble';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type Lead = {
@@ -24,6 +26,14 @@ type Lead = {
             ts: string;
         }>;
     }>;
+};
+
+const STATUS_INFO = {
+    NEW: { label: 'Новый', gradient: 'gradient-new', icon: '🆕' },
+    QUALIFIED: { label: 'Квалифицирован', gradient: 'gradient-qualified', icon: '✅' },
+    CONSULT: { label: 'Консультация', gradient: 'gradient-consult', icon: '💬' },
+    CONTRACT: { label: 'Договор', gradient: 'gradient-contract', icon: '📄' },
+    REPAIR: { label: 'Ремонт', gradient: 'gradient-repair', icon: '🔧' },
 };
 
 export default function LeadDetailPage() {
@@ -57,113 +67,167 @@ export default function LeadDetailPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-900 text-white p-4">
-                <Skeleton className="h-8 w-32 mb-4" />
-                <Skeleton className="h-64 mb-4" />
-                <Skeleton className="h-96" />
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white p-4">
+                <Skeleton className="h-8 w-32 mb-4 shimmer" />
+                <Skeleton className="h-64 mb-4 shimmer" />
+                <Skeleton className="h-96 shimmer" />
             </div>
         );
     }
 
     if (!lead) {
         return (
-            <div className="min-h-screen bg-gray-900 text-white p-4">
-                <p>Lead not found</p>
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white p-4 flex items-center justify-center">
+                <div className="text-center">
+                    <p className="text-xl text-gray-400">Лид не найден</p>
+                    <button
+                        onClick={() => router.push('/dashboard')}
+                        className="mt-4 btn-primary"
+                    >
+                        Вернуться на главную
+                    </button>
+                </div>
             </div>
         );
     }
 
     const chat = lead.chats[0];
+    const statusInfo = STATUS_INFO[lead.status as keyof typeof STATUS_INFO] || STATUS_INFO.NEW;
 
     return (
-        <div className="min-h-screen bg-gray-900 text-white">
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
             {/* Header */}
-            <div className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center gap-3">
+            <motion.div
+                initial={{ y: -20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                className="glass border-b border-white/10 px-4 py-3 flex items-center gap-3 sticky top-0 z-40 backdrop-blur-xl"
+            >
                 <button
                     onClick={() => router.push('/dashboard')}
-                    className="p-2 hover:bg-gray-700 rounded-lg"
+                    className="p-2 hover:bg-white/10 rounded-lg transition"
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <h1 className="text-xl font-bold">{lead.clientName || 'Без имени'}</h1>
-            </div>
-
-            <div className="p-4 space-y-4">
-                {/* Lead Info Card */}
-                <div className="bg-gray-800 rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold">Информация о клиенте</h2>
-                        <span className="px-3 py-1 bg-blue-600 rounded-full text-sm">
-                            {lead.status}
-                        </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {lead.phone && (
-                            <div className="flex items-center gap-2 text-gray-300">
-                                <Phone size={16} />
-                                <span>{lead.phone}</span>
-                            </div>
-                        )}
-                        {lead.areaSq && (
-                            <div className="flex items-center gap-2 text-gray-300">
-                                <Home size={16} />
-                                <span>Площадь: {lead.areaSq} м²</span>
-                            </div>
-                        )}
-                        {lead.budget && (
-                            <div className="flex items-center gap-2 text-green-400">
-                                <DollarSign size={16} />
-                                <span>Бюджет: {lead.budget.toLocaleString()} ₽</span>
-                            </div>
-                        )}
-                        {lead.avitoLink && (
-                            <a
-                                href={lead.avitoLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-400 hover:underline text-sm"
-                            >
-                                Ссылка на Авито →
-                            </a>
-                        )}
-                    </div>
+                <div className="flex-1">
+                    <h1 className="text-lg font-bold">{lead.clientName || 'Без имени'}</h1>
+                    <p className="text-xs text-gray-400">ID: {lead.id}</p>
                 </div>
+                <div className={`status-badge ${statusInfo.gradient}`}>
+                    <span>{statusInfo.icon}</span>
+                    <span>{statusInfo.label}</span>
+                </div>
+            </motion.div>
+
+            <div className="p-4 space-y-4 max-w-4xl mx-auto">
+                {/* Lead Info Card */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="glass rounded-2xl p-6 space-y-4"
+                >
+                    <h2 className="text-lg font-semibold flex items-center gap-2">
+                        <span className="text-2xl">📋</span>
+                        Информация о клиенте
+                    </h2>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {lead.phone && (
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+                                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                                    <Phone size={18} className="text-blue-400" />
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-400">Телефон</p>
+                                    <p className="font-medium">{lead.phone}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {lead.areaSq && (
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+                                <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <Home size={18} className="text-purple-400" />
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-400">Площадь</p>
+                                    <p className="font-medium">{lead.areaSq} м²</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {lead.budget && (
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+                                <div className="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center">
+                                    <DollarSign size={18} className="text-green-400" />
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-400">Бюджет</p>
+                                    <p className="font-medium text-green-400">{lead.budget.toLocaleString()} ₽</p>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+                            <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                                <Calendar size={18} className="text-orange-400" />
+                            </div>
+                            <div>
+                                <p className="text-xs text-gray-400">Создан</p>
+                                <p className="font-medium">
+                                    {new Date(lead.createdAt).toLocaleDateString('ru-RU', {
+                                        day: 'numeric',
+                                        month: 'long',
+                                        year: 'numeric',
+                                    })}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {lead.avitoLink && (
+                        <a
+                            href={lead.avitoLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition w-fit"
+                        >
+                            <ExternalLink size={16} />
+                            <span className="text-sm">Открыть объявление на Авито</span>
+                        </a>
+                    )}
+                </motion.div>
 
                 {/* Chat History */}
-                <div className="bg-gray-800 rounded-lg p-4">
-                    <h2 className="text-lg font-semibold mb-4">История чата</h2>
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="glass rounded-2xl p-6"
+                >
+                    <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
+                        <span className="text-2xl">💬</span>
+                        История чата
+                    </h2>
+
                     {chat && chat.messages.length > 0 ? (
-                        <div className="space-y-3">
+                        <div className="space-y-1">
                             {chat.messages.map((msg: any, idx: number) => (
-                                <div
-                                    key={idx}
-                                    className={`p-3 rounded-lg ${msg.role === 'user'
-                                            ? 'bg-blue-600 ml-auto max-w-[80%]'
-                                            : 'bg-gray-700 mr-auto max-w-[80%]'
-                                        }`}
-                                >
-                                    <p className="text-sm">{msg.text}</p>
-                                    {msg.audioUrl && (
-                                        <audio controls className="mt-2 w-full">
-                                            <source src={msg.audioUrl} type="audio/ogg" />
-                                        </audio>
-                                    )}
-                                    {msg.transcript && (
-                                        <p className="text-xs text-gray-400 mt-1 italic">
-                                            Транскрипт: {msg.transcript}
-                                        </p>
-                                    )}
-                                    <p className="text-xs text-gray-400 mt-1">
-                                        {new Date(msg.ts).toLocaleString('ru-RU')}
-                                    </p>
-                                </div>
+                                <ChatBubble key={idx} message={msg} index={idx} />
                             ))}
                         </div>
                     ) : (
-                        <p className="text-gray-400 text-sm">Нет сообщений</p>
+                        <div className="text-center py-12">
+                            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
+                                <span className="text-4xl">💭</span>
+                            </div>
+                            <p className="text-gray-400">Пока нет сообщений</p>
+                            <p className="text-sm text-gray-500 mt-2">
+                                Чат появится после первого общения с клиентом
+                            </p>
+                        </div>
                     )}
-                </div>
+                </motion.div>
             </div>
         </div>
     );

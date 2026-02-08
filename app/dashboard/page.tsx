@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCorners } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { motion } from 'framer-motion';
+import { Plus, LogOut, Sparkles } from 'lucide-react';
+import { LeadCard } from '@/components/LeadCard';
+import { AddLeadModal } from '@/components/AddLeadModal';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, LogOut } from 'lucide-react';
 
 type Lead = {
     id: number;
@@ -17,11 +22,11 @@ type Lead = {
 };
 
 const STATUS_COLUMNS = [
-    { key: 'NEW', label: 'Новый', color: 'bg-gray-700' },
-    { key: 'QUALIFIED', label: 'Квалифицирован', color: 'bg-blue-700' },
-    { key: 'CONSULT', label: 'Консультация', color: 'bg-yellow-700' },
-    { key: 'CONTRACT', label: 'Договор', color: 'bg-green-700' },
-    { key: 'REPAIR', label: 'Ремонт', color: 'bg-purple-700' },
+    { key: 'NEW' as const, label: 'Новый', icon: '🆕', gradient: 'gradient-new' },
+    { key: 'QUALIFIED' as const, label: 'Квалифицирован', icon: '✅', gradient: 'gradient-qualified' },
+    { key: 'CONSULT' as const, label: 'Консультация', icon: '💬', gradient: 'gradient-consult' },
+    { key: 'CONTRACT' as const, label: 'Договор', icon: '📄', gradient: 'gradient-contract' },
+    { key: 'REPAIR' as const, label: 'Ремонт', icon: '🔧', gradient: 'gradient-repair' },
 ];
 
 export default function DashboardPage() {
@@ -29,6 +34,8 @@ export default function DashboardPage() {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState<any>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [activeId, setActiveId] = useState<number | null>(null);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -67,9 +74,33 @@ export default function DashboardPage() {
         }
     };
 
-    const handleStatusChange = async (leadId: number, newStatus: string) => {
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id as number);
+    };
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        setActiveId(null);
+
+        if (!over) return;
+
+        const leadId = active.id as number;
+        const newStatus = over.id as Lead['status'];
+
+        const lead = leads.find((l) => l.id === leadId);
+        if (lead && lead.status !== newStatus) {
+            updateLeadStatus(leadId, newStatus);
+        }
+    };
+
+    const updateLeadStatus = async (leadId: number, newStatus: Lead['status']) => {
         const token = localStorage.getItem('token');
         if (!token) return;
+
+        // Optimistic update
+        setLeads((prev) =>
+            prev.map((lead) => (lead.id === leadId ? { ...lead, status: newStatus } : lead))
+        );
 
         try {
             const res = await fetch('/api/leads', {
@@ -81,11 +112,35 @@ export default function DashboardPage() {
                 body: JSON.stringify({ id: leadId, status: newStatus }),
             });
 
-            if (res.ok) {
+            if (!res.ok) {
+                // Revert on error
                 fetchLeads(token);
             }
         } catch (error) {
             console.error('Failed to update lead:', error);
+            fetchLeads(token);
+        }
+    };
+
+    const handleAddLead = async (data: any) => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        try {
+            const res = await fetch('/api/leads', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(data),
+            });
+
+            if (res.ok) {
+                fetchLeads(token);
+            }
+        } catch (error) {
+            console.error('Failed to create lead:', error);
         }
     };
 
@@ -99,109 +154,129 @@ export default function DashboardPage() {
         return leads.filter((lead) => lead.status === status);
     };
 
+    const activeLead = leads.find((lead) => lead.id === activeId);
+
     return (
-        <div className="min-h-screen bg-gray-900 text-white">
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
             {/* Header */}
-            <div className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex justify-between items-center">
-                <div>
-                    <h1 className="text-xl font-bold">RepairCRM</h1>
-                    {user && <p className="text-sm text-gray-400">{user.name}</p>}
+            <motion.div
+                initial={{ y: -20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                className="glass border-b border-white/10 px-6 py-4 flex justify-between items-center sticky top-0 z-40 backdrop-blur-xl"
+            >
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                        <Sparkles size={20} />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                            RepairCRM
+                        </h1>
+                        {user && <p className="text-sm text-gray-400">{user.name}</p>}
+                    </div>
                 </div>
                 <button
                     onClick={handleLogout}
-                    className="flex items-center gap-2 px-3 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm"
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-lg text-sm transition"
                 >
                     <LogOut size={16} />
                     Выйти
                 </button>
-            </div>
+            </motion.div>
 
             {/* Kanban Board */}
-            <div className="p-4">
+            <div className="p-6">
                 {loading ? (
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                         {[1, 2, 3, 4, 5].map((i) => (
-                            <Skeleton key={i} className="h-96" />
+                            <Skeleton key={i} className="h-96 shimmer" />
                         ))}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 overflow-x-auto">
-                        {STATUS_COLUMNS.map((column) => (
-                            <div key={column.key} className="flex flex-col min-w-[280px]">
-                                <div className={`${column.color} px-4 py-2 rounded-t-lg font-semibold`}>
-                                    {column.label} ({getLeadsByStatus(column.key).length})
-                                </div>
-                                <div className="bg-gray-800 rounded-b-lg p-2 flex-1 space-y-2 min-h-[400px]">
-                                    {getLeadsByStatus(column.key).map((lead) => (
-                                        <div
-                                            key={lead.id}
-                                            onClick={() => router.push(`/lead/${lead.id}`)}
-                                            className="bg-gray-700 hover:bg-gray-600 p-3 rounded-lg cursor-pointer transition"
-                                        >
-                                            <h3 className="font-semibold text-sm mb-1">
-                                                {lead.clientName || 'Без имени'}
-                                            </h3>
-                                            {lead.phone && (
-                                                <p className="text-xs text-gray-400 mb-1">{lead.phone}</p>
-                                            )}
-                                            {lead.areaSq && (
-                                                <p className="text-xs text-gray-400">Площадь: {lead.areaSq} м²</p>
-                                            )}
-                                            {lead.budget && (
-                                                <p className="text-xs text-green-400">
-                                                    Бюджет: {lead.budget.toLocaleString()} ₽
-                                                </p>
-                                            )}
-                                            <div className="mt-2 flex gap-1">
-                                                {column.key !== 'REPAIR' && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            const nextStatus = STATUS_COLUMNS[
-                                                                STATUS_COLUMNS.findIndex((c) => c.key === column.key) + 1
-                                                            ]?.key;
-                                                            if (nextStatus) {
-                                                                handleStatusChange(lead.id, nextStatus);
-                                                            }
-                                                        }}
-                                                        className="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
-                                                    >
-                                                        →
-                                                    </button>
-                                                )}
-                                            </div>
+                    <DndContext
+                        collisionDetection={closestCorners}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                    >
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            {STATUS_COLUMNS.map((column, colIndex) => {
+                                const columnLeads = getLeadsByStatus(column.key);
+                                return (
+                                    <motion.div
+                                        key={column.key}
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: colIndex * 0.1 }}
+                                        className="flex flex-col min-w-[280px]"
+                                    >
+                                        {/* Column Header */}
+                                        <div className={`${column.gradient} px-4 py-3 rounded-t-xl font-semibold flex items-center justify-between shadow-lg`}>
+                                            <span className="flex items-center gap-2">
+                                                <span className="text-xl">{column.icon}</span>
+                                                {column.label}
+                                            </span>
+                                            <span className="bg-white/20 px-2 py-1 rounded-full text-xs font-bold">
+                                                {columnLeads.length}
+                                            </span>
                                         </div>
-                                    ))}
+
+                                        {/* Droppable Area */}
+                                        <SortableContext
+                                            id={column.key}
+                                            items={columnLeads.map((l) => l.id)}
+                                            strategy={verticalListSortingStrategy}
+                                        >
+                                            <div
+                                                id={column.key}
+                                                className="glass rounded-b-xl p-3 flex-1 space-y-3 min-h-[500px] border border-white/5"
+                                            >
+                                                {columnLeads.map((lead, idx) => (
+                                                    <div key={lead.id} draggable onDragStart={() => setActiveId(lead.id)}>
+                                                        <LeadCard
+                                                            lead={lead}
+                                                            onClick={() => router.push(`/lead/${lead.id}`)}
+                                                            index={idx}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </SortableContext>
+                                    </motion.div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Drag Overlay */}
+                        <DragOverlay>
+                            {activeLead && (
+                                <div className="drag-overlay">
+                                    <LeadCard lead={activeLead} onClick={() => { }} index={0} />
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            )}
+                        </DragOverlay>
+                    </DndContext>
                 )}
             </div>
 
             {/* Floating Add Button */}
-            <button
-                onClick={() => {
-                    const clientName = prompt('Имя клиента:');
-                    const phone = prompt('Телефон:');
-                    if (clientName || phone) {
-                        const token = localStorage.getItem('token');
-                        fetch('/api/leads', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: `Bearer ${token}`,
-                            },
-                            body: JSON.stringify({ clientName, phone }),
-                        }).then(() => {
-                            if (token) fetchLeads(token);
-                        });
-                    }
-                }}
-                className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg"
+            <motion.button
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.5, type: 'spring' }}
+                onClick={() => setIsModalOpen(true)}
+                className="fixed bottom-8 right-8 w-16 h-16 btn-primary rounded-full shadow-2xl flex items-center justify-center group"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
             >
-                <Plus size={24} />
-            </button>
+                <Plus size={28} className="group-hover:rotate-90 transition-transform duration-300" />
+            </motion.button>
+
+            {/* Add Lead Modal */}
+            <AddLeadModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onSubmit={handleAddLead}
+            />
         </div>
     );
 }
