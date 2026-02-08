@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const userId = req.headers.get('x-user-id');
@@ -11,9 +11,11 @@ export async function GET(
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        const { id } = await params;
+
         const lead = await prisma.lead.findFirst({
             where: {
-                id: parseInt(params.id),
+                id: parseInt(id),
                 userId: parseInt(userId),
             },
             include: {
