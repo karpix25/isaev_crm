@@ -6,8 +6,6 @@ services:
     restart: always
     env_file: .env
     # Note: DATABASE_URL and REDIS_URL should be in .env pointing to Supabase/External Redis
-    networks:
-      - renovation_network
 
   bot:
     build:
@@ -15,8 +13,6 @@ services:
       dockerfile: Dockerfile.bot
     restart: always
     env_file: .env
-    networks:
-      - renovation_network
 
   frontend:
     build:
@@ -24,9 +20,3 @@ services:
     restart: always
     depends_on:
       - app
-    networks:
-      - renovation_network
-
-networks:
-  renovation_network:
-    driver: bridge
