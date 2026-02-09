@@ -42,6 +42,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await init_db()
+    
+    # Set Telegram Webhook
+    if settings.telegram_bot_token and settings.telegram_webhook_url:
+        print(f"Setting webhook to: {settings.telegram_webhook_url}")
+        await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=True)
 
 @app.on_event("shutdown")
 async def shutdown():

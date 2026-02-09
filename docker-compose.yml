@@ -7,12 +7,6 @@ services:
     env_file: .env
     # Note: DATABASE_URL and REDIS_URL should be in .env pointing to Supabase/External Redis
 
-  bot:
-    build:
-      context: .
-      dockerfile: Dockerfile.bot
-    restart: always
-    env_file: .env
 
   frontend:
     build:
