@@ -5,6 +5,9 @@ services:
     build: .
     restart: always
     env_file: .env
+    networks:
+      - default
+      - supabase_net
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
@@ -23,3 +26,6 @@ networks:
   default:
     external: true
     name: easypanel
+  supabase_net:
+    external: true
+    name: test_supabase_default
