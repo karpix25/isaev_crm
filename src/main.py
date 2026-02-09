@@ -50,6 +50,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    await bot.session.close()
     await close_db()
 
 # Include API routes

@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
+    tini \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -29,4 +30,4 @@ RUN chmod +x entrypoint.sh
 EXPOSE 8000
 
 # Entrypoint setup
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "./entrypoint.sh"]
