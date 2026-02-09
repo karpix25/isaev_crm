@@ -1,24 +1,39 @@
-name: repaircrm
+version: '3.8'
+
+name: renovation-crm
 
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: repaircrm_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-repaircrm}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  app:
+    build: .
+    container_name: renovation_app
+    restart: always
+    env_file: .env
+    # Note: DATABASE_URL and REDIS_URL should be in .env pointing to Supabase/External Redis
+    networks:
+      - renovation_network
 
-volumes:
-  postgres_data:
-    driver: local
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: renovation_bot
+    restart: always
+    env_file: .env
+    networks:
+      - renovation_network
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: renovation_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - renovation_network
+
+networks:
+  renovation_network:
+    driver: bridge

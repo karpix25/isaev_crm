@@ -1,152 +1,182 @@
-# RepairCRM MVP
+# Renovation CRM - Multi-Tenant Construction Management System
 
-CRM система для управления ремонтами квартир с AI-агентом, интеграцией Авито и Telegram Mini App.
+A modern CRM system for construction companies (apartment renovation) with deep Telegram integration.
 
-## Возможности
+## 🎯 Key Features
 
-- 🤖 **AI-квалификация лидов** из Авито через OpenRouter
-- 💬 **TG Userbot** с RAG (память компании) для общения с клиентами
-- 📊 **Kanban-доска** с 5 статусами (Новый → Квалифицирован → Консультация → Договор → Ремонт)
-- 📱 **Telegram Mini App** для мобильного управления
-- 🎙️ **Транскрипция аудио** через OpenRouter Whisper
-- 🔍 **Semantic search** по документам компании (pgvector)
+- **Multi-Tenant SaaS Architecture**: Complete data isolation per organization
+- **Telegram Integration**: Clients and workers use only Telegram, managers use web admin
+- **AI Sales Agent**: Automated lead qualification using Claude 3.5 Sonnet
+- **Project Management**: Kanban boards, budget tracking, stage management
+- **Worker Reports**: Daily progress reports via Telegram bot with media uploads
+- **Client Portal**: Telegram Mini App for project progress tracking
 
-## Технологии
+## 🏗️ Tech Stack
 
-- **Frontend**: Next.js 14 + TypeScript + Tailwind CSS + shadcn/ui
-- **Backend**: Prisma ORM + PostgreSQL + pgvector
-- **Auth**: Telegram WebApp initData → JWT
-- **AI**: OpenRouter (GPT-4 + Whisper) + n8n workflows
-- **TG**: Telegram Bot API + Userbot (Telethon)
+### Backend
+- **FastAPI** - Modern async Python web framework
+- **PostgreSQL 16** - Primary database
+- **SQLAlchemy 2.0** - Async ORM
+- **Alembic** - Database migrations
+- **Redis** - Task queue and caching
+- **Celery** - Background task processing
+- **Aiogram 3.x** - Telegram bot framework
 
-## Быстрый старт
+### Frontend
+- **React + Vite** - Admin dashboard
+- **Shadcn/UI + Tailwind** - UI components
+- **TanStack Query** - Data fetching
+- **Zustand** - State management
 
-### 1. Установка зависимостей
+### Infrastructure
+- **Docker + Docker Compose** - Containerization
+- **MinIO** - S3-compatible object storage
+- **Nginx** - Reverse proxy
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- Python 3.11+
+- Node.js 18+ (for frontend)
+
+### 1. Clone and Setup
 
 ```bash
-npm install
-cd userbot && pip install -r requirements.txt && cd ..
-```
-
-### 2. Настройка окружения
-
-Скопируйте `.env.example` в `.env` и заполните:
-
-```bash
+# Copy environment variables
 cp .env.example .env
+
+# Edit .env and fill in required values:
+# - TELEGRAM_BOT_TOKEN (from @BotFather)
+# - JWT_SECRET_KEY (generate with: openssl rand -hex 32)
+# - OPENROUTER_API_KEY (for AI features)
 ```
 
-Необходимые ключи:
-- `TELEGRAM_BOT_TOKEN` - от @BotFather
-- `OPENROUTER_API_KEY` - с openrouter.ai
-- `JWT_SECRET` - случайная строка
-- `TG_API_ID`, `TG_API_HASH` - с my.telegram.org (для userbot)
-
-### 3. Запуск базы данных
+### 2. Start Services
 
 ```bash
+# Start PostgreSQL, Redis, and MinIO
 docker-compose up -d
-npx prisma migrate dev
-```
 
-### 4. Запуск приложения
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-```bash
-# Frontend + API
-npm run dev
-
-# Userbot (в отдельном терминале)
-cd userbot
-python bot.py
-```
-
-Приложение доступно на `http://localhost:3000`
-
-## Структура проекта
-
-```
-├── app/
-│   ├── api/
-│   │   ├── auth/verify/      # TG auth
-│   │   ├── leads/            # CRUD лидов
-│   │   ├── rag/              # RAG embeddings/query
-│   │   └── avito/webhook/    # Авито интеграция
-│   ├── dashboard/            # Kanban доска
-│   ├── lead/[id]/            # Карточка лида
-│   └── login/                # TG авторизация
-├── prisma/
-│   └── schema.prisma         # DB схема
-├── userbot/
-│   └── bot.py                # TG userbot с AI
-├── n8n/
-│   └── avito-to-lead.json    # Workflow для n8n
-└── docker-compose.yml        # Postgres + pgvector
-```
-
-## Использование
-
-### Добавление документов в RAG
-
-```bash
-curl -X POST http://localhost:3000/api/rag/embed \
-  -H "Content-Type: application/json" \
-  -d '{
-    "documents": [
-      {
-        "content": "Наша компания делает ремонты под ключ. Цены от 5000₽/м². Гарантия 2 года."
-      }
-    ]
-  }'
-```
-
-### Импорт n8n workflow
-
-1. Откройте n8n (локально или Railway)
-2. Import → `n8n/avito-to-lead.json`
-3. Настройте credentials:
-   - OpenRouter API
-   - Telegram Bot
-   - Environment variables (REPAIRCRM_API_URL, JWT_TOKEN)
-
-### Тестирование Avito webhook
-
-```bash
-curl -X POST http://localhost:3000/api/avito/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "Здравствуйте! Хочу сделать ремонт квартиры 50м², бюджет 300000₽",
-    "link": "https://avito.ru/..."
-  }'
-```
-
-## Deployment
-
-### Vercel + Neon (Production)
-
-1. Push to GitHub
-2. Import в Vercel
-3. Добавьте environment variables
-4. Замените `DATABASE_URL` на Neon Postgres
-
-### Userbot на VPS
-
-```bash
-# На сервере
-git clone <repo>
-cd userbot
+# Install dependencies
 pip install -r requirements.txt
-# Настройте .env
-nohup python bot.py &
 ```
 
-## Roadmap
+### 3. Run Migrations
 
-- [ ] Drag-and-drop для kanban (react-dnd)
-- [ ] Realtime updates (Socket.io)
-- [ ] Трекинг этапов ремонта
-- [ ] Фото/видео в чатах
-- [ ] Аналитика и отчеты
+```bash
+# Create initial migration
+alembic revision --autogenerate -m "Initial migration"
 
-## Лицензия
+# Apply migrations
+alembic upgrade head
+```
 
-MIT
+### 4. Start API Server
+
+```bash
+# Development mode with auto-reload
+uvicorn src.main:app --reload
+
+# Or use the main.py directly
+python -m src.main
+```
+
+### 5. Access the Application
+
+- **API Documentation**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
+- **MinIO Console**: http://localhost:9001 (minioadmin/minioadmin)
+
+## 📁 Project Structure
+
+```
+renovation-crm/
+├── src/
+│   ├── api/              # API endpoints
+│   ├── models/           # SQLAlchemy models
+│   ├── schemas/          # Pydantic schemas
+│   ├── services/         # Business logic
+│   ├── dependencies/     # FastAPI dependencies
+│   ├── config.py         # Configuration
+│   ├── database.py       # Database setup
+│   └── main.py           # FastAPI app
+├── alembic/              # Database migrations
+├── docker-compose.yml    # Docker services
+├── requirements.txt      # Python dependencies
+└── .env.example          # Environment template
+```
+
+## 🗄️ Database Schema
+
+### Core Entities
+
+1. **Organization** - Multi-tenant isolation
+2. **User** - Admin, Manager, Worker, Client roles
+3. **Lead** - Potential clients with AI qualification
+4. **ChatMessage** - Conversation history
+5. **Project** - Active renovation projects
+6. **Stage** - Project phases (Demolition, Electrical, etc.)
+7. **DailyReport** - Worker progress updates
+8. **Transaction** - Financial tracking
+9. **ChangeRequest** - Scope change approvals
+
+## 🔐 Authentication
+
+### Admin/Manager Login
+```bash
+POST /api/auth/login
+{
+  "email": "admin@example.com",
+  "password": "password"
+}
+```
+
+### Telegram Authentication
+```bash
+POST /api/auth/telegram
+{
+  "id": 123456789,
+  "first_name": "John",
+  "auth_date": 1234567890,
+  "hash": "..."
+}
+```
+
+## 📝 Development Roadmap
+
+- [x] **Phase 1**: Foundation (Backend) ✅
+- [ ] **Phase 2**: Chat Engine (Backend Logic)
+- [ ] **Phase 3**: Admin Frontend (React)
+- [ ] **Phase 4**: Worker Bot & Reporting
+- [ ] **Phase 5**: AI Integration
+- [ ] **Phase 6**: Client Mini App & Deployment
+
+## 🧪 Testing
+
+```bash
+# Run tests (coming soon)
+pytest
+
+# Check code quality
+ruff check src/
+black src/
+```
+
+## 📚 API Documentation
+
+Once the server is running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+## 🤝 Contributing
+
+This is a private project. For questions, contact the development team.
+
+## 📄 License
+
+Proprietary - All rights reserved

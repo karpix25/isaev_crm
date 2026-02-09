@@ -1,0 +1,293 @@
+"""
+OpenRouter API Service for AI-powered lead qualification
+"""
+import json
+import re
+from typing import Optional, Dict, Any, List
+import httpx
+from datetime import datetime
+from langfuse import Langfuse
+
+from src.config import settings
+
+
+class OpenRouterService:
+    """Service for interacting with OpenRouter API"""
+    
+    def __init__(self):
+        self.api_key = settings.openrouter_api_key
+        self.model = settings.openrouter_model
+        self.base_url = getattr(settings, 'openrouter_base_url', 'https://openrouter.ai/api/v1')
+        self.client = httpx.AsyncClient(timeout=30.0)
+        
+        # Langfuse Tracing
+        if settings.langfuse_public_key and settings.langfuse_secret_key:
+            self.langfuse = Langfuse(
+                public_key=settings.langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.langfuse_host
+            )
+        else:
+            self.langfuse = None
+    
+    async def generate_response(
+        self,
+        conversation_history: List[Dict[str, str]],
+        system_prompt: str,
+        model: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        user_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate AI response based on conversation history
+        
+        Args:
+            conversation_history: List of messages [{"role": "user"/"assistant", "content": "..."}]
+            system_prompt: System prompt for AI behavior
+            
+        Returns:
+            {
+                "text": "Response text for user",
+                "extracted_data": {...},  # Parsed JSON data
+                "usage": {"tokens": 123}
+            }
+        """
+        try:
+            # Langfuse Trace
+            trace = None
+            if self.langfuse:
+                trace = self.langfuse.trace(
+                    id=trace_id,
+                    user_id=user_id,
+                    name="chat-completion",
+                    metadata={"model": model or self.model}
+                )
+
+            # Prepare messages
+            messages = [
+                {"role": "system", "content": system_prompt}
+            ] + conversation_history
+            
+            # Langfuse Generation Span
+            generation = None
+            if trace:
+                generation = trace.generation(
+                    name="openrouter-generation",
+                    model=model or self.model,
+                    input=messages,
+                    model_parameters={"temperature": 0.7}
+                )
+
+            # Call OpenRouter API
+            response = await self.client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://renovation-crm.com",  # Optional
+                    "X-Title": "Renovation CRM"  # Optional
+                },
+                json={
+                    "model": model or self.model,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 1000,
+                }
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract response
+            ai_message = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            
+            # End Langfuse Generation
+            if generation:
+                generation.end(
+                    output=ai_message,
+                    usage={
+                        "input": usage.get("prompt_tokens", 0),
+                        "output": usage.get("completion_tokens", 0),
+                        "total": usage.get("total_tokens", 0)
+                    }
+                )
+
+
+            # Parse JSON from response
+            extracted_data = self._extract_json_from_response(ai_message)
+            
+            # DEBUG: Log the AI response and extracted data
+            print(f"=== AI RAW RESPONSE ===")
+            print(ai_message[:500])
+            print(f"=== EXTRACTED DATA ===")
+            print(extracted_data)
+            
+            # PRIORITY 1: If JSON has "message" field, use it (this is the user-facing text)
+            if extracted_data and "message" in extracted_data:
+                clean_text = str(extracted_data["message"])
+            else:
+                # PRIORITY 2: Try to get clean text (without JSON block)
+                clean_text = self._remove_json_from_response(ai_message)
+                
+                # PRIORITY 3: If still nothing, use the raw AI message as fallback
+                if not clean_text or clean_text.isspace():
+                    clean_text = ai_message
+
+            return {
+                "text": clean_text,
+                "extracted_data": extracted_data,
+                "usage": {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                }
+            }
+            
+        except httpx.HTTPStatusError as e:
+            print(f"OpenRouter API error: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            print(f"Error calling OpenRouter API: {e}")
+            raise
+    
+    def _extract_json_from_response(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract JSON data from AI response with robust recovery logic.
+        Handles markdown blocks, markers, emoji, and common formatting errors.
+        """
+        try:
+            # 1. Try to find content between markers if they exist
+            json_str = None
+            
+            # Primary: ---JSON--- marker
+            marker_match = re.search(r'---JSON---(.*?)(?:$|---)', text, re.DOTALL)
+            if marker_match:
+                json_str = marker_match.group(1).strip()
+            
+            # Secondary: code blocks
+            if not json_str or "{" not in json_str:
+                block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+                if block_match:
+                    json_str = block_match.group(1).strip()
+            
+            # Tertiary: raw braces (most aggressive)
+            if not json_str or "{" not in json_str:
+                raw_match = re.search(r'(\{.*\})', text, re.DOTALL)
+                if raw_match:
+                    json_str = raw_match.group(1).strip()
+
+            if not json_str:
+                return None
+
+            # 2. Cleanup common LLM JSON errors
+            
+            # Remove markdown formatting if still present inside
+            json_str = re.sub(r'^```(?:json)?', '', json_str)
+            json_str = re.sub(r'```$', '', json_str)
+            
+            # Repair trailing commas: {"a": 1,} -> {"a": 1}
+            json_str = re.sub(r',\s*\}', '}', json_str)
+            json_str = re.sub(r',\s*\]', ']', json_str)
+            
+            # Extract only the outermost {} to avoid lead-in text
+            first_brace = json_str.find('{')
+            last_brace = json_str.rfind('}')
+            if first_brace != -1 and last_brace != -1:
+                json_str = json_str[first_brace:last_brace+1]
+
+            # Parse with strict=False to allow emoji and special characters
+            return json.loads(json_str, strict=False)
+            
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON from AI response. Error: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error extracting JSON: {e}")
+            return None
+    
+    def _remove_json_from_response(self, text: str) -> str:
+        """
+        Remove JSON block from response to get clean text.
+        Also handles cases where the entire response is a JSON object.
+        """
+        # 1. Remove ---JSON--- marker and everything after
+        clean = re.sub(r'---JSON---.*', '', text, flags=re.DOTALL)
+        
+        # 2. Remove code blocks
+        clean = re.sub(r'```(?:json)?.*?```', '', clean, flags=re.DOTALL)
+        
+        # 3. If the remaining text starts with { and ends with }, and is valid JSON,
+        # it might be a raw JSON response that should be fully removed (message field will be used instead)
+        clean = clean.strip()
+        if clean.startswith('{') and clean.endswith('}'):
+            try:
+                # If it's the ONLY thing in the message, remove it so we can fallback to extracted_data["message"]
+                json.loads(clean)
+                return ""
+            except:
+                pass
+
+        return clean.strip()
+    
+    def should_handoff(self, extracted_data: Optional[Dict[str, Any]]) -> bool:
+        """
+        Determine if lead should be handed off to human manager
+        
+        Criteria:
+        - is_hot_lead: true
+        - confidence >= 80
+        - Has phone number
+        """
+        if not extracted_data:
+            return False
+        
+        is_hot = extracted_data.get("is_hot_lead", False)
+        confidence = extracted_data.get("confidence", 0)
+        has_phone = bool(extracted_data.get("phone"))
+        
+        # Hot lead with high confidence
+        if is_hot and confidence >= 70:
+            return True
+        
+        # Very high confidence (all info collected)
+        if confidence >= 85 and has_phone:
+            return True
+        
+        return False
+    
+    async def generate_embeddings(self, text: str, model: Optional[str] = None) -> List[float]:
+        """
+        Generate vector embeddings for text using OpenRouter/OpenAI
+        """
+        try:
+            # Use provided model or fallback to settings
+            emb_model = model or getattr(settings, 'openrouter_embedding_model', 'text-embedding-3-small')
+            
+            response = await self.client.post(
+                f"{self.base_url}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": emb_model,
+                    "input": text,
+                }
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            return data["data"][0]["embedding"]
+            
+        except Exception as e:
+            print(f"Error generating embeddings: {e}")
+            raise
+
+    async def close(self):
+        """Close HTTP client"""
+        await self.client.aclose()
+
+
+# Singleton instance
+openrouter_service = OpenRouterService()
