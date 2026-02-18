@@ -11,12 +11,15 @@ from src.services.auth import auth_service
 
 async def fix_admin():
     async with AsyncSessionLocal() as db:
-        # Get first org
+        # Get first org or create one
         res = await db.execute(select(Organization).limit(1))
         org = res.scalar_one_or_none()
         if not org:
-            print("No org")
-            return
+            print("Creating default organization...")
+            org = Organization(name="Default Organization")
+            db.add(org)
+            await db.flush() # Get ID
+            print(f"✅ Created organization: {org.name} ({org.id})")
             
         # Check admin@test.com
         res = await db.execute(select(User).where(User.email == "admin@test.com"))
