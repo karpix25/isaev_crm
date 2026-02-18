@@ -57,7 +57,8 @@ class Settings(BaseSettings):
                 pwd_info += f", first='{pwd[0]}', last='{pwd[-1]}'"
             
             masked_url = str(url.set(password="***"))
-            print(f"📦 Database URL normalized: {masked_url} (Pwd info: {pwd_info})")
+            host_info = f"{url.host}:{url.port}"
+            print(f"📦 Database URL normalized: {masked_url} (Host: {host_info}, Pwd info: {pwd_info})")
             
             return final_url
         except Exception as e:
