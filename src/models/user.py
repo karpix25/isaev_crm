@@ -8,10 +8,10 @@ from src.models.base import BaseModel
 
 class UserRole(str, enum.Enum):
     """User roles in the system"""
-    ADMIN = "admin"
-    MANAGER = "manager"
-    WORKER = "worker"
-    CLIENT = "client"
+    ADMIN = "ADMIN"
+    MANAGER = "MANAGER"
+    WORKER = "WORKER"
+    CLIENT = "CLIENT"
 
 
 class User(BaseModel):
