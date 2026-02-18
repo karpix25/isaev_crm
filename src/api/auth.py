@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import sqlalchemy as sa
 
 from src.database import get_db
 from src.models import User
@@ -19,9 +20,9 @@ async def login(
     Admin/Manager login with email and password.
     Returns JWT access and refresh tokens.
     """
-    # Find user by email
+    # Find user by email (case-insensitive)
     result = await db.execute(
-        select(User).where(User.email == credentials.email)
+        select(User).where(sa.func.lower(User.email) == credentials.email.lower())
     )
     user = result.scalar_one_or_none()
     
