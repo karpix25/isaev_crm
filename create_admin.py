@@ -1,14 +1,13 @@
-"""
-Create test admin user for development
-"""
-import asyncio
+import os
 import sys
-sys.path.insert(0, '/Users/nadaraya/Desktop/Расул СРМ')
+
+# Add the project root to sys.path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from sqlalchemy import select
 from src.database import AsyncSessionLocal
 from src.models import User, UserRole, Organization
-from src.services.auth import AuthService
+from src.services.auth import auth_service
 
 
 async def create_admin_user():

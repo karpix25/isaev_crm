@@ -1,6 +1,8 @@
-import asyncio
+import os
 import sys
-sys.path.insert(0, '/Users/nadaraya/Desktop/Расул СРМ')
+
+# Add the project root to sys.path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from sqlalchemy import select
 from src.database import AsyncSessionLocal
@@ -37,6 +39,14 @@ async def fix_admin():
             )
             db.add(user)
             
+        # Diagnostic: list all users
+        print("\n--- Diagnostic: All Users ---")
+        result = await db.execute(select(User))
+        users = result.scalars().all()
+        for u in users:
+            print(f"User: {u.email}, Role: {u.role}, Has Password: {bool(u.password_hash)}")
+        print("-----------------------------\n")
+        
         await db.commit()
         print("✅ Done! Login: admin@test.com / admin123")
 
