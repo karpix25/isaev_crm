@@ -26,6 +26,7 @@ def upgrade() -> None:
     # For simplicity and robust recovery, we'll keep the raw SQL for "ADD COLUMN IF NOT EXISTS"
     # but use native Alembic for the rest.
     op.execute('ALTER TABLE leads ADD COLUMN IF NOT EXISTS converted_to_project_id UUID')
+    op.execute('ALTER TABLE projects ADD COLUMN IF NOT EXISTS foreman_id UUID')
 
     # 2. Clean up orphaned records for leads.converted_to_project_id
     op.execute("""
