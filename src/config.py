@@ -47,7 +47,7 @@ class Settings(BaseSettings):
             query.pop("sslmode", None)
             url = url.set(query=query)
             
-            final_url = str(url)
+            final_url = url.render_as_string(hide_password=False)
             
             # Diagnostic log (mask password but show crucial info)
             pwd = url.password or ""
