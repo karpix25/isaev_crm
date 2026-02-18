@@ -36,16 +36,18 @@ def upgrade() -> None:
     """)
 
     # 3. Add FK for leads.converted_to_project_id
-    # We use a specific name and catch errors if it already exists
-    try:
-        op.create_foreign_key(
-            'leads_converted_to_project_id_fkey',
-            'leads', 'projects',
-            ['converted_to_project_id'], ['id'],
-            ondelete='SET NULL'
-        )
-    except Exception:
-        pass
+    # We use a DO block to catch errors and prevent transaction poisoning
+    op.execute("""
+        DO $$ 
+        BEGIN 
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'leads_converted_to_project_id_fkey') THEN
+                ALTER TABLE leads 
+                ADD CONSTRAINT leads_converted_to_project_id_fkey 
+                FOREIGN KEY (converted_to_project_id) 
+                REFERENCES projects(id) ON DELETE SET NULL;
+            END IF;
+        END $$;
+    """)
 
     # 4. Create index safely
     # Standard Alembic create_index doesn't have IF NOT EXISTS
@@ -63,15 +65,17 @@ def upgrade() -> None:
     """)
 
     # 7. Create new FK on projects(foreman_id)
-    try:
-        op.create_foreign_key(
-            'projects_foreman_id_new_fkey',
-            'projects', 'users',
-            ['foreman_id'], ['id'],
-            ondelete='SET NULL'
-        )
-    except Exception:
-        pass
+    op.execute("""
+        DO $$ 
+        BEGIN 
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'projects_foreman_id_new_fkey') THEN
+                ALTER TABLE projects 
+                ADD CONSTRAINT projects_foreman_id_new_fkey 
+                FOREIGN KEY (foreman_id) 
+                REFERENCES users(id) ON DELETE SET NULL;
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
