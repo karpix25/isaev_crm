@@ -20,13 +20,23 @@ async def login(
     Admin/Manager login with email and password.
     Returns JWT access and refresh tokens.
     """
+    email = credentials.email.lower() if credentials.email else ""
+    
     # Find user by email (case-insensitive)
     result = await db.execute(
-        select(User).where(sa.func.lower(User.email) == credentials.email.lower())
+        select(User).where(sa.func.lower(User.email) == email)
     )
     user = result.scalar_one_or_none()
     
-    if not user or not user.password_hash:
+    if not user:
+        print(f"DEBUG: Login failed - User not found for email: {email}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+    
+    if not user.password_hash:
+        print(f"DEBUG: Login failed - User {email} has no password_hash")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
@@ -34,6 +44,7 @@ async def login(
     
     # Verify password
     if not auth_service.verify_password(credentials.password, user.password_hash):
+        print(f"DEBUG: Login failed - Incorrect password for user: {email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
