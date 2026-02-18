@@ -24,22 +24,60 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def fix_database_url(cls, v: str) -> str:
-        if v:
-            # Normalize scheme
-            if v.startswith("postgres://"):
-                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
-            elif v.startswith("postgresql://"):
-                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if not v:
+            return v
             
-            # Remove sslmode=disable or other sslmode params that asyncpg doesn't like
-            if "sslmode=" in v:
-                import re
-                v = re.sub(r"([?&])sslmode=[^&]*(&|$)", r"\1", v)
-                v = v.rstrip("?&")
-        return v
+        import logging
+        logger = logging.getLogger("config")
+        
+        try:
+            # First, handle the most common scheme issues manually before passing to make_url
+            if v.startswith("postgres://"):
+                v = v.replace("postgres://", "postgresql://", 1)
+            
+            from sqlalchemy.engine.url import make_url
+            url = make_url(v)
+            
+            # Ensure we use asyncpg
+            if url.drivername == "postgresql":
+                url = url.set(drivername="postgresql+asyncpg")
+                
+            # Strip problematic parameters for asyncpg
+            query = dict(url.query)
+            query.pop("sslmode", None)
+            url = url.set(query=query)
+            
+            final_url = str(url)
+            
+            # Diagnostic log (mask password)
+            masked_url = str(url.set(password="***"))
+            # We use print here because logging might not be initialized yet during early config load
+            print(f"📦 Database URL normalized: {masked_url}")
+            
+            return final_url
+        except Exception as e:
+            print(f"⚠️ Error normalizing database_url: {e}")
+            return v
     
     # Redis
     redis_url: str
+
+    @field_validator("redis_url")
+    @classmethod
+    def fix_redis_url(cls, v: str) -> str:
+        if v:
+            try:
+                # Simple mask for logging
+                if "@" in v:
+                    part1, part2 = v.split("@", 1)
+                    scheme_user = part1.split(":", 1)[0] + "://***"
+                    masked_url = f"{scheme_user}@{part2}"
+                else:
+                    masked_url = v
+                print(f"📦 Redis URL configured: {masked_url}")
+            except Exception:
+                pass
+        return v
     
     # S3 Storage (R2/AWS/Cloudinary compatible)
     s3_endpoint: str
