@@ -27,9 +27,8 @@ class Settings(BaseSettings):
         if not v:
             return v
         
-        v = v.strip()
-        import logging
-        logger = logging.getLogger("config")
+        # Aggressively strip any whitespace, newlines, or hidden control characters
+        v = "".join(v.split()).strip()
         
         try:
             # First, handle the most common scheme issues manually before passing to make_url
@@ -54,11 +53,11 @@ class Settings(BaseSettings):
             pwd = url.password or ""
             pwd_info = f"len={len(pwd)}"
             if pwd:
-                pwd_info += f", starts={pwd[0]}, ends={pwd[-1]}"
+                # Show first and last char and total length to catch invisible chars
+                pwd_info += f", first='{pwd[0]}', last='{pwd[-1]}'"
             
             masked_url = str(url.set(password="***"))
-            # We use print here because logging might not be initialized yet during early config load
-            print(f"📦 Database URL normalized: {masked_url} (Pwd: {pwd_info})")
+            print(f"📦 Database URL normalized: {masked_url} (Pwd info: {pwd_info})")
             
             return final_url
         except Exception as e:
@@ -72,6 +71,7 @@ class Settings(BaseSettings):
     @classmethod
     def fix_redis_url(cls, v: str) -> str:
         if v:
+            v = v.strip()
             try:
                 # Simple mask for logging
                 if "@" in v:
