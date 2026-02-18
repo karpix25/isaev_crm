@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import sqlalchemy as sa
+import logging
 
 from src.database import get_db
 from src.models import User
 from src.schemas.auth import LoginRequest, TokenResponse
 from src.services.auth import auth_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -29,14 +32,14 @@ async def login(
     user = result.scalar_one_or_none()
     
     if not user:
-        print(f"DEBUG: Login failed - User not found for email: {email}")
+        logger.warning("Login failed - User not found for email: %s", email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
     
     if not user.password_hash:
-        print(f"DEBUG: Login failed - User {email} has no password_hash")
+        logger.warning("Login failed - User %s has no password_hash", email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
@@ -44,7 +47,7 @@ async def login(
     
     # Verify password
     if not auth_service.verify_password(credentials.password, user.password_hash):
-        print(f"DEBUG: Login failed - Incorrect password for user: {email}")
+        logger.warning("Login failed - Incorrect password for user: %s", email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"

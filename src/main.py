@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -7,6 +8,8 @@ from src.config import settings
 from src.database import init_db, close_db
 from src.api import api_router
 from src.bot import bot, dp
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
@@ -46,12 +49,12 @@ async def startup():
     # Set Telegram Webhook
     if settings.telegram_bot_token and settings.telegram_webhook_url:
         try:
-            print(f"Setting webhook to: {settings.telegram_webhook_url}")
+            logger.info("Setting webhook to: %s", settings.telegram_webhook_url)
             await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=True)
-            print("✅ Telegram webhook set successfully")
+            logger.info("Telegram webhook set successfully")
         except Exception as e:
-            print(f"❌ Failed to set Telegram webhook: {e}")
-            print("⚠️  Application will continue without Telegram bot functionality. Please check TELEGRAM_BOT_TOKEN.")
+            logger.error("Failed to set Telegram webhook: %s", e)
+            logger.warning("Application will continue without Telegram bot functionality. Please check TELEGRAM_BOT_TOKEN.")
 
 @app.on_event("shutdown")
 async def shutdown():

@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str
     telegram_webhook_url: str = ""
+    manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
     
     # OpenRouter
     openrouter_api_key: str = ""
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
     
     # Application
     app_env: str = "development"
-    app_debug: bool = True
+    app_debug: bool = False
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     

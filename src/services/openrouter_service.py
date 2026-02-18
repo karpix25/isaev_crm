@@ -3,12 +3,15 @@ OpenRouter API Service for AI-powered lead qualification
 """
 import json
 import re
+import logging
 from typing import Optional, Dict, Any, List
 import httpx
 from datetime import datetime
 from langfuse import Langfuse
 
 from src.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class OpenRouterService:
@@ -117,11 +120,7 @@ class OpenRouterService:
             # Parse JSON from response
             extracted_data = self._extract_json_from_response(ai_message)
             
-            # DEBUG: Log the AI response and extracted data
-            print(f"=== AI RAW RESPONSE ===")
-            print(ai_message[:500])
-            print(f"=== EXTRACTED DATA ===")
-            print(extracted_data)
+            logger.debug("AI response received, extracted_data keys: %s", list(extracted_data.keys()) if extracted_data else None)
             
             # PRIORITY 1: If JSON has "message" field, use it (this is the user-facing text)
             if extracted_data and "message" in extracted_data:
@@ -145,10 +144,10 @@ class OpenRouterService:
             }
             
         except httpx.HTTPStatusError as e:
-            print(f"OpenRouter API error: {e.response.status_code} - {e.response.text}")
+            logger.error("OpenRouter API error: %s - %s", e.response.status_code, e.response.text)
             raise
         except Exception as e:
-            print(f"Error calling OpenRouter API: {e}")
+            logger.error("Error calling OpenRouter API: %s", e)
             raise
     
     def _extract_json_from_response(self, text: str) -> Optional[Dict[str, Any]]:
@@ -200,10 +199,10 @@ class OpenRouterService:
             return json.loads(json_str, strict=False)
             
         except json.JSONDecodeError as e:
-            print(f"Failed to parse JSON from AI response. Error: {e}")
+            logger.warning("Failed to parse JSON from AI response: %s", e)
             return None
         except Exception as e:
-            print(f"Unexpected error extracting JSON: {e}")
+            logger.warning("Unexpected error extracting JSON: %s", e)
             return None
     
     def _remove_json_from_response(self, text: str) -> str:
@@ -281,7 +280,7 @@ class OpenRouterService:
             return data["data"][0]["embedding"]
             
         except Exception as e:
-            print(f"Error generating embeddings: {e}")
+            logger.error("Error generating embeddings: %s", e)
             raise
 
     async def close(self):

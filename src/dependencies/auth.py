@@ -4,10 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 import uuid
+import logging
 
 from src.database import get_db
 from src.models import User, UserRole
 from src.services.auth import auth_service
+
+logger = logging.getLogger(__name__)
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
@@ -71,15 +74,13 @@ def require_role(*allowed_roles: UserRole):
             return users
     """
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        print(f"DEBUG: User {current_user.email} has role {current_user.role} (type: {type(current_user.role)})")
-        print(f"DEBUG: Allowed roles: {allowed_roles}")
+        logger.debug("Role check: user=%s role=%s allowed=%s", current_user.email, current_user.role, allowed_roles)
         if current_user.role not in allowed_roles:
-            print(f"DEBUG: Role check FAILED")
+            logger.warning("Role check FAILED for user %s (role=%s, required=%s)", current_user.email, current_user.role, allowed_roles)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Required roles: {', '.join(r.value for r in allowed_roles)}"
             )
-        print(f"DEBUG: Role check PASSED")
         return current_user
     
     return role_checker

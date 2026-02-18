@@ -2,10 +2,13 @@
 Helper function to get default organization ID
 """
 import uuid
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.models.organization import Organization
+
+logger = logging.getLogger(__name__)
 
 
 async def get_default_org_id(db: AsyncSession) -> uuid.UUID:
@@ -61,8 +64,8 @@ async def download_user_avatar(bot, telegram_id: int) -> str | None:
         
         return f"/media/{file_path}"
     except TelegramBadRequest as e:
-        print(f"⚠️ Cannot fetch avatar for {telegram_id}: {e}")
+        logger.warning("Cannot fetch avatar for %s: %s", telegram_id, e)
         return None
     except Exception as e:
-        print(f"⚠️ Error downloading avatar: {e}")
+        logger.warning("Error downloading avatar for %s: %s", telegram_id, e)
         return None

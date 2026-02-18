@@ -4,6 +4,7 @@ Integrates AI-powered lead qualification using OpenRouter API.
 """
 import asyncio
 import json
+import logging
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
@@ -17,9 +18,11 @@ from src.services.chat_service import chat_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
-from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, get_initial_message
+from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, get_initial_message, build_system_prompt
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
+
+logger = logging.getLogger(__name__)
 
 # Create router for lead handlers
 router = Router()
@@ -60,7 +63,15 @@ async def cmd_start(message: Message):
         
         # Get initial message from database or fallback
         config = await prompt_service.get_active_config(db, org_id)
-        welcome_text = config.welcome_message if config and config.welcome_message else get_initial_message()
+        
+        # Get company name from org settings
+        from src.models.organization import Organization
+        from sqlalchemy import select
+        org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+        org = org_result.scalar_one_or_none()
+        company_name = org.name if org else "наша компания"
+        
+        welcome_text = config.welcome_message if config and config.welcome_message else get_initial_message(company_name)
         
         # Save AI response to database
         sent_message = await message.answer(welcome_text)
@@ -152,7 +163,18 @@ async def process_debounced_message(user_id: int):
             
             # Get active prompt configuration
             config = await prompt_service.get_active_config(db, org_id)
-            base_prompt = config.system_prompt if config else SALES_AGENT_SYSTEM_PROMPT
+            
+            # Get company name for prompt injection
+            from src.models.organization import Organization
+            from sqlalchemy import select
+            org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+            org = org_result.scalar_one_or_none()
+            company_name = org.name if org else "наша компания"
+            
+            base_prompt = config.system_prompt if config else build_system_prompt(company_name)
+            # If using DB prompt, still inject company name if placeholder present
+            if "{company_name}" in base_prompt:
+                base_prompt = base_prompt.format(company_name=company_name)
             
             # Inject custom fields into prompt
             from src.services.custom_field_service import inject_custom_fields_into_prompt
@@ -253,8 +275,27 @@ async def process_debounced_message(user_id: int):
                             status=LeadStatus.QUALIFIED
                         )
                     
-                    # Notify manager (in future: send notification via admin panel)
-                    print(f"🔥 HOT LEAD: {lead.full_name} ({lead.telegram_id}) - Ready for handoff!")
+                    logger.info("🔥 HOT LEAD: %s (%s) - Ready for handoff!", lead.full_name, lead.telegram_id)
+                    
+                    # Notify manager via Telegram if MANAGER_TELEGRAM_ID is configured
+                    manager_id = getattr(settings, 'manager_telegram_id', None)
+                    if manager_id and bot:
+                        try:
+                            lead_info = (
+                                f"🔥 *Горячий лид!*\n"
+                                f"👤 Имя: {lead.full_name or 'Неизвестно'}\n"
+                                f"📱 Telegram: @{lead.username or lead.telegram_id}\n"
+                                f"📞 Телефон: {lead.phone or 'не указан'}\n"
+                                f"📊 Статус: {lead.status}\n"
+                                f"💬 Данные: {extracted_data.get('budget', 'нет')} | {extracted_data.get('area_sqm', 'нет')} м²"
+                            )
+                            await bot.send_message(
+                                chat_id=manager_id,
+                                text=lead_info,
+                                parse_mode="Markdown"
+                            )
+                        except Exception as notify_err:
+                            logger.warning("Failed to notify manager: %s", notify_err)
                     
                     # Send handoff message to user
                     await message.answer(
@@ -263,7 +304,15 @@ async def process_debounced_message(user_id: int):
                     )
         
         except Exception as e:
-            print(f"Error in AI handler: {e}")
+            logger.error("Error in AI handler for user %s: %s", user_id, e, exc_info=True)
+            # Send user-facing error message instead of silently failing
+            try:
+                await message.answer(
+                    "Извините, произошла техническая ошибка. "
+                    "Попробуйте написать снова или свяжитесь с нами напрямую."
+                )
+            except Exception:
+                pass  # If even sending error message fails, just log it
 
 
 @router.message(F.photo)

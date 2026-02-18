@@ -1,11 +1,15 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
-from datetime import datetime, timedelta
+from sqlalchemy import select, func, desc, cast, Date
+from datetime import datetime, timedelta, date
 import uuid
 from typing import List
 
 from src.models import Lead, ChatMessage, MessageDirection, LeadStatus
 from src.schemas.dashboard import DashboardMetrics, ActivityChartItem, ConversionChartItem, RecentAIAction
+
+# Days in Russian
+DAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
 
 class DashboardService:
     @staticmethod
@@ -18,9 +22,9 @@ class DashboardService:
         appointments_query = select(func.count(Lead.id)).where(
             Lead.org_id == org_id,
             Lead.status.in_([
-                LeadStatus.MEASUREMENT, 
-                LeadStatus.ESTIMATE, 
-                LeadStatus.CONTRACT, 
+                LeadStatus.MEASUREMENT,
+                LeadStatus.ESTIMATE,
+                LeadStatus.CONTRACT,
                 LeadStatus.WON
             ])
         )
@@ -46,53 +50,58 @@ class DashboardService:
         won_count = (await db.execute(won_query)).scalar() or 0
         conversion_rate = round((won_count / total_leads * 100), 1) if total_leads > 0 else 0.0
 
-        # 5. Activity Chart (Last 7 days)
+        # 5. Activity Chart (Last 7 days) — single GROUP BY query instead of N+1
+        seven_days_ago = datetime.now() - timedelta(days=6)
+        seven_days_ago = seven_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        activity_query = (
+            select(
+                cast(Lead.created_at, Date).label("day"),
+                func.count(Lead.id).label("count")
+            )
+            .where(
+                Lead.org_id == org_id,
+                Lead.created_at >= seven_days_ago
+            )
+            .group_by(cast(Lead.created_at, Date))
+        )
+        activity_rows = {row.day: row.count for row in (await db.execute(activity_query)).all()}
+
         activity_chart = []
         for i in range(6, -1, -1):
-            date = datetime.now() - timedelta(days=i)
-            start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            
-            count_query = select(func.count(Lead.id)).where(
-                Lead.org_id == org_id,
-                Lead.created_at >= start_of_day,
-                Lead.created_at <= end_of_day
-            )
-            count = (await db.execute(count_query)).scalar() or 0
-            
-            # Days in Russian: Пн, Вт, Ср, Чт, Пт, Сб, Вс
-            days_ru = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
-            day_label = days_ru[date.weekday()]
-            activity_chart.append(ActivityChartItem(day=day_label, count=count))
+            d = (datetime.now() - timedelta(days=i)).date()
+            count = activity_rows.get(d, 0)
+            activity_chart.append(ActivityChartItem(day=DAYS_RU[d.weekday()], count=count))
 
-        # 6. Conversion Chart (Qualified leads per day)
+        # 6. Conversion Chart (Qualified+ leads per day) — single GROUP BY query
+        qualified_statuses = [
+            LeadStatus.QUALIFIED,
+            LeadStatus.MEASUREMENT,
+            LeadStatus.ESTIMATE,
+            LeadStatus.CONTRACT,
+            LeadStatus.WON
+        ]
+        conversion_query = (
+            select(
+                cast(Lead.created_at, Date).label("day"),
+                func.count(Lead.id).label("count")
+            )
+            .where(
+                Lead.org_id == org_id,
+                Lead.status.in_(qualified_statuses),
+                Lead.created_at >= seven_days_ago
+            )
+            .group_by(cast(Lead.created_at, Date))
+        )
+        conversion_rows = {row.day: row.count for row in (await db.execute(conversion_query)).all()}
+
         conversion_chart = []
         for i in range(6, -1, -1):
-            date = datetime.now() - timedelta(days=i)
-            start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            
-            # Count leads that reached QUALIFIED status on this day
-            # Simplified: checking leads created on this day that are ALREADY qualified or won
-            qual_query = select(func.count(Lead.id)).where(
-                Lead.org_id == org_id,
-                Lead.status.in_([
-                    LeadStatus.QUALIFIED, 
-                    LeadStatus.MEASUREMENT, 
-                    LeadStatus.ESTIMATE, 
-                    LeadStatus.CONTRACT, 
-                    LeadStatus.WON
-                ]),
-                Lead.created_at >= start_of_day,
-                Lead.created_at <= end_of_day
-            )
-            count = (await db.execute(qual_query)).scalar() or 0
-            
-            day_label = days_ru[date.weekday()]
-            conversion_chart.append(ConversionChartItem(day=day_label, rate=float(count)))
+            d = (datetime.now() - timedelta(days=i)).date()
+            count = conversion_rows.get(d, 0)
+            conversion_chart.append(ConversionChartItem(day=DAYS_RU[d.weekday()], rate=float(count)))
 
-        # 7. Recent AI Actions
-        # Get last 5 messages sent by AI
+        # 7. Recent AI Actions — last 5 messages sent by AI
         recent_actions_query = (
             select(ChatMessage, Lead)
             .join(Lead, ChatMessage.lead_id == Lead.id)
@@ -104,7 +113,7 @@ class DashboardService:
             .limit(5)
         )
         results = (await db.execute(recent_actions_query)).all()
-        
+
         recent_ai_actions = []
         for msg, lead in results:
             recent_ai_actions.append(RecentAIAction(
@@ -124,5 +133,6 @@ class DashboardService:
             conversion_chart=conversion_chart,
             recent_ai_actions=recent_ai_actions
         )
+
 
 dashboard_service = DashboardService()
