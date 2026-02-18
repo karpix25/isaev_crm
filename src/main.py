@@ -45,8 +45,13 @@ async def startup():
     
     # Set Telegram Webhook
     if settings.telegram_bot_token and settings.telegram_webhook_url:
-        print(f"Setting webhook to: {settings.telegram_webhook_url}")
-        await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=True)
+        try:
+            print(f"Setting webhook to: {settings.telegram_webhook_url}")
+            await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=True)
+            print("✅ Telegram webhook set successfully")
+        except Exception as e:
+            print(f"❌ Failed to set Telegram webhook: {e}")
+            print("⚠️  Application will continue without Telegram bot functionality. Please check TELEGRAM_BOT_TOKEN.")
 
 @app.on_event("shutdown")
 async def shutdown():
