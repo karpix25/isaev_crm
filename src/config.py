@@ -25,10 +25,17 @@ class Settings(BaseSettings):
     @classmethod
     def fix_database_url(cls, v: str) -> str:
         if v:
+            # Normalize scheme
             if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql+asyncpg://", 1)
+                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
             elif v.startswith("postgresql://"):
-                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            
+            # Remove sslmode=disable or other sslmode params that asyncpg doesn't like
+            if "sslmode=" in v:
+                import re
+                v = re.sub(r"([?&])sslmode=[^&]*(&|$)", r"\1", v)
+                v = v.rstrip("?&")
         return v
     
     # Redis
