@@ -16,6 +16,7 @@ from src.models.change_request import ChangeRequest, ChangeRequestStatus
 from src.models.knowledge import KnowledgeItem
 from src.models.prompt_config import PromptConfig
 from src.models.custom_field import CustomField, FieldType
+from src.models.telegram_user_bot import TelegramUserBot
 
 __all__ = [
     "BaseModel",
@@ -38,4 +39,5 @@ __all__ = [
     "PromptConfig",
     "CustomField",
     "FieldType",
+    "TelegramUserBot",
 ]

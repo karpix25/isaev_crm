@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
 import { useAI } from '@/hooks/useAI'
+import UserBotSettings from '@/components/UserBotSettings'
 import CustomFieldsManager from '@/components/CustomFieldsManager'
 import {
     Database,
@@ -14,12 +15,13 @@ import {
     Zap,
     Loader2,
     Trash2,
-    Settings
+    Settings,
+    MessageSquare
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function AISettings() {
-    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history'>('config')
+    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history' | 'userbot'>('config')
     const {
         activePrompt,
         prompts,
@@ -57,6 +59,12 @@ export function AISettings() {
                     onClick={() => setActiveTab('fields')}
                     icon={Settings}
                     label="Кастомные поля"
+                />
+                <TabButton
+                    active={activeTab === 'userbot'}
+                    onClick={() => setActiveTab('userbot')}
+                    icon={MessageSquare}
+                    label="User Bot"
                 />
                 <TabButton
                     active={activeTab === 'knowledge'}
@@ -119,6 +127,11 @@ export function AISettings() {
                             }}
                             onSearch={(q) => searchKnowledge.mutate({ query: q })}
                         />
+                    )}
+                    {activeTab === 'userbot' && (
+                        <div className="bg-card border rounded-3xl p-8 shadow-xl">
+                            <UserBotSettings />
+                        </div>
                     )}
                     {activeTab === 'history' && (
                         <PromptHistoryList prompts={prompts.data || []} />
