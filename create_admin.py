@@ -44,10 +44,9 @@ async def create_admin_user():
         user = User(
             org_id=org.id,
             email="admin@example.com",
-            hashed_password=hashed_password,
+            password_hash=hashed_password,
             full_name="Admin User",
-            role=UserRole.ADMIN,
-            is_active=True
+            role=UserRole.ADMIN
         )
         
         db.add(user)
