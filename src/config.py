@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     def fix_database_url(cls, v: str) -> str:
         if not v:
             return v
-            
+        
+        v = v.strip()
         import logging
         logger = logging.getLogger("config")
         
@@ -49,10 +50,15 @@ class Settings(BaseSettings):
             
             final_url = str(url)
             
-            # Diagnostic log (mask password)
+            # Diagnostic log (mask password but show crucial info)
+            pwd = url.password or ""
+            pwd_info = f"len={len(pwd)}"
+            if pwd:
+                pwd_info += f", starts={pwd[0]}, ends={pwd[-1]}"
+            
             masked_url = str(url.set(password="***"))
             # We use print here because logging might not be initialized yet during early config load
-            print(f"📦 Database URL normalized: {masked_url}")
+            print(f"📦 Database URL normalized: {masked_url} (Pwd: {pwd_info})")
             
             return final_url
         except Exception as e:
