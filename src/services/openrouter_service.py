@@ -277,10 +277,24 @@ class OpenRouterService:
             
             response.raise_for_status()
             data = response.json()
+            
+            if "data" not in data:
+                logger.error(f"OpenRouter Embeddings Error: Unexpected response format (missing 'data' key). Full response: {data}")
+                # If there's an error message in the response, log it specifically
+                if "error" in data:
+                    logger.error(f"OpenRouter API Error Message: {data['error']}")
+                raise ValueError(f"OpenRouter API returned unexpected format: {data}")
+                
             return data["data"][0]["embedding"]
             
         except Exception as e:
             logger.error("Error generating embeddings: %s", e)
+            # Log response text if available in exception (for HTTP errors)
+            if hasattr(e, 'response'):
+                try:
+                    logger.error(f"Error Response Body: {e.response.text}")
+                except:
+                    pass
             raise
 
     async def close(self):
