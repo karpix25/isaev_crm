@@ -135,5 +135,26 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
 
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        self._validate_config()
+    
+    def _validate_config(self):
+        """Validate critical configuration"""
+        missing = []
+        if not self.openrouter_api_key:
+            missing.append("OPENROUTER_API_KEY")
+        if not self.s3_access_key or not self.s3_secret_key:
+            missing.append("S3_ACCESS_KEY/S3_SECRET_KEY")
+        if not self.telegram_bot_token:
+            missing.append("TELEGRAM_BOT_TOKEN")
+            
+        if missing:
+            print(f"⚠️  WARNING: Missing critical environment variables: {', '.join(missing)}")
+            print("   Please add them to your .env file or deployment configuration (Easypanel).")
+        else:
+            print("✅ Configuration loaded successfully.")
+
 # Global settings instance
 settings = Settings()
