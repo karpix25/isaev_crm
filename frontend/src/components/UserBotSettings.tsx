@@ -24,6 +24,8 @@ export default function UserBotSettings() {
     const [password, setPassword] = useState('')
     const [submitting, setSubmitting] = useState(false)
 
+    const [codeType, setCodeType] = useState<string>('')
+
     useEffect(() => {
         fetchStatus()
     }, [])
@@ -63,7 +65,19 @@ export default function UserBotSettings() {
             })
 
             if (response.ok) {
-                toast.success('Код отправлен в Telegram')
+                const data = await response.json()
+                const ct = data.code_type || 'app'
+                setCodeType(ct)
+
+                const typeMessages: Record<string, string> = {
+                    'app': 'Код отправлен в приложение Telegram (раздел «Избранное» или сообщение от Telegram)',
+                    'sms': 'Код отправлен по SMS на указанный номер',
+                    'call': 'Вам поступит звонок с кодом',
+                    'flash_call': 'Вам поступит звонок — код в последних цифрах номера',
+                    'missed_call': 'Вам поступит пропущенный вызов — код в последних цифрах номера',
+                    'fragment_sms': 'Код отправлен через Fragment SMS',
+                }
+                toast.success(typeMessages[ct] || `Код отправлен (тип: ${ct})`)
                 setAuthStep('code')
             } else {
                 const err = await response.json()
@@ -343,6 +357,13 @@ export default function UserBotSettings() {
                                     required
                                     autoFocus
                                 />
+                                <p className="text-xs text-muted-foreground mt-2 bg-blue-50 p-2 rounded border border-blue-100">
+                                    💡 {codeType === 'sms'
+                                        ? 'Код отправлен по SMS на указанный номер'
+                                        : codeType === 'call'
+                                            ? 'Вам поступит звонок с кодом'
+                                            : 'Откройте Telegram на телефоне — код придёт как сообщение от «Telegram» (не SMS!)'}
+                                </p>
                             </div>
 
                             <button

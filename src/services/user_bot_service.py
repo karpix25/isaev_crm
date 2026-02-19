@@ -13,6 +13,9 @@ from src.services.chat_service import chat_service
 from src.models import Lead, MessageDirection
 from src.config import settings
 
+import logging
+logger = logging.getLogger(__name__)
+
 class UserBotService:
     """
     Service for managing Telegram User Bot (Telethon) clients.
@@ -34,10 +37,17 @@ class UserBotService:
 
     async def start_auth(self, db: AsyncSession, org_id: uuid.UUID, phone: str, api_id: int, api_hash: str):
         """Step 1: Start auth and send code"""
+        logger.info(f"Starting auth for org {org_id}, phone: {phone[:4]}***")
+        
         client = TelegramClient(sessions.StringSession(), api_id, api_hash)
         await client.connect()
+        logger.info(f"Telethon client connected, sending code request...")
         
         send_code_token = await client.send_code_request(phone)
+        
+        # Determine code delivery type
+        code_type = type(send_code_token.type).__name__
+        logger.info(f"Code sent successfully! Type: {code_type}, phone_code_hash: {send_code_token.phone_code_hash[:8]}...")
         
         self.auth_states[org_id] = {
             "client": client,
@@ -47,7 +57,18 @@ class UserBotService:
             "phone_code_hash": send_code_token.phone_code_hash
         }
         
-        return {"status": "code_sent"}
+        # Map Telethon type names to user-friendly descriptions
+        type_map = {
+            "SentCodeTypeSms": "sms",
+            "SentCodeTypeApp": "app",
+            "SentCodeTypeCall": "call",
+            "SentCodeTypeFlashCall": "flash_call",
+            "SentCodeTypeMissedCall": "missed_call",
+            "SentCodeTypeFragmentSms": "fragment_sms",
+        }
+        delivery = type_map.get(code_type, code_type)
+        
+        return {"status": "code_sent", "code_type": delivery}
 
     async def verify_code(self, db: AsyncSession, org_id: uuid.UUID, code: str):
         """Step 2: Verify code and save session"""
