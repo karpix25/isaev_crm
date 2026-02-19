@@ -34,7 +34,12 @@ async def start_active_bots():
                 client = TelegramClient(
                     sessions.StringSession(bot.session_string),
                     bot.api_id,
-                    bot.api_hash
+                    bot.api_hash,
+                    device_model="iPhone 15 Pro",
+                    system_version="17.4.1",
+                    app_version="10.11",
+                    lang_code="ru",
+                    system_lang_code="ru"
                 )
                 
                 await client.connect()
@@ -96,8 +101,14 @@ async def main():
                         client = TelegramClient(
                             sessions.StringSession(bot.session_string),
                             bot.api_id,
-                            bot.api_hash
+                            bot.api_hash,
+                            device_model="iPhone 15 Pro",
+                            system_version="17.4.1",
+                            app_version="10.11",
+                            lang_code="ru",
+                            system_lang_code="ru"
                         )
+
                         
                         await client.connect()
                         if not await client.is_user_authorized():

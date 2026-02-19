@@ -46,7 +46,16 @@ class UserBotService:
             existing = self.auth_states[org_id]
             client = existing["client"]
         else:
-            client = TelegramClient(sessions.StringSession(), api_id, api_hash)
+            client = TelegramClient(
+                sessions.StringSession(), 
+                api_id, 
+                api_hash,
+                device_model="iPhone 15 Pro",
+                system_version="17.4.1",
+                app_version="10.11",
+                lang_code="ru",
+                system_lang_code="ru"
+            )
             await client.connect()
         
         print(f"[USERBOT] Telethon client connected: {client.is_connected()}")
