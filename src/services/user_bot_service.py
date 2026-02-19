@@ -37,17 +37,17 @@ class UserBotService:
 
     async def start_auth(self, db: AsyncSession, org_id: uuid.UUID, phone: str, api_id: int, api_hash: str):
         """Step 1: Start auth and send code"""
-        logger.info(f"Starting auth for org {org_id}, phone: {phone[:4]}***")
+        print(f"[USERBOT] Starting auth for org {org_id}, phone: {phone[:4]}***")
         
         client = TelegramClient(sessions.StringSession(), api_id, api_hash)
         await client.connect()
-        logger.info(f"Telethon client connected, sending code request...")
+        print(f"[USERBOT] Telethon client connected, sending code request...")
         
         send_code_token = await client.send_code_request(phone)
         
         # Determine code delivery type
         code_type = type(send_code_token.type).__name__
-        logger.info(f"Code sent successfully! Type: {code_type}, phone_code_hash: {send_code_token.phone_code_hash[:8]}...")
+        print(f"[USERBOT] ✅ Code sent! Type: {code_type}, phone_code_hash: {send_code_token.phone_code_hash[:8]}...")
         
         self.auth_states[org_id] = {
             "client": client,
