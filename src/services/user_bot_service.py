@@ -133,11 +133,62 @@ class UserBotService:
         from src.database import async_session_factory
         async with async_session_factory() as db:
             # 1. Find or create lead
-            # Implementation depends on lead_service
-            # We'll assume lead_service can find lead by telegram_id
             from src.services.lead_service import lead_service
-            lead = await lead_service.get_or_create_by_telegram(db, org_id, tg_user_id, sender)
             
+            # Extract sender info safely
+            full_name = getattr(sender, 'first_name', '') + " " + getattr(sender, 'last_name', '')
+            full_name = full_name.strip() or "Unknown"
+            username = getattr(sender, 'username', None)
+            
+            lead = await lead_service.create_or_get_lead(
+                db=db, 
+                org_id=org_id, 
+                telegram_id=tg_user_id,
+                full_name=full_name,
+                username=username,
+                source="userbot"
+            )
+
+            # 2. Save incoming message (Fix indentation)
+            await chat_service.save_incoming_message(
+                db, 
+                lead_id=lead.id, 
+                content=content,
+                telegram_message_id=None # Telethon message id
+            )
+            
+            # 3. Check if agent is active for this bot
+            bot_record = await self._get_or_create_bot_record(db, org_id)
+            if not bot_record.is_active:
+                return
+
+            # 4. Generate AI response
+            # Get history
+            history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=10)
+            formatted_history = [
+                {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
+                for m in reversed(history_msgs)
+            ]
+            
+            # Get prompt
+            from src.services.prompt_service import prompt_service
+            system_prompt = await prompt_service.get_active_prompt(db, org_id, "default_agent")
+            
+            ai_response = await openrouter_service.generate_response(formatted_history, system_prompt)
+            reply_text = ai_response["text"]
+            
+            # 5. Send reply via User Bot
+            await self.send_message(db, org_id, tg_user_id, reply_text)
+                
+            # 6. Save outbound message
+            await chat_service.send_outbound_message(
+                db,
+                lead_id=lead.id,
+                content=reply_text,
+                sender_name="AI Agent",
+                ai_metadata=ai_response.get("usage")
+            )
+
             # 2. Save incoming message
             await chat_service.save_incoming_message(
                 db, 
@@ -166,19 +217,40 @@ class UserBotService:
             ai_response = await openrouter_service.generate_response(formatted_history, system_prompt)
             reply_text = ai_response["text"]
             
-            # 5. Send reply via Telegram
-            client = self.clients.get(org_id)
-            if client:
-                await client.send_message(tg_user_id, reply_text)
+            # 5. Send reply via User Bot
+            await self.send_message(db, org_id, tg_user_id, reply_text)
                 
-                # 6. Save outbound message
-                await chat_service.send_outbound_message(
-                    db,
-                    lead_id=lead.id,
-                    content=reply_text,
-                    sender_name="AI Agent",
-                    ai_metadata=ai_response.get("usage")
-                )
+            # 6. Save outbound message
+            await chat_service.send_outbound_message(
+                db,
+                lead_id=lead.id,
+                content=reply_text,
+                sender_name="AI Agent",
+                ai_metadata=ai_response.get("usage")
+            )
+
+    async def send_message(self, db: AsyncSession, org_id: uuid.UUID, telegram_id: int, text: str):
+        """Send message via User Bot"""
+        client = self.clients.get(org_id)
+        if not client:
+            # Try to restore session if not in memory
+            bot_record = await self._get_or_create_bot_record(db, org_id)
+            if bot_record.is_authorized and bot_record.session_string:
+                try:
+                    client = TelegramClient(sessions.StringSession(bot_record.session_string), bot_record.api_id, bot_record.api_hash)
+                    await client.connect()
+                    if await client.is_user_authorized():
+                        self.clients[org_id] = client
+                        self._setup_handlers(org_id, client, db)
+                    else:
+                        raise Exception("Session invalid")
+                except Exception as e:
+                    raise Exception(f"Failed to restore User Bot session: {e}")
+            else:
+                raise Exception("User Bot not connected or not authorized for this organization")
+
+        await client.send_message(telegram_id, text)
+
 
     async def _get_or_create_bot_record(self, db: AsyncSession, org_id: uuid.UUID) -> TelegramUserBot:
         result = await db.execute(select(TelegramUserBot).where(TelegramUserBot.org_id == org_id))

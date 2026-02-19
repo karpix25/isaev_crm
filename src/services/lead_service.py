@@ -17,7 +17,8 @@ class LeadService:
         telegram_id: int,
         full_name: Optional[str] = None,
         username: Optional[str] = None,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        source: str = "telegram"
     ) -> Lead:
         """
         Find existing lead by telegram_id or create new one.
@@ -42,6 +43,10 @@ class LeadService:
                 lead.avatar_url = avatar_url
                 updated = True
             
+            # If lead exists but source is different (e.g. was website, now telegram), 
+            # we generally keep original source or update logic? 
+            # For now, let's keep original source to know where they FIRST came from.
+            
             if updated:
                 await db.commit()
                 await db.refresh(lead)
@@ -54,7 +59,7 @@ class LeadService:
             full_name=full_name,
             username=username,
             status=LeadStatus.NEW,
-            source="telegram",
+            source=source,
             avatar_url=avatar_url
         )
         

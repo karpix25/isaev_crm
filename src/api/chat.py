@@ -80,23 +80,37 @@ async def send_message_to_lead(
         )
     
     # Send message via Telegram
-    if not bot:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Telegram bot is not configured. Please add TELEGRAM_BOT_TOKEN to .env"
-        )
-    
-    try:
-        telegram_message = await bot.send_message(
-            chat_id=lead.telegram_id,
-            text=message_data.content
-        )
-        telegram_message_id = telegram_message.message_id
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to send Telegram message: {str(e)}"
-        )
+    if lead.source == "userbot":
+        # Send via User Bot
+        try:
+            from src.services.user_bot_service import user_bot_service
+            await user_bot_service.send_message(db, lead.org_id, lead.telegram_id, message_data.content)
+            telegram_message_id = None # User bot doesn't return msg id easily yet
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to send User Bot message: {str(e)}"
+            )
+    else:
+        # Send via Official Bot
+        if not bot:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Telegram bot is not configured. Please add TELEGRAM_BOT_TOKEN to .env"
+            )
+        
+        try:
+            telegram_message = await bot.send_message(
+                chat_id=lead.telegram_id,
+                text=message_data.content
+            )
+            telegram_message_id = telegram_message.message_id
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to send Telegram message: {str(e)}"
+            )
+
     
     # Save message to database
     message = await chat_service.send_outbound_message(
