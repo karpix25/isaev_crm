@@ -59,28 +59,77 @@ async def start_active_bots():
 async def main():
     logger.info("Starting Telegram User Bot worker...")
     
-    await start_active_bots()
-    
-    # Keep the script running
-    stop_event = asyncio.Event()
-    
     # Handle termination signals
+    stop_event = asyncio.Event()
     def stop():
         logger.info("Shutdown signal received")
         stop_event.set()
         
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop = asyncio.get_running_loop()
-        loop.add_signal_handler(sig, stop)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(sig, stop)
+        except NotImplementedError:
+            # Signal handlers not supported on some platforms (like Windows)
+            pass
 
-    logger.info("Worker is running. Press Ctrl+C to stop.")
-    await stop_event.wait()
+    while not stop_event.is_set():
+        try:
+            # Get current running orgs
+            running_orgs = list(user_bot_service.clients.keys())
+            
+            async with async_session_factory() as db:
+                result = await db.execute(
+                    select(TelegramUserBot).where(
+                        TelegramUserBot.is_authorized == True,
+                        TelegramUserBot.is_active == True
+                    )
+                )
+                active_bots = result.scalars().all()
+                
+                for bot in active_bots:
+                    if bot.org_id in running_orgs:
+                        continue
+                        
+                    try:
+                        logger.info(f"Starting NEW bot for org {bot.org_id}")
+                        client = TelegramClient(
+                            sessions.StringSession(bot.session_string),
+                            bot.api_id,
+                            bot.api_hash
+                        )
+                        
+                        await client.connect()
+                        if not await client.is_user_authorized():
+                            logger.warning(f"Bot for org {bot.org_id} is not authorized. Skipping.")
+                            continue
+                        
+                        user_bot_service._setup_handlers(bot.org_id, client)
+                        user_bot_service.clients[bot.org_id] = client
+                        logger.info(f"Successfully started bot for org {bot.org_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to start bot for org {bot.org_id}: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Error in worker loop: {e}")
+            
+        # Wait for 60 seconds or until stop_event is set
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=60)
+        except asyncio.TimeoutError:
+            continue
     
     # Disconnect all clients on exit
     logger.info("Disconnecting all clients...")
     for org_id in list(user_bot_service.clients.keys()):
-        await user_bot_service.stop_client(org_id)
-        
+        try:
+            client = user_bot_service.clients.get(org_id)
+            if client:
+                await client.disconnect()
+        except Exception as e:
+            logger.error(f"Error disconnecting client {org_id}: {e}")
+            
     logger.info("Worker stopped.")
 
 if __name__ == "__main__":

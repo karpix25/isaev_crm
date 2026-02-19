@@ -123,11 +123,11 @@ class UserBotService:
         
         await db.commit()
         
-        # Start message handler
-        self._setup_handlers(org_id, client)
-        self.clients[org_id] = client
+        # Disconnect temporary client so worker can take over
+        await client.disconnect()
         
         del self.auth_states[org_id]
+        print(f"[USERBOT] Auth success for org {org_id}. Client disconnected, handed over to worker.")
         return {"status": "success"}
 
     async def submit_password(self, db: AsyncSession, org_id: uuid.UUID, password: str):
@@ -151,10 +151,11 @@ class UserBotService:
         bot_record.status = "connected"
         await db.commit()
         
-        self._setup_handlers(org_id, client)
-        self.clients[org_id] = client
-        del self.auth_states[org_id]
+        # Disconnect temporary client so worker can take over
+        await client.disconnect()
         
+        del self.auth_states[org_id]
+        print(f"[USERBOT] 2FA success for org {org_id}. Client disconnected, handed over to worker.")
         return {"status": "success"}
 
     def _setup_handlers(self, org_id: uuid.UUID, client: TelegramClient):

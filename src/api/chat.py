@@ -4,10 +4,9 @@ from typing import Optional
 import uuid
 
 from src.database import get_db
-from src.models import User, UserRole, Lead
-from src.schemas.chat import ChatHistoryResponse, ChatMessageResponse, SendMessageRequest
+from src.models import Lead, MessageDirection, User, UserRole
+from src.schemas.chat import ChatMessageResponse, ChatMessageCreate, SendMessageRequest
 from src.services.chat_service import chat_service
-from src.services.lead_service import lead_service
 from src.dependencies.auth import get_current_user, require_role
 from src.bot import bot
 

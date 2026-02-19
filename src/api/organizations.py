@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from src.database import get_db
 from src.models import Organization, User, UserRole
-from src.schemas.organization import OrganizationCreate, OrganizationResponse
+from src.schemas.organization import OrganizationCreate, OrganizationResponse, OrganizationUpdate
 from src.dependencies.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
