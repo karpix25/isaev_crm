@@ -81,7 +81,7 @@ class UserBotService:
         await db.commit()
         
         # Start message handler
-        self._setup_handlers(org_id, client, db)
+        self._setup_handlers(org_id, client)
         self.clients[org_id] = client
         
         del self.auth_states[org_id]
@@ -96,22 +96,25 @@ class UserBotService:
         client = state["client"]
         await client.sign_in(password=password)
         
-        # Success! Save session (duplicate from verify_code for simplicity)
+        # Success! Save session
         session_str = client.session.save()
         bot_record = await self._get_or_create_bot_record(db, org_id)
+        bot_record.phone = state["phone"]
+        bot_record.api_id = state["api_id"]
+        bot_record.api_hash = state["api_hash"]
         bot_record.session_string = session_str
         bot_record.is_authorized = True
         bot_record.is_active = True
         bot_record.status = "connected"
         await db.commit()
         
-        self._setup_handlers(org_id, client, db)
+        self._setup_handlers(org_id, client)
         self.clients[org_id] = client
         del self.auth_states[org_id]
         
         return {"status": "success"}
 
-    def _setup_handlers(self, org_id: uuid.UUID, client: TelegramClient, db_gen):
+    def _setup_handlers(self, org_id: uuid.UUID, client: TelegramClient):
         """Attach message handlers to the client"""
         
         @client.on(events.NewMessage(incoming=True))
@@ -274,7 +277,7 @@ class UserBotService:
                     await client.connect()
                     if await client.is_user_authorized():
                         self.clients[org_id] = client
-                        self._setup_handlers(org_id, client, db)
+                        self._setup_handlers(org_id, client)
                     else:
                         raise Exception("Session invalid")
                 except Exception as e:

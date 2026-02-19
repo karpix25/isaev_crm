@@ -44,7 +44,7 @@ async def start_active_bots():
                     continue
                 
                 # Setup handlers and store in service
-                user_bot_service._setup_handlers(bot.org_id, client, db)
+                user_bot_service._setup_handlers(bot.org_id, client)
                 user_bot_service.clients[bot.org_id] = client
                 
                 logger.info(f"Successfully started bot for org {bot.org_id}")
