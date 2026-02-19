@@ -57,6 +57,29 @@ async def start_auth(
             detail=str(e)
         )
 
+@router.post("/auth/resend-sms")
+async def resend_code_via_sms(
+    data: UserBotAuthStart,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Resend code forcing SMS delivery"""
+    try:
+        result = await user_bot_service.start_auth(
+            db, 
+            org_id=current_user.org_id, 
+            phone=data.phone, 
+            api_id=data.api_id, 
+            api_hash=data.api_hash,
+            force_sms=True
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
 @router.post("/auth/verify")
 async def verify_code(
     data: UserBotAuthVerify,

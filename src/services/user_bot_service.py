@@ -35,15 +35,37 @@ class UserBotService:
         # In a real app, you might want to store the session string in the DB
         return None # To be implemented in start_client
 
-    async def start_auth(self, db: AsyncSession, org_id: uuid.UUID, phone: str, api_id: int, api_hash: str):
+    async def start_auth(self, db: AsyncSession, org_id: uuid.UUID, phone: str, api_id: int, api_hash: str, force_sms: bool = False):
         """Step 1: Start auth and send code"""
-        print(f"[USERBOT] Starting auth for org {org_id}, phone: {phone[:4]}***")
+        from telethon.errors import FloodWaitError, ApiIdInvalidError, PhoneNumberInvalidError
         
-        client = TelegramClient(sessions.StringSession(), api_id, api_hash)
-        await client.connect()
-        print(f"[USERBOT] Telethon client connected, sending code request...")
+        print(f"[USERBOT] Starting auth for org {org_id}, phone: {phone[:4]}***, force_sms={force_sms}")
         
-        send_code_token = await client.send_code_request(phone)
+        # Reuse existing client if we have one in auth_states (for resend)
+        if org_id in self.auth_states and not force_sms:
+            existing = self.auth_states[org_id]
+            client = existing["client"]
+        else:
+            client = TelegramClient(sessions.StringSession(), api_id, api_hash)
+            await client.connect()
+        
+        print(f"[USERBOT] Telethon client connected: {client.is_connected()}")
+        
+        try:
+            send_code_token = await client.send_code_request(phone, force_sms=force_sms)
+        except FloodWaitError as e:
+            wait_seconds = e.seconds
+            print(f"[USERBOT] ❌ FloodWait! Need to wait {wait_seconds} seconds")
+            raise Exception(f"Telegram требует подождать {wait_seconds} секунд перед повторной отправкой кода")
+        except ApiIdInvalidError:
+            print(f"[USERBOT] ❌ Invalid API ID/Hash!")
+            raise Exception("Неверный API ID или API Hash. Проверьте данные на my.telegram.org")
+        except PhoneNumberInvalidError:
+            print(f"[USERBOT] ❌ Invalid phone number!")
+            raise Exception("Неверный формат номера телефона. Используйте формат +79991234567")
+        except Exception as e:
+            print(f"[USERBOT] ❌ Error: {type(e).__name__}: {e}")
+            raise
         
         # Determine code delivery type
         code_type = type(send_code_token.type).__name__

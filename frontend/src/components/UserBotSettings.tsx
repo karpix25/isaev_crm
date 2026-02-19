@@ -376,6 +376,36 @@ export default function UserBotSettings() {
 
                             <button
                                 type="button"
+                                onClick={async () => {
+                                    try {
+                                        const token = localStorage.getItem('access_token')
+                                        const res = await fetch('/api/userbot/auth/resend-sms', {
+                                            method: 'POST',
+                                            headers: {
+                                                'Authorization': `Bearer ${token}`,
+                                                'Content-Type': 'application/json'
+                                            },
+                                            body: JSON.stringify({ phone, api_id: parseInt(apiId), api_hash: apiHash })
+                                        })
+                                        if (res.ok) {
+                                            const data = await res.json()
+                                            setCodeType(data.code_type || 'sms')
+                                            toast.success('Код отправлен по SMS!')
+                                        } else {
+                                            const err = await res.json()
+                                            toast.error(err.detail || 'Не удалось отправить SMS')
+                                        }
+                                    } catch {
+                                        toast.error('Ошибка сети')
+                                    }
+                                }}
+                                className="w-full text-primary text-sm hover:underline font-medium"
+                            >
+                                📱 Не пришёл код? Отправить по SMS
+                            </button>
+
+                            <button
+                                type="button"
                                 onClick={() => setAuthStep('phone')}
                                 className="w-full text-muted-foreground text-sm hover:underline"
                             >
