@@ -169,7 +169,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
     const [formData, setFormData] = useState({
         name: activePrompt?.name || '',
         llm_model: activePrompt?.llm_model || 'anthropic/claude-3.5-sonnet',
-        embedding_model: activePrompt?.embedding_model || 'text-embedding-3-small',
+        embedding_model: activePrompt?.embedding_model || 'openai/text-embedding-3-small',
         system_prompt: activePrompt?.system_prompt || '',
         welcome_message: activePrompt?.welcome_message || '',
         handoff_criteria: activePrompt?.handoff_criteria || '',
@@ -181,7 +181,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
             setFormData({
                 name: activePrompt.name,
                 llm_model: activePrompt.llm_model || 'anthropic/claude-3.5-sonnet',
-                embedding_model: activePrompt.embedding_model || 'text-embedding-3-small',
+                embedding_model: activePrompt.embedding_model || 'openai/text-embedding-3-small',
                 system_prompt: activePrompt.system_prompt,
                 welcome_message: activePrompt.welcome_message || '',
                 handoff_criteria: activePrompt.handoff_criteria || '',
@@ -218,7 +218,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
                     <FormField label="НАЗВАНИЕ КОНФИГУРАЦИИ" value={formData.name} onChange={(v) => setFormData({ ...formData, name: v })} placeholder="Напр: Sales Agent v2.1" />
                     <div className="grid grid-cols-2 gap-4">
                         <FormField label="LLM МОДЕЛЬ" value={formData.llm_model} onChange={(v) => setFormData({ ...formData, llm_model: v })} placeholder="openai/gpt-4o" isSelect options={['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.1-70b']} />
-                        <FormField label="EMBEDDING МОДЕЛЬ" value={formData.embedding_model} onChange={(v) => setFormData({ ...formData, embedding_model: v })} placeholder="text-embedding-3-small" isSelect options={['text-embedding-3-small', 'text-embedding-3-large']} />
+                        <FormField label="EMBEDDING МОДЕЛЬ" value={formData.embedding_model} onChange={(v) => setFormData({ ...formData, embedding_model: v })} placeholder="openai/text-embedding-3-small" isSelect options={['openai/text-embedding-3-small', 'openai/text-embedding-3-large']} />
                     </div>
                 </div>
 

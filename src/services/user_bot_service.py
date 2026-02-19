@@ -128,106 +128,139 @@ class UserBotService:
             asyncio.create_task(self._process_message(org_id, sender_id, sender, content))
 
     async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str):
-        """Logic to generate AI response and save to CRM"""
+        """Logic to generate AI response and save to CRM with RAG"""
+        import json
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Note: This needs a fresh DB session
         from src.database import async_session_factory
         async with async_session_factory() as db:
-            # 1. Find or create lead
-            from src.services.lead_service import lead_service
-            
-            # Extract sender info safely
-            full_name = getattr(sender, 'first_name', '') + " " + getattr(sender, 'last_name', '')
-            full_name = full_name.strip() or "Unknown"
-            username = getattr(sender, 'username', None)
-            
-            lead = await lead_service.create_or_get_lead(
-                db=db, 
-                org_id=org_id, 
-                telegram_id=tg_user_id,
-                full_name=full_name,
-                username=username,
-                source="userbot"
-            )
-
-            # 2. Save incoming message (Fix indentation)
-            await chat_service.save_incoming_message(
-                db, 
-                lead_id=lead.id, 
-                content=content,
-                telegram_message_id=None # Telethon message id
-            )
-            
-            # 3. Check if agent is active for this bot
-            bot_record = await self._get_or_create_bot_record(db, org_id)
-            if not bot_record.is_active:
-                return
-
-            # 4. Generate AI response
-            # Get history
-            history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=10)
-            formatted_history = [
-                {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
-                for m in reversed(history_msgs)
-            ]
-            
-            # Get prompt
-            from src.services.prompt_service import prompt_service
-            system_prompt = await prompt_service.get_active_prompt(db, org_id, "default_agent")
-            
-            ai_response = await openrouter_service.generate_response(formatted_history, system_prompt)
-            reply_text = ai_response["text"]
-            
-            # 5. Send reply via User Bot
-            await self.send_message(db, org_id, tg_user_id, reply_text)
+            try:
+                # 1. Find or create lead
+                from src.services.lead_service import lead_service
                 
-            # 6. Save outbound message
-            await chat_service.send_outbound_message(
-                db,
-                lead_id=lead.id,
-                content=reply_text,
-                sender_name="AI Agent",
-                ai_metadata=ai_response.get("usage")
-            )
-
-            # 2. Save incoming message
-            await chat_service.save_incoming_message(
-                db, 
-                lead_id=lead.id, 
-                content=content,
-                telegram_message_id=None # Telethon message id
-            )
-            
-            # 3. Check if agent is active for this bot
-            bot_record = await self._get_or_create_bot_record(db, org_id)
-            if not bot_record.is_active:
-                return
-
-            # 4. Generate AI response
-            # Get history
-            history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=10)
-            formatted_history = [
-                {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
-                for m in reversed(history_msgs)
-            ]
-            
-            # Get prompt
-            from src.services.prompt_service import prompt_service
-            system_prompt = await prompt_service.get_active_prompt(db, org_id, "default_agent")
-            
-            ai_response = await openrouter_service.generate_response(formatted_history, system_prompt)
-            reply_text = ai_response["text"]
-            
-            # 5. Send reply via User Bot
-            await self.send_message(db, org_id, tg_user_id, reply_text)
+                # Extract sender info safely
+                full_name = getattr(sender, 'first_name', '') + " " + getattr(sender, 'last_name', '')
+                full_name = full_name.strip() or "Unknown"
+                username = getattr(sender, 'username', None)
                 
-            # 6. Save outbound message
-            await chat_service.send_outbound_message(
-                db,
-                lead_id=lead.id,
-                content=reply_text,
-                sender_name="AI Agent",
-                ai_metadata=ai_response.get("usage")
-            )
+                lead = await lead_service.create_or_get_lead(
+                    db=db, 
+                    org_id=org_id, 
+                    telegram_id=tg_user_id,
+                    full_name=full_name,
+                    username=username,
+                    source="userbot"
+                )
+
+                # 2. Save incoming message
+                await chat_service.save_incoming_message(
+                    db, 
+                    lead_id=lead.id, 
+                    content=content,
+                    telegram_message_id=None
+                )
+                
+                # 3. Check if agent is active for this bot
+                bot_record = await self._get_or_create_bot_record(db, org_id)
+                if not bot_record.is_active:
+                    return
+
+                # 4. Build system prompt
+                from src.services.prompt_service import prompt_service
+                from src.services.knowledge_service import knowledge_service
+                
+                config = await prompt_service.get_active_config(db, org_id)
+                
+                # Get base prompt
+                if config and config.system_prompt:
+                    base_prompt = config.system_prompt
+                else:
+                    from src.services.prompts import build_system_prompt
+                    base_prompt = build_system_prompt("наша компания")
+                
+                # Inject custom fields into prompt
+                from src.services.custom_field_service import inject_custom_fields_into_prompt
+                enhanced_prompt = await inject_custom_fields_into_prompt(db, org_id, base_prompt)
+                
+                technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
+                system_prompt = f"{enhanced_prompt}{technical_rules}"
+                
+                # 5. RAG: Search knowledge base for relevant context
+                ai_metadata = {}
+                try:
+                    relevant_docs = await knowledge_service.search_knowledge(
+                        db=db,
+                        org_id=org_id,
+                        query=content,
+                        limit=3,
+                        embedding_model=config.embedding_model if config else None
+                    )
+                    
+                    if relevant_docs:
+                        context_str = "\n\n".join([f"Source: {d.title}\nContent: {d.content}" for d in relevant_docs])
+                        system_prompt = f"{system_prompt}\n\nRELEVANT KNOWLEDGE:\n{context_str}\n\nUse this context to answer accurately."
+                        
+                        ai_metadata["retrieved_context"] = [
+                            {"title": d.title, "content": d.content, "id": str(d.id)}
+                            for d in relevant_docs
+                        ]
+                except Exception as rag_err:
+                    logger.warning(f"RAG search failed (non-critical): {rag_err}")
+                
+                # 6. Get conversation history
+                history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
+                formatted_history = [
+                    {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
+                    for m in reversed(history_msgs)
+                ]
+                
+                # 7. Generate AI response
+                ai_response = await openrouter_service.generate_response(
+                    formatted_history, 
+                    system_prompt,
+                    model=config.llm_model if config else None
+                )
+                reply_text = ai_response["text"]
+                
+                # 8. Send reply via User Bot
+                await self.send_message(db, org_id, tg_user_id, reply_text)
+                    
+                # 9. Save outbound message
+                ai_metadata["usage"] = ai_response.get("usage")
+                await chat_service.send_outbound_message(
+                    db,
+                    lead_id=lead.id,
+                    content=reply_text,
+                    sender_name="AI Agent",
+                    ai_metadata=ai_metadata
+                )
+                
+                # 10. Update lead with extracted data
+                extracted_data = ai_response.get("extracted_data")
+                if extracted_data:
+                    update_fields = {}
+                    if extracted_data.get("client_name") and not lead.full_name:
+                        update_fields["full_name"] = extracted_data.get("client_name")
+                    if extracted_data.get("phone") and not lead.phone:
+                        update_fields["phone"] = extracted_data.get("phone")
+                    
+                    from src.models.lead import LeadStatus
+                    ai_status = extracted_data.get("status")
+                    if ai_status and ai_status in [s.value for s in LeadStatus]:
+                        update_fields["status"] = ai_status
+                    
+                    if extracted_data.get("is_hot_lead"):
+                        update_fields["ai_qualification_status"] = "qualified"
+                    
+                    update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
+                    
+                    if update_fields:
+                        await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
+                        
+            except Exception as e:
+                logger.error(f"Error processing User Bot message from {tg_user_id}: {e}", exc_info=True)
 
     async def send_message(self, db: AsyncSession, org_id: uuid.UUID, telegram_id: int, text: str):
         """Send message via User Bot"""

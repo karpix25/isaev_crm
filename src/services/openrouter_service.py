@@ -261,7 +261,13 @@ class OpenRouterService:
         """
         try:
             # Use provided model or fallback to settings
-            emb_model = model or getattr(settings, 'openrouter_embedding_model', 'text-embedding-3-small')
+            emb_model = model or getattr(settings, 'openrouter_embedding_model', 'openai/text-embedding-3-small')
+            
+            # Ensure model has provider prefix for OpenRouter
+            if '/' not in emb_model:
+                emb_model = f"openai/{emb_model}"
+                
+            logger.info(f"Generating embeddings with model: {emb_model}")
             
             response = await self.client.post(
                 f"{self.base_url}/embeddings",

@@ -122,19 +122,27 @@ async def upload_knowledge_file(
     db: AsyncSession = Depends(get_db)
 ):
     """Upload and process a knowledge base file (PDF/TXT)"""
-    content = await file.read()
-    
-    # Get active config to know which embedding model to use
-    config = await prompt_service.get_active_config(db, current_user.org_id)
-    embedding_model = config.embedding_model if config else None
-    
-    count = await knowledge_service.process_knowledge_file(
-        db=db,
-        org_id=current_user.org_id,
-        file_content=content,
-        filename=file.filename,
-        category=category,
-        embedding_model=embedding_model
-    )
-    
-    return {"status": "success", "indexed_chunks": count}
+    try:
+        content = await file.read()
+        
+        # Get active config to know which embedding model to use
+        config = await prompt_service.get_active_config(db, current_user.org_id)
+        embedding_model = config.embedding_model if config else None
+        
+        count = await knowledge_service.process_knowledge_file(
+            db=db,
+            org_id=current_user.org_id,
+            file_content=content,
+            filename=file.filename,
+            category=category,
+            embedding_model=embedding_model
+        )
+        
+        return {"status": "success", "indexed_chunks": count}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Knowledge upload error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка индексации файла: {str(e)}"
+        )
