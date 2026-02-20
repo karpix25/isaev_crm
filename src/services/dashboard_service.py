@@ -14,8 +14,11 @@ DAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 class DashboardService:
     @staticmethod
     async def get_metrics(db: AsyncSession, org_id: uuid.UUID) -> DashboardMetrics:
-        # 1. Total leads
-        total_leads_query = select(func.count(Lead.id)).where(Lead.org_id == org_id)
+        # 1. Total leads (excluding SPAM)
+        total_leads_query = select(func.count(Lead.id)).where(
+            Lead.org_id == org_id,
+            Lead.status != LeadStatus.SPAM
+        )
         total_leads = (await db.execute(total_leads_query)).scalar() or 0
 
         # 2. Appointments (leads in MEASUREMENT, ESTIMATE, CONTRACT, WON)
