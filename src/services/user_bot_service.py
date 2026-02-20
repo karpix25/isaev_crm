@@ -180,6 +180,7 @@ class UserBotService:
             sender_id = event.sender_id
             
             content = event.message.message
+            is_voice = False
             
             # 2. Check for voice/audio/video note
             if event.message.voice or event.message.audio or event.message.video_note:
@@ -204,6 +205,7 @@ class UserBotService:
                         
                     if transcript:
                         content = transcript
+                        is_voice = True
                         logger.info(f"[USERBOT] Voice transcribed: {content}")
                     else:
                         logger.warning("[USERBOT] Failed to transcribe voice message")
@@ -215,9 +217,9 @@ class UserBotService:
                     return
             
             # Use a separate background task to avoid blocking the client
-            asyncio.create_task(self._process_message(org_id, sender_id, sender, content))
+            asyncio.create_task(self._process_message(org_id, sender_id, sender, content, is_voice))
 
-    async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str):
+    async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str, is_voice: bool = False):
         """Logic to generate AI response and save to CRM with RAG"""
         import json
         import logging

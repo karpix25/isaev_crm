@@ -19,7 +19,8 @@ class ChatService:
         content: str,
         telegram_message_id: Optional[int] = None,
         media_url: Optional[str] = None,
-        sender_name: Optional[str] = None
+        sender_name: Optional[str] = None,
+        ai_metadata: Optional[dict] = None
     ) -> ChatMessage:
         """
         Save incoming message from Telegram user (lead).
@@ -33,7 +34,8 @@ class ChatService:
             telegram_message_id=telegram_message_id,
             media_url=media_url,
             sender_name=sender_name,
-            is_read=False
+            is_read=False,
+            ai_metadata=ai_metadata
         )
         
         db.add(message)

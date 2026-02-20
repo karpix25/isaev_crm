@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Create router for lead handlers
 router = Router()
 
-# Debouncing state: {telegram_id: (task, [messages], original_message)}
+# Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
 
 
@@ -91,18 +91,22 @@ async def handle_lead_message(message: Message):
     Groups messages sent within 5 seconds into a single AI request.
     """
     user_id = message.from_user.id
+    is_voice = getattr(message, "is_voice", False)
     
     # Add message to pending list
     if user_id in pending_updates:
-        task, msgs, _ = pending_updates[user_id]
+        task, msgs, saved_message, has_voice = pending_updates[user_id]
         task.cancel() # Cancel previous timer
         msgs.append(message.text)
+        has_voice = has_voice or is_voice
     else:
         msgs = [message.text]
+        saved_message = message
+        has_voice = is_voice
     
     # Start new timer task
     task = asyncio.create_task(process_debounced_message(user_id))
-    pending_updates[user_id] = (task, msgs, message)
+    pending_updates[user_id] = (task, msgs, saved_message, has_voice)
 
 async def process_debounced_message(user_id: int):
     """Wait for quiet period and then process all accumulated messages."""
@@ -111,7 +115,7 @@ async def process_debounced_message(user_id: int):
     if user_id not in pending_updates:
         return
         
-    _, msgs, message = pending_updates.pop(user_id)
+    _, msgs, message, has_voice = pending_updates.pop(user_id)
     combined_text = " ".join(msgs)
     
     async with AsyncSessionLocal() as db:
@@ -128,12 +132,15 @@ async def process_debounced_message(user_id: int):
         )
         
         # Save incoming message (using combined text as one entry for AI context)
+        metadata = {"is_voice": True} if has_voice else None
+        
         await chat_service.save_incoming_message(
             db=db,
             lead_id=lead.id,
             content=combined_text,
             telegram_message_id=message.message_id,
-            sender_name=message.from_user.full_name
+            sender_name=message.from_user.full_name,
+            ai_metadata=metadata
         )
         
         # Check if AI should handle this lead
@@ -358,6 +365,7 @@ async def handle_lead_voice(message: Message):
             
         # Forward the transcribed text to the main AI handler by modifying the message object
         message.text = transcript
+        message.is_voice = True
         await handle_lead_message(message)
         
     except Exception as e:

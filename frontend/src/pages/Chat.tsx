@@ -5,7 +5,7 @@ import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { MessageDirection, type Lead } from '@/types'
 import { formatTimeAgo } from '@/lib/utils'
-import { Send, Phone, Settings2, CheckCircle2, Sparkles, Info, X } from 'lucide-react'
+import { Send, Phone, Settings2, CheckCircle2, Sparkles, Info, X, Mic } from 'lucide-react'
 
 export function Chat() {
     const { leadId } = useParams()
@@ -144,6 +144,12 @@ export function Chat() {
                                                 : 'bg-slate-100 text-slate-900 rounded-bl-none border shadow-sm'
                                                 }`}
                                         >
+                                            {msg.ai_metadata?.is_voice && (
+                                                <div className={`flex items-center gap-1 mb-1.5 text-xs font-semibold ${msg.direction === MessageDirection.OUTBOUND ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                    <Mic className="h-3 w-3" />
+                                                    Голосовое сообщение
+                                                </div>
+                                            )}
                                             <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
 
                                             {/* AI Trace Icon */}
