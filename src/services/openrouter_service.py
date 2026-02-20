@@ -293,11 +293,25 @@ class OpenRouterService:
                     logger.warning(f"Embedding dimension mismatch! Got {dim}, expected 1536 for the 'knowledge_base' table.")
             
             # The SDK returns a strongly typed CreateEmbeddingsResponse object
-            # Accessing .data[0].embedding
             if not res or not res.data:
                 raise ValueError(f"OpenRouter API returned empty data for model {emb_model}")
                 
-            return res.data[0].embedding
+            embedding = res.data[0].embedding
+            
+            # Dimension Guard: ensure always 1536 dimensions for the database
+            target_dim = 1536
+            current_dim = len(embedding)
+            
+            if current_dim < target_dim:
+                logger.info(f"Padding embedding from {current_dim} to {target_dim} (zero-padding)")
+                # Handle potential immutability or different list types by creating a new list
+                embedding = list(embedding)
+                embedding.extend([0.0] * (target_dim - current_dim))
+            elif current_dim > target_dim:
+                logger.warning(f"Truncating embedding from {current_dim} to {target_dim}")
+                embedding = embedding[:target_dim]
+                
+            return embedding
             
         except Exception as e:
             err_str = str(e)

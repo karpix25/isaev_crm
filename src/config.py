@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     # OpenRouter
     openrouter_api_key: str = ""
     openrouter_model: str = "anthropic/claude-3.5-sonnet"
-    openrouter_embedding_model: str = "openai/text-embedding-ada-002"
+    openrouter_embedding_model: str = "google/gemini-embedding-001"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     
     # LangFuse Observability
