@@ -27,7 +27,10 @@ class VoiceService:
             logger.info(f"Starting AssemblyAI transcription for {file_path}")
             
             # Using asyncio.to_thread to run synchronous external API call
-            config = aai.TranscriptionConfig(language_code="ru")
+            config = aai.TranscriptionConfig(
+                language_code="ru", 
+                speech_model="universal-2"
+            )
             
             def do_transcribe():
                 transcript = self.transcriber.transcribe(file_path, config=config)
