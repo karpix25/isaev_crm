@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useLeads, useUpdateLead } from '@/hooks/useLeads'
+import { useLeads, useUpdateLead, useDeleteLead } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles
+    Calendar, ClipboardList, Sparkles, Trash2
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -267,6 +267,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const { data: chatData } = useChatHistory(lead.id, 1)
     const sendMessage = useSendMessage()
+    const deleteLead = useDeleteLead()
 
     const messages = chatData?.messages || []
 
@@ -355,6 +356,22 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                 Начать проект
                             </button>
                         )}
+                        <button
+                            onClick={() => {
+                                if (window.confirm('Вы уверены, что хотите удалить этого лида? Это действие необратимо.')) {
+                                    deleteLead.mutate(lead.id, {
+                                        onSuccess: () => {
+                                            onClose()
+                                        }
+                                    })
+                                }
+                            }}
+                            disabled={deleteLead.isPending}
+                            className="flex h-10 items-center gap-2 rounded-lg bg-red-500/10 px-4 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all shadow-sm ml-2"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            Удалить
+                        </button>
                         <div className="mx-2 h-6 w-px bg-border" />
                         <button onClick={onClose} className="rounded-full p-2 hover:bg-muted transition-colors">
                             <X className="h-5 w-5" />

@@ -56,23 +56,104 @@ class KnowledgeService:
 
         query_embedding = await openrouter_service.generate_embeddings(query, model=embedding_model)
         
-        # Use pgvector's <-> operator (L2 distance) or <=> (cosine distance)
-        # Cosine distance (1 - cosine similarity) is usually better for embeddings
-        stmt = select(KnowledgeItem).where(KnowledgeItem.org_id == org_id)
-        
+        # 1. Vector Search
+        vec_stmt = select(KnowledgeItem).where(KnowledgeItem.org_id == org_id)
         if category:
-            stmt = stmt.where(KnowledgeItem.category == category)
+            vec_stmt = vec_stmt.where(KnowledgeItem.category == category)
             
-        # Order by distance to query embedding
-        stmt = stmt.order_by(KnowledgeItem.embedding.cosine_distance(query_embedding)).limit(limit)
+        vec_stmt = vec_stmt.order_by(KnowledgeItem.embedding.cosine_distance(query_embedding)).limit(limit * 2)
+        vec_result = await db.execute(vec_stmt)
+        vec_docs = list(vec_result.scalars().all())
+
+        # 2. Full Text Search (FTS)
+        from sqlalchemy import func
+        ts_query = func.websearch_to_tsquery('russian', query)
+        ts_vector = func.to_tsvector('russian', KnowledgeItem.content)
         
-        result = await db.execute(stmt)
-        docs = list(result.scalars().all())
+        fts_stmt = select(KnowledgeItem).where(
+            KnowledgeItem.org_id == org_id,
+            ts_vector.op('@@')(ts_query)
+        )
+        if category:
+            fts_stmt = fts_stmt.where(KnowledgeItem.category == category)
+            
+        fts_stmt = fts_stmt.order_by(func.ts_rank(ts_vector, ts_query).desc()).limit(limit * 2)
+        
+        try:
+            fts_result = await db.execute(fts_stmt)
+            fts_docs = list(fts_result.scalars().all())
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"FTS search failed (fallback to vector only): {e}")
+            fts_docs = []
+            
+        # 3. Reciprocal Rank Fusion (RRF)
+        k = 60
+        scores = {}
+        for rank, doc in enumerate(vec_docs):
+            if doc.id not in scores:
+                scores[doc.id] = {"doc": doc, "score": 0.0}
+            scores[doc.id]["score"] += 1.0 / (k + rank + 1)
+            
+        for rank, doc in enumerate(fts_docs):
+            if doc.id not in scores:
+                scores[doc.id] = {"doc": doc, "score": 0.0}
+            scores[doc.id]["score"] += 1.0 / (k + rank + 1)
+            
+        sorted_docs = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
+        docs = [item["doc"] for item in sorted_docs[:limit]]
 
         if span:
             span.end(output=[{"id": str(d.id), "title": d.title} for d in docs])
 
         return docs
+
+    @staticmethod
+    def _recursive_text_split(text: str, max_chunk_size: int = 1200, overlap: int = 200) -> List[str]:
+        separators = ["\n\n", "\n", ". ", " "]
+        
+        def get_splits(text, separators):
+            if not text: return []
+            if not separators: return [text]
+            sep = separators[0]
+            if sep not in text:
+                return get_splits(text, separators[1:])
+                
+            parts = text.split(sep)
+            res = []
+            for i, p in enumerate(parts):
+                sub_p = p + (sep if i < len(parts) - 1 else "")
+                if len(sub_p) > max_chunk_size:
+                    res.extend(get_splits(sub_p, separators[1:]))
+                else:
+                    res.append(sub_p)
+            return res
+
+        parts = get_splits(text, separators)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for part in parts:
+            if len(current_chunk) + len(part) <= max_chunk_size:
+                current_chunk += part
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                if current_chunk and overlap > 0:
+                    overlap_start = max(0, len(current_chunk) - overlap)
+                    overlap_text = current_chunk[overlap_start:]
+                    safe_idx = overlap_text.find(" ")
+                    if safe_idx != -1:
+                        overlap_text = overlap_text[safe_idx:]
+                    current_chunk = overlap_text + part
+                else:
+                    current_chunk = part
+                    
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            
+        return [c for c in chunks if len(c) > 20]
 
     @staticmethod
     async def process_knowledge_file(
@@ -91,8 +172,15 @@ class KnowledgeService:
             logger.info(f"Processing PDF: {filename} ({len(file_content)} bytes)")
             try:
                 pdf_doc = fitz.open(stream=file_content, filetype="pdf")
+                text_blocks = []
                 for page in pdf_doc:
-                    text += page.get_text()
+                    # 'blocks' extraction preserves structural reading order
+                    blocks = page.get_text("blocks")
+                    # b[6] == 0 means it's a text block
+                    page_text = "\n\n".join([b[4].strip() for b in blocks if b[6] == 0])
+                    if page_text:
+                        text_blocks.append(page_text)
+                text = "\n\n".join(text_blocks)
                 logger.info(f"Extracted {len(text)} characters from PDF")
             except Exception as e:
                 logger.error(f"Failed to extract text from PDF: {e}")
@@ -106,36 +194,8 @@ class KnowledgeService:
             logging.getLogger(__name__).warning(f"Extracted text is empty for file {filename}")
             return 0
 
-        # Robust chunking: fixed size with overlap
-        max_chunk_size = 1200  # characters (~300-400 tokens)
-        overlap = 200
-        
-        chunks = []
-        if len(text) <= max_chunk_size:
-            chunks = [text.strip()]
-        else:
-            start = 0
-            while start < len(text):
-                end = start + max_chunk_size
-                # Try to find a natural break (newline or space) near the end
-                if end < len(text):
-                    # Look back up to 200 chars for a newline
-                    last_newline = text.rfind('\n', end - 200, end)
-                    if last_newline != -1:
-                        end = last_newline
-                    else:
-                        # Look for a space
-                        last_space = text.rfind(' ', end - 50, end)
-                        if last_space != -1:
-                            end = last_space
-                
-                chunk = text[start:end].strip()
-                if len(chunk) > 20: # Skip tiny fragments
-                    chunks.append(chunk)
-                
-                start = end - overlap
-                if start >= len(text) - overlap:
-                    break
+        # Smart Recursive Chunking
+        chunks = KnowledgeService._recursive_text_split(text, max_chunk_size=1200, overlap=200)
 
         count = 0
         for i, chunk in enumerate(chunks):
