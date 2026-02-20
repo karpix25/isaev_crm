@@ -288,8 +288,12 @@ class OpenRouterService:
                 logger.error(f"OpenRouter Embeddings Error: Unexpected response format (missing 'data' key). Full response: {data}")
                 # If there's an error message in the response, log it specifically
                 if "error" in data:
-                    logger.error(f"OpenRouter API Error Message: {data['error']}")
-                raise ValueError(f"OpenRouter API returned unexpected format: {data}")
+                    err = data["error"]
+                    logger.error(f"OpenRouter API Error Message: {err}")
+                    if "No successful provider responses" in str(err.get("message", "")):
+                        raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов или выберите другую модель.")
+                    raise ValueError(f"Ошибка OpenRouter: {err.get('message', 'Unknown error')}")
+                raise ValueError(f"OpenRouter API вернул неожиданный формат: {data}")
                 
             return data["data"][0]["embedding"]
             
