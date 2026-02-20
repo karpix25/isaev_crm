@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 import uuid
 from typing import Dict, Optional, List
 
@@ -254,6 +255,11 @@ class UserBotService:
                     telegram_message_id=None,
                     ai_metadata={"is_voice": True} if is_voice else None
                 )
+                
+                # 2.5 Wait a bit to simulate human reading and typing (5-15 seconds)
+                delay = random.uniform(5, 15)
+                logger.info(f"[USERBOT] Waiting {delay:.2f}s before AI response for lead {lead.id}")
+                await asyncio.sleep(delay)
                 
                 # 3. Check if agent is active for this bot
                 bot_record = await self._get_or_create_bot_record(db, org_id)
