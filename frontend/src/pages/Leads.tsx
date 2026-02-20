@@ -467,6 +467,11 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                                     ИИ квалифицировал лида
                                                 </div>
                                             )}
+                                            {msg.ai_metadata?.source === 'CRM' && (
+                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-medium border border-slate-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                                    Отправлено из CRM
+                                                </div>
+                                            )}
                                             <span className="px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
                                                 {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>

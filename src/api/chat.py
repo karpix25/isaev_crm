@@ -110,7 +110,8 @@ async def send_message_to_lead(
         lead_id=lead_id,
         content=message_data.content,
         media_url=message_data.media_url,
-        telegram_message_id=telegram_message_id
+        telegram_message_id=telegram_message_id,
+        ai_metadata={"source": "CRM"}
     )
     
     return ChatMessageResponse.model_validate(message)
