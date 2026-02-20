@@ -22,6 +22,7 @@ class DashboardMetrics(BaseModel):
     appointments: int
     conversion_rate: float
     in_progress: int
+    spam_count: int
     activity_chart: List[ActivityChartItem]
     conversion_chart: List[ConversionChartItem]
     recent_ai_actions: List[RecentAIAction]

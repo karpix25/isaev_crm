@@ -1,7 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardAPI } from '@/lib/api'
-import { Users, Calendar, TrendingUp, Briefcase } from 'lucide-react'
+import { Users, Calendar, TrendingUp, Briefcase, Trash2 } from 'lucide-react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatTimeAgo } from '@/lib/utils'
 import { LeadStatus } from '@/types'
@@ -19,7 +19,7 @@ export function Dashboard() {
     return (
         <div className="space-y-6">
             {/* Metrics Cards */}
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
                 <MetricCard
                     title="Всего лидов"
                     value={metrics.total_leads}
@@ -43,6 +43,12 @@ export function Dashboard() {
                     value={metrics.in_progress}
                     icon={Briefcase}
                     color="bg-orange-500"
+                />
+                <MetricCard
+                    title="Спам / Мусор"
+                    value={metrics.spam_count}
+                    icon={Trash2}
+                    color="bg-slate-800"
                 />
             </div>
 

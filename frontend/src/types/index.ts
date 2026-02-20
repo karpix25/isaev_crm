@@ -72,6 +72,7 @@ export interface DashboardMetrics {
     appointments: number;
     conversion_rate: number;
     in_progress: number;
+    spam_count: number;
     activity_chart: ActivityChartItem[];
     conversion_chart: ConversionChartItem[];
     recent_ai_actions: RecentAIAction[];

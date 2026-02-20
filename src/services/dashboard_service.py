@@ -53,6 +53,13 @@ class DashboardService:
         won_count = (await db.execute(won_query)).scalar() or 0
         conversion_rate = round((won_count / total_leads * 100), 1) if total_leads > 0 else 0.0
 
+        # 4.5 Spam Count
+        spam_query = select(func.count(Lead.id)).where(
+            Lead.org_id == org_id,
+            Lead.status == LeadStatus.SPAM
+        )
+        spam_count = (await db.execute(spam_query)).scalar() or 0
+
         # 5. Activity Chart (Last 7 days) — single GROUP BY query instead of N+1
         seven_days_ago = datetime.now() - timedelta(days=6)
         seven_days_ago = seven_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -132,10 +139,10 @@ class DashboardService:
             appointments=appointments,
             conversion_rate=conversion_rate,
             in_progress=in_progress,
+            spam_count=spam_count,
             activity_chart=activity_chart,
             conversion_chart=conversion_chart,
             recent_ai_actions=recent_ai_actions
         )
-
 
 dashboard_service = DashboardService()
