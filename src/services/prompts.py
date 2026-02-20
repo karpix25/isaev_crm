@@ -37,7 +37,7 @@ SALES_AGENT_SYSTEM_PROMPT = """Ты — дружелюбный AI-ассисте
 
 ФОРМАТ ОТВЕТА (ОБЯЗАТЕЛЬНО JSON):
 Твой ответ ВСЕГДА должен быть строго в формате JSON.
-{
+{{
   "message": "Текст твоего сообщения клиенту",
   "status": "NEW/CONSULTING/FOLLOW_UP/QUALIFIED/MEASUREMENT/ESTIMATE/CONTRACT/WON/LOST",
   "client_name": "Имя клиента или null",
@@ -50,7 +50,7 @@ SALES_AGENT_SYSTEM_PROMPT = """Ты — дружелюбный AI-ассисте
   "deadline": "Сроки или null",
   "is_hot_lead": boolean,
   "confidence": число от 0 до 100 (насколько полно собрана информация)
-}
+}}
 """
 
 LEAD_QUALIFICATION_SCHEMA = {
