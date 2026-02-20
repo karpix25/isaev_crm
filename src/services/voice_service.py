@@ -29,7 +29,7 @@ class VoiceService:
             # Using asyncio.to_thread to run synchronous external API call
             config = aai.TranscriptionConfig(
                 language_code="ru", 
-                speech_model=aai.SpeechModel.universal
+                speech_models=[aai.SpeechModel.universal]
             )
             
             def do_transcribe():
