@@ -114,6 +114,14 @@ async def main():
                         if not await client.is_user_authorized():
                             logger.warning(f"Bot for org {bot.org_id} is not authorized. Skipping.")
                             continue
+                            
+                        # CRITICAL: Populate the in-memory StringSession entity cache
+                        # Without this, we cannot send messages by raw integer ID
+                        try:
+                            logger.info(f"Populating entity cache for org {bot.org_id}...")
+                            await client.get_dialogs(limit=100)
+                        except Exception as cache_err:
+                            logger.warning(f"Failed to populate dialog cache: {cache_err}")
                         
                         user_bot_service._setup_handlers(bot.org_id, client)
                         user_bot_service.clients[bot.org_id] = client
@@ -149,10 +157,17 @@ async def main():
                     client = user_bot_service.clients.get(msg.lead.org_id)
                     if client and client.is_connected():
                         try:
-                            # Attempt to get the entity to force it into cache before sending
+                            # Attempt to get the entity from cache first
                             try:
                                 from telethon.tl.types import PeerUser
-                                await client.get_entity(PeerUser(int(msg.lead.telegram_id)))
+                                peer = PeerUser(int(msg.lead.telegram_id))
+                                try:
+                                    # This only checks the local SQLite cache
+                                    await client.get_input_entity(peer)
+                                except ValueError:
+                                    # Cache miss! Force network request to Telegram API to cache the user
+                                    logger.info(f"Entity {msg.lead.telegram_id} not in cache, fetching from Telegram API...")
+                                    await client.get_entity(peer)
                             except Exception as entity_err:
                                 logger.warning(f"Failed to fetch entity for {msg.lead.telegram_id}, attempting to send anyway: {entity_err}")
                                 
