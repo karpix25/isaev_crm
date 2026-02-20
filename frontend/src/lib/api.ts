@@ -53,7 +53,7 @@ export const leadsAPI = {
     },
 
     delete: async (id: string): Promise<void> => {
-        await api.delete(`/leads/${id}/`)
+        await api.delete(`/leads/${id}`)
     },
 }
 
