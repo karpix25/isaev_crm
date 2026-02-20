@@ -45,6 +45,28 @@ async def get_leads(
     )
 
 
+@router.post("/", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
+async def create_lead(
+    lead_data: LeadCreate,
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually create a new lead from the CRM interface.
+    Requires ADMIN or MANAGER role.
+    """
+    # Override org_id to match the current user's org
+    lead = await lead_service.create_manual_lead(
+        db=db,
+        org_id=current_user.org_id,
+        full_name=lead_data.full_name,
+        phone=lead_data.phone,
+        source=lead_data.source or "CRM"
+    )
+    
+    return LeadResponse.model_validate(lead)
+
+
 @router.get("/{lead_id}", response_model=LeadResponse)
 async def get_lead(
     lead_id: uuid.UUID,

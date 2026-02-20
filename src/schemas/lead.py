@@ -9,11 +9,11 @@ from src.models.lead import LeadStatus
 class LeadCreate(BaseModel):
     """Create new lead"""
     org_id: uuid.UUID
-    telegram_id: int
+    telegram_id: Optional[int] = None
     full_name: Optional[str] = None
     phone: Optional[str] = None
     username: Optional[str] = None
-    source: str = "telegram"
+    source: str = "CRM"
     avatar_url: Optional[str] = None
 
 

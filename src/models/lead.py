@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, BigInteger, Enum as SQLEnum, Text, DateTime, Integer
+from sqlalchemy import Column, String, ForeignKey, BigInteger, Enum as SQLEnum, Text, DateTime, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -27,6 +27,9 @@ class Lead(BaseModel):
     """
     
     __tablename__ = "leads"
+    __table_args__ = (
+        UniqueConstraint('org_id', 'telegram_id', name='uq_org_telegram_id'),
+    )
     
     # Organization (multi-tenant)
     org_id = Column(
@@ -36,8 +39,8 @@ class Lead(BaseModel):
         index=True
     )
     
-    # Telegram integration
-    telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    # Telegram integration (nullable for manually created CRM leads)
+    telegram_id = Column(BigInteger, nullable=True, index=True)
     
     # Lead details
     full_name = Column(String(255), nullable=True)

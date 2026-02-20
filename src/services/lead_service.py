@@ -68,6 +68,30 @@ class LeadService:
         await db.refresh(lead)
         
         return lead
+        
+    @staticmethod
+    async def create_manual_lead(
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        full_name: Optional[str] = None,
+        phone: Optional[str] = None,
+        source: str = "CRM"
+    ) -> Lead:
+        """Create a new manual lead from CRM interface without Telegram ID"""
+        lead = Lead(
+            org_id=org_id,
+            telegram_id=None,
+            full_name=full_name,
+            phone=phone,
+            status=LeadStatus.NEW,
+            source=source
+        )
+        
+        db.add(lead)
+        await db.commit()
+        await db.refresh(lead)
+        
+        return lead
     
     @staticmethod
     async def update_lead_status(

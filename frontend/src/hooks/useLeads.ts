@@ -18,6 +18,17 @@ export function useLead(id: string) {
     })
 }
 
+export function useCreateLead() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (data: { full_name?: string; phone?: string; source?: string; org_id: string }) => leadsAPI.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] })
+        },
+    })
+}
+
 export function useUpdateLead() {
     const queryClient = useQueryClient()
 

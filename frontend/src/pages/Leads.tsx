@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useLeads, useUpdateLead, useDeleteLead } from '@/hooks/useLeads'
+import { useLeads, useUpdateLead, useDeleteLead, useCreateLead } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2, Mic
+    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -33,10 +33,12 @@ export function Leads() {
     const { data } = useLeads({ search: search || undefined, source: source || undefined })
     const { data: customFields } = useCustomFields(true)
     const updateLead = useUpdateLead()
+    const createLead = useCreateLead()
     const convertLead = useConvertLeadToProject()
     const [draggedLead, setDraggedLead] = useState<Lead | null>(null)
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
     const [showStageFilters, setShowStageFilters] = useState(false)
+    const [showCreateModal, setShowCreateModal] = useState(false)
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
     const leads = data?.leads || []
@@ -53,7 +55,9 @@ export function Leads() {
         )
     }
 
-    const handleDragStart = (lead: Lead) => {
+    const handleDragStart = (e: React.DragEvent, lead: Lead) => {
+        e.dataTransfer.setData('leadId', lead.id)
+        e.dataTransfer.setData('leadStatus', lead.status)
         setDraggedLead(lead)
     }
 
@@ -61,16 +65,19 @@ export function Leads() {
         e.preventDefault()
     }
 
-    const handleDrop = (status: LeadStatus) => {
-        if (draggedLead && draggedLead.status !== status) {
+    const handleDrop = (e: React.DragEvent, status: LeadStatus) => {
+        e.preventDefault()
+        const leadId = e.dataTransfer.getData('leadId')
+        const oldStatus = e.dataTransfer.getData('leadStatus') as LeadStatus
+        if (leadId && oldStatus !== status) {
             updateLead.mutate({
-                id: draggedLead.id,
+                id: leadId,
                 data: { status },
             })
 
             // Auto convert to project if moved to CONTRACT or WON
             if (status === LeadStatus.CONTRACT || status === LeadStatus.WON) {
-                convertLead.mutate({ leadId: draggedLead.id }, {
+                convertLead.mutate({ leadId }, {
                     onSuccess: () => {
                         setNotification({ message: 'Объект успешно создан и связан!', type: 'success' })
                         setTimeout(() => setNotification(null), 5000)
@@ -93,6 +100,14 @@ export function Leads() {
                 <h2 className="text-2xl font-bold">Управление лидами</h2>
 
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                    >
+                        <Plus className="h-4 w-4" />
+                        Добавить лида
+                    </button>
+
                     {/* Stage visibility toggle */}
                     <div className="relative">
                         <button
@@ -199,7 +214,7 @@ export function Leads() {
                             key={column.id}
                             className="flex flex-col rounded-lg border bg-card min-width-[320px] w-[320px] shrink-0"
                             onDragOver={handleDragOver}
-                            onDrop={() => handleDrop(column.id)}
+                            onDrop={(e) => handleDrop(e, column.id)}
                         >
                             <div className="flex items-center justify-between border-b p-4">
                                 <div className="flex items-center gap-2">
@@ -216,7 +231,7 @@ export function Leads() {
                                     <LeadCard
                                         key={lead.id}
                                         lead={lead}
-                                        onDragStart={() => handleDragStart(lead)}
+                                        onDragStart={(e) => handleDragStart(e, lead)}
                                         onClick={() => setSelectedLead(lead)}
                                     />
                                 ))}
@@ -530,11 +545,31 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 
                 </div>
             </div>
+
+            {showCreateModal && (
+                <CreateLeadModal
+                    onClose={() => setShowCreateModal(false)}
+                    onSubmit={(data) => {
+                        createLead.mutate({ ...data, org_id: '00000000-0000-0000-0000-000000000000' }, {
+                            onSuccess: () => {
+                                setNotification({ message: 'Лид успешно создан!', type: 'success' })
+                                setTimeout(() => setNotification(null), 5000)
+                                setShowCreateModal(false)
+                            },
+                            onError: (err: any) => {
+                                setNotification({ message: 'Ошибка при создании: ' + (err.response?.data?.detail || err.message), type: 'error' })
+                                setTimeout(() => setNotification(null), 5000)
+                            }
+                        })
+                    }}
+                    isLoading={createLead.isPending}
+                />
+            )}
         </div>
     )
 }
 
-function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: () => void; onClick: () => void }) {
+function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e: React.DragEvent) => void; onClick: () => void }) {
     return (
         <div
             draggable

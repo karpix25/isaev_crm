@@ -42,6 +42,11 @@ export const leadsAPI = {
         return response.data
     },
 
+    create: async (data: { full_name?: string; phone?: string; source?: string; org_id: string }): Promise<Lead> => {
+        const response = await api.post<Lead>('/leads/', data)
+        return response.data
+    },
+
     getById: async (id: string): Promise<Lead> => {
         const response = await api.get<Lead>(`/leads/${id}/`)
         return response.data
