@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList
+    Calendar, ClipboardList, Sparkles
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -452,9 +452,25 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                         >
                                             <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                         </div>
-                                        <span className="mt-1 px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                            {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
+
+                                        <div className={`flex flex-col mt-1.5 gap-1.5 ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}>
+                                            {/* AI Status Change Indicators */}
+                                            {msg.ai_metadata?.status_changed_to && (
+                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-[11px] font-medium border border-primary/20 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                                    ИИ перевел на стадию: {msg.ai_metadata.status_changed_to}
+                                                </div>
+                                            )}
+                                            {msg.ai_metadata?.qualification_changed_to && (
+                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[11px] font-medium border border-emerald-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                                    <Sparkles className="h-3.5 w-3.5" />
+                                                    ИИ квалифицировал лида
+                                                </div>
+                                            )}
+                                            <span className="px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
+                                                {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
                                     </div>
                                 ))
                             )}

@@ -45,7 +45,7 @@ export interface ChatMessage {
     is_read: boolean
     sender_name: string | null
     created_at: string
-    ai_metadata?: any
+    ai_metadata?: Record<string, any>
 }
 
 export interface ActivityChartItem {

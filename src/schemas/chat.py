@@ -28,6 +28,7 @@ class ChatMessageResponse(BaseModel):
     telegram_message_id: Optional[int] = None
     is_read: bool
     sender_name: Optional[str] = None
+    ai_metadata: Optional[dict] = None
     created_at: datetime
 
 

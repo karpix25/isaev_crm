@@ -283,20 +283,10 @@ class UserBotService:
                 # 8. Send reply via User Bot
                 await self.send_message(db, org_id, tg_user_id, reply_text)
                     
-                # 9. Save outbound message
-                ai_metadata["usage"] = ai_response.get("usage")
-                await chat_service.send_outbound_message(
-                    db,
-                    lead_id=lead.id,
-                    content=reply_text,
-                    sender_name="AI Agent",
-                    ai_metadata=ai_metadata
-                )
-                
-                # 10. Update lead with extracted data
+                # 9. Extract data and detect status changes BEFORE saving message
                 extracted_data = ai_response.get("extracted_data")
+                update_fields = {}
                 if extracted_data:
-                    update_fields = {}
                     if extracted_data.get("client_name") and not lead.full_name:
                         update_fields["full_name"] = extracted_data.get("client_name")
                     if extracted_data.get("phone") and not lead.phone:
@@ -306,14 +296,29 @@ class UserBotService:
                     ai_status = extracted_data.get("status")
                     if ai_status and ai_status in [s.value for s in LeadStatus]:
                         update_fields["status"] = ai_status
+                        if lead.status != ai_status:
+                            ai_metadata["status_changed_to"] = ai_status
                     
                     if extracted_data.get("is_hot_lead"):
                         update_fields["ai_qualification_status"] = "qualified"
+                        if lead.ai_qualification_status != "qualified":
+                            ai_metadata["qualification_changed_to"] = "qualified"
                     
                     update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
-                    
-                    if update_fields:
-                        await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
+
+                # 10. Save outbound message WITH ai_metadata
+                ai_metadata["usage"] = ai_response.get("usage")
+                await chat_service.send_outbound_message(
+                    db,
+                    lead_id=lead.id,
+                    content=reply_text,
+                    sender_name="AI Agent",
+                    ai_metadata=ai_metadata
+                )
+                
+                # 11. Apply updates to the lead
+                if update_fields:
+                    await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
                         
             except Exception as e:
                 logger.error(f"Error processing User Bot message from {tg_user_id}: {e}", exc_info=True)
