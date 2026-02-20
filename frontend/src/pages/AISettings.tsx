@@ -104,8 +104,8 @@ export function AISettings() {
                     )}
                     {activeTab === 'knowledge' && (
                         <KnowledgeBasePanel
-                            items={knowledge.data || []}
-                            isLoading={knowledge.isLoading}
+                            items={searchKnowledge.data || knowledge.data || []}
+                            isLoading={knowledge.isLoading || searchKnowledge.isPending}
                             isAdding={addKnowledge.isPending || uploadFile.isPending}
                             onAdd={(data) => {
                                 addKnowledge.mutate(data, {
