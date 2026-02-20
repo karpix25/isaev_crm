@@ -268,12 +268,17 @@ class OpenRouterService:
         
         try:
             from openrouter import OpenRouter
+            
+            # Use SDK defaults for server_url to avoid path duplication issues
             openrouter_client = OpenRouter(
                 api_key=self.api_key,
-                server_url=self.base_url,
                 http_referer="https://github.com/karpix25/isaev_crm",
                 x_title="Isaev CRM"
             )
+            
+            # Log key presence (masked)
+            key_status = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key else "MISSING"
+            logger.info(f"Using OpenRouter API Key: {key_status}")
             
             res = await openrouter_client.embeddings.generate_async(
                 input=text,
