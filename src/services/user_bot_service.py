@@ -178,7 +178,41 @@ class UserBotService:
             # 1. Get sender info
             sender = await event.get_sender()
             sender_id = event.sender_id
+            
             content = event.message.message
+            
+            # 2. Check for voice/audio/video note
+            if event.message.voice or event.message.audio or event.message.video_note:
+                import os
+                import tempfile
+                from src.services.voice_service import voice_service
+                
+                # Send a preliminary message like a real user might, or just notify (less natural for a userbot though)
+                # For Userbot, we probably don't want to reply "Распознаю..." as it breaks the illusion of a human.
+                # So we just silently download and transcribe.
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
+                        temp_path = temp_file.name
+                        
+                    await client.download_media(event.message, file=temp_path)
+                    
+                    transcript = await voice_service.transcribe_audio(temp_path)
+                    
+                    # Cleanup
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                        
+                    if transcript:
+                        content = transcript
+                        logger.info(f"[USERBOT] Voice transcribed: {content}")
+                    else:
+                        logger.warning("[USERBOT] Failed to transcribe voice message")
+                        # If we can't transcribe, we can't process it meaningfully with text AI
+                        return
+                        
+                except Exception as e:
+                    logger.error(f"[USERBOT] Error processing voice message: {e}", exc_info=True)
+                    return
             
             # Use a separate background task to avoid blocking the client
             asyncio.create_task(self._process_message(org_id, sender_id, sender, content))

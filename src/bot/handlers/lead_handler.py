@@ -315,6 +315,59 @@ async def process_debounced_message(user_id: int):
                 pass  # If even sending error message fails, just log it
 
 
+@router.message(F.voice | F.audio | F.video_note)
+async def handle_lead_voice(message: Message):
+    """
+    Handle voice messages from leads.
+    Downloads the file, transcribes it via AssemblyAI, and passes text to AI.
+    """
+    import os
+    import tempfile
+    from src.services.voice_service import voice_service
+    
+    # Notify user that transcription is happening
+    status_msg = await message.answer("⏳ <i>Распознаю голосовое сообщение...</i>", parse_mode="HTML")
+    
+    try:
+        # Determine file type and get file ID
+        if message.voice:
+            file_id = message.voice.file_id
+        elif message.audio:
+            file_id = message.audio.file_id
+        else:
+            file_id = message.video_note.file_id
+            
+        file_info = await bot.get_file(file_id)
+        
+        # Download file to a temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
+            temp_path = temp_file.name
+            
+        await bot.download_file(file_info.file_path, destination=temp_path)
+        
+        # Transcribe using service
+        transcript = await voice_service.transcribe_audio(temp_path)
+        
+        # Cleanup temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+        if not transcript:
+            await status_msg.edit_text("❌ Извините, не удалось распознать голосовое сообщение. Пожалуйста, напишите текстом.")
+            return
+            
+        # Optional: confirm transcription to user
+        await status_msg.edit_text(f"🎤 <i>Распознано:</i> {transcript}", parse_mode="HTML")
+        
+        # Forward the transcribed text to the main AI handler by modifying the message object
+        message.text = transcript
+        await handle_lead_message(message)
+        
+    except Exception as e:
+        logger.error(f"Error handling voice message: {e}", exc_info=True)
+        await status_msg.edit_text("❌ Произошла ошибка при обработке голосового сообщения. Пожалуйста, напишите текстом.")
+
+
 @router.message(F.photo)
 async def handle_lead_photo(message: Message):
     """
