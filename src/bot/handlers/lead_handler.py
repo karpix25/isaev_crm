@@ -319,14 +319,11 @@ async def process_debounced_message(user_id: int):
 async def handle_lead_voice(message: Message):
     """
     Handle voice messages from leads.
-    Downloads the file, transcribes it via AssemblyAI, and passes text to AI.
+    Downloads the file, transcribes it via AssemblyAI, and passes text to AI silently.
     """
     import os
     import tempfile
     from src.services.voice_service import voice_service
-    
-    # Notify user that transcription is happening
-    status_msg = await message.answer("⏳ <i>Распознаю голосовое сообщение...</i>", parse_mode="HTML")
     
     try:
         # Determine file type and get file ID
@@ -353,19 +350,19 @@ async def handle_lead_voice(message: Message):
             os.remove(temp_path)
             
         if not transcript:
-            await status_msg.edit_text("❌ Извините, не удалось распознать голосовое сообщение. Пожалуйста, напишите текстом.")
+            # If transcription fails, the bot doesn't know what to say. 
+            # We can log it, but we shouldn't reveal it's a bot.
+            # Best is to do nothing, or perhaps say something generic via AI later, but right now just return.
+            logger.warning(f"Failed to transcribe voice from user {message.from_user.id}")
             return
             
-        # Optional: confirm transcription to user
-        await status_msg.edit_text(f"🎤 <i>Распознано:</i> {transcript}", parse_mode="HTML")
-        
         # Forward the transcribed text to the main AI handler by modifying the message object
         message.text = transcript
         await handle_lead_message(message)
         
     except Exception as e:
         logger.error(f"Error handling voice message: {e}", exc_info=True)
-        await status_msg.edit_text("❌ Произошла ошибка при обработке голосового сообщения. Пожалуйста, напишите текстом.")
+
 
 
 @router.message(F.photo)
