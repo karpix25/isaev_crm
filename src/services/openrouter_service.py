@@ -257,7 +257,7 @@ class OpenRouterService:
     
     async def generate_embeddings(self, text: str, model: Optional[str] = None) -> List[float]:
         """
-        Generate vector embeddings for text using OpenRouter SDK
+        Generate vector embeddings for text using OpenRouter API (direct HTTP)
         """
         # Ensure model has provider prefix for OpenRouter
         emb_model = model or getattr(settings, 'openrouter_embedding_model', 'openai/text-embedding-3-small')
@@ -267,36 +267,39 @@ class OpenRouterService:
         logger.info(f"Generating embeddings with model: {emb_model}")
         
         try:
-            from openrouter import OpenRouter
+            # Prepare headers
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/karpix25/isaev_crm",
+                "X-Title": "Isaev CRM"
+            }
             
-            # Use SDK defaults for server_url to avoid path duplication issues
-            openrouter_client = OpenRouter(
-                api_key=self.api_key,
-                http_referer="https://github.com/karpix25/isaev_crm",
-                x_title="Isaev CRM"
+            # Use raw httpx call to avoid SDK validation errors on 404s
+            response = await self.client.post(
+                f"{self.base_url}/embeddings",
+                headers=headers,
+                json={
+                    "model": emb_model,
+                    "input": text
+                },
+                timeout=45.0
             )
             
-            # Log key presence (masked)
-            key_status = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key else "MISSING"
-            logger.info(f"Using OpenRouter API Key: {key_status} for model: {emb_model}")
-            
-            res = await openrouter_client.embeddings.generate_async(
-                input=text,
-                model=emb_model
-            )
-            
-            # Diagnostic: check dimension
-            if res and res.data and len(res.data) > 0:
-                dim = len(res.data[0].embedding)
-                logger.info(f"OpenRouter returned embedding with dimension: {dim} for model: {emb_model}")
-                if dim != 1536:
-                    logger.warning(f"Embedding dimension mismatch! Got {dim}, expected 1536 for the 'knowledge_base' table.")
-            
-            # The SDK returns a strongly typed CreateEmbeddingsResponse object
-            if not res or not res.data:
+            if response.status_code != 200:
+                err_data = response.json() if response.content else {"error": {"message": response.text}}
+                err_msg = err_data.get("error", {}).get("message", "Unknown error")
+                
+                if "No successful provider responses" in err_msg:
+                    raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов/настройки.")
+                
+                raise ValueError(f"OpenRouter Error {response.status_code}: {err_msg}")
+
+            data = response.json()
+            if not data or "data" not in data or not data["data"]:
                 raise ValueError(f"OpenRouter API returned empty data for model {emb_model}")
                 
-            embedding = res.data[0].embedding
+            embedding = data["data"][0]["embedding"]
             
             # Dimension Guard: ensure always 1536 dimensions for the database
             target_dim = 1536
@@ -304,7 +307,6 @@ class OpenRouterService:
             
             if current_dim < target_dim:
                 logger.info(f"Padding embedding from {current_dim} to {target_dim} (zero-padding)")
-                # Handle potential immutability or different list types by creating a new list
                 embedding = list(embedding)
                 embedding.extend([0.0] * (target_dim - current_dim))
             elif current_dim > target_dim:
@@ -313,26 +315,12 @@ class OpenRouterService:
                 
             return embedding
             
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error generating embeddings: {str(e)}")
+            raise ValueError(f"Ошибка сетевого соединения с OpenRouter: {str(e)}")
         except Exception as e:
-            err_str = str(e)
-            logger.error(f"Error generating embeddings via OpenRouter SDK: {err_str}")
-            
-            # Extract common OpenRouter error messages from SDK validation errors
-            if "No successful provider responses" in err_str:
-                raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов или настройки провайдеров в OpenRouter.")
-            
-            if "User not found" in err_str or "401" in err_str:
-                raise ValueError("OpenRouter сообщает: 'User not found' или 401. Вероятно, ваш API ключ недействителен или неверно указан.")
-            
-            # Fallback for generic SDK validation errors that might contain the real error inside 'input_value'
-            import re
-            # Extract from 'message': '...' or any key containing the error text
-            match = re.search(r"['\"]message['\"]\s*:\s*['\"]([^'\"]*)['\"]", err_str)
-            if match:
-                real_msg = match.group(1)
-                raise ValueError(f"Ошибка OpenRouter: {real_msg}")
-                
-            raise ValueError(f"Ошибка OpenRouter: {err_str}")
+            logger.error(f"Error generating embeddings: {str(e)}")
+            raise ValueError(f"Ошибка OpenRouter: {str(e)}")
 
     async def close(self):
         """Close HTTP client"""
