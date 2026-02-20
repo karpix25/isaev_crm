@@ -5,7 +5,7 @@ import uuid
 
 from src.database import get_db
 from src.models import User, UserRole, LeadStatus
-from src.schemas.lead import LeadResponse, LeadListResponse, LeadUpdate
+from src.schemas.lead import LeadCreate, LeadResponse, LeadListResponse, LeadUpdate
 from src.services.lead_service import lead_service
 from src.dependencies.auth import get_current_user, require_role
 
