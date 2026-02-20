@@ -389,7 +389,6 @@ class UserBotService:
                     await client.connect()
                     if await client.is_user_authorized():
                         self.clients[org_id] = client
-                        self._setup_handlers(org_id, client)
                     else:
                         raise Exception("Session invalid")
                 except Exception as e:
@@ -397,7 +396,6 @@ class UserBotService:
             else:
                 raise Exception("User Bot not connected or not authorized for this organization")
 
-        await client.send_message(telegram_id, text)
         await client.send_message(telegram_id, text)
 
     async def resolve_username(self, db: AsyncSession, org_id: uuid.UUID, username: str) -> Optional[int]:
@@ -412,7 +410,6 @@ class UserBotService:
                     await client.connect()
                     if await client.is_user_authorized():
                         self.clients[org_id] = client
-                        self._setup_handlers(org_id, client)
                     else:
                         logger.warning(f"[USERBOT] Session invalid when trying to resolve username {username} for org {org_id}")
                         return None
