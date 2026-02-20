@@ -257,55 +257,39 @@ class OpenRouterService:
     
     async def generate_embeddings(self, text: str, model: Optional[str] = None) -> List[float]:
         """
-        Generate vector embeddings for text using OpenRouter/OpenAI
+        Generate vector embeddings for text using OpenRouter SDK
         """
+        # Ensure model has provider prefix for OpenRouter
+        emb_model = model or getattr(settings, 'openrouter_embedding_model', 'openai/text-embedding-3-small')
+        if '/' not in emb_model:
+            emb_model = f"openai/{emb_model}"
+            
+        logger.info(f"Generating embeddings with model: {emb_model}")
+        
         try:
-            # Use provided model or fallback to settings
-            emb_model = model or getattr(settings, 'openrouter_embedding_model', 'openai/text-embedding-3-small')
-            
-            # Ensure model has provider prefix for OpenRouter
-            if '/' not in emb_model:
-                emb_model = f"openai/{emb_model}"
-                
-            logger.info(f"Generating embeddings with model: {emb_model}")
-            
-            response = await self.client.post(
-                f"{self.base_url}/embeddings",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": emb_model,
-                    "input": text,
-                }
+            from openrouter import AsyncOpenRouter
+            openrouter_client = AsyncOpenRouter(
+                api_key=self.api_key,
+                base_url=self.base_url
             )
             
-            response.raise_for_status()
-            data = response.json()
+            res = await openrouter_client.embeddings.generate(
+                input=text,
+                model=emb_model
+            )
             
-            if "data" not in data:
-                logger.error(f"OpenRouter Embeddings Error: Unexpected response format (missing 'data' key). Full response: {data}")
-                # If there's an error message in the response, log it specifically
-                if "error" in data:
-                    err = data["error"]
-                    logger.error(f"OpenRouter API Error Message: {err}")
-                    if "No successful provider responses" in str(err.get("message", "")):
-                        raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов или выберите другую модель.")
-                    raise ValueError(f"Ошибка OpenRouter: {err.get('message', 'Unknown error')}")
-                raise ValueError(f"OpenRouter API вернул неожиданный формат: {data}")
+            # The SDK returns a strongly typed CreateEmbeddingsResponse object
+            # Accessing .data[0].embedding
+            if not res or not res.data:
+                raise ValueError(f"OpenRouter API returned empty data for model {emb_model}")
                 
-            return data["data"][0]["embedding"]
+            return res.data[0].embedding
             
         except Exception as e:
-            logger.error("Error generating embeddings: %s", e)
-            # Log response text if available in exception (for HTTP errors)
-            if hasattr(e, 'response'):
-                try:
-                    logger.error(f"Error Response Body: {e.response.text}")
-                except:
-                    pass
-            raise
+            logger.error(f"Error generating embeddings via OpenRouter SDK: {e}")
+            if "No successful provider responses" in str(e):
+                raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов или выберите другую модель.")
+            raise ValueError(f"Ошибка OpenRouter: {str(e)}")
 
     async def close(self):
         """Close HTTP client"""
