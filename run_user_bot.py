@@ -4,7 +4,7 @@ import signal
 from sqlalchemy import select
 from telethon import TelegramClient, sessions
 
-from src.database import async_session_factory
+from src.database import AsyncSessionLocal
 from src.models import TelegramUserBot
 from src.services.user_bot_service import user_bot_service
 
@@ -17,7 +17,7 @@ logger = logging.getLogger("user_bot_worker")
 
 async def start_active_bots():
     """Load all active bots from DB and start them"""
-    async with async_session_factory() as db:
+    async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(TelegramUserBot).where(
                 TelegramUserBot.is_authorized == True,
@@ -83,7 +83,7 @@ async def main():
             # Get current running orgs
             running_orgs = list(user_bot_service.clients.keys())
             
-            async with async_session_factory() as db:
+            async with AsyncSessionLocal() as db:
                 result = await db.execute(
                     select(TelegramUserBot).where(
                         TelegramUserBot.is_authorized == True,
