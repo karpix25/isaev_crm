@@ -147,7 +147,7 @@ async def main():
                     .where(
                         ChatMessage.direction == MessageDirection.OUTBOUND,
                         ChatMessage.telegram_message_id == 0,
-                        Lead.source == "userbot"
+                        Lead.source.in_(["userbot", "CRM"])
                     )
                     .options(selectinload(ChatMessage.lead))
                 )

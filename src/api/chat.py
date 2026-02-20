@@ -79,8 +79,14 @@ async def send_message_to_lead(
             detail="Access denied"
         )
     
+    if not lead.telegram_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot send message: This lead has no associated Telegram account."
+        )
+    
     # Send message via Telegram
-    if lead.source == "userbot":
+    if lead.source == "userbot" or (lead.source == "CRM" and lead.telegram_id is not None):
         # Background worker (run_user_bot.py) will pick this up from the DB and send it
         telegram_message_id = 0 # 0 means pending to be sent by worker
     else:
