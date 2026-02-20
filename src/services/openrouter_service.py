@@ -281,17 +281,23 @@ class OpenRouterService:
                 headers=headers,
                 json={
                     "model": emb_model,
-                    "input": text
+                    "input": [text]  # Use list format which is more robust
                 },
                 timeout=45.0
             )
             
             if response.status_code != 200:
-                err_data = response.json() if response.content else {"error": {"message": response.text}}
-                err_msg = err_data.get("error", {}).get("message", "Unknown error")
+                body_text = response.text
+                logger.error(f"OpenRouter Embeddings Error {response.status_code}: {body_text}")
+                
+                try:
+                    err_data = response.json()
+                    err_msg = err_data.get("error", {}).get("message", "Unknown error")
+                except:
+                    err_msg = body_text
                 
                 if "No successful provider responses" in err_msg:
-                    raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов/настройки.")
+                    raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Попробуйте другую модель в настройках (Gemini или Ada-002).")
                 
                 raise ValueError(f"OpenRouter Error {response.status_code}: {err_msg}")
 
