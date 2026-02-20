@@ -96,12 +96,36 @@ class KnowledgeService:
         if not text.strip():
             return 0
 
-        # Simple chunking (by paragraphs or fixed length)
-        chunks = [c.strip() for c in text.split("\n\n") if len(c.strip()) > 50]
+        # Robust chunking: fixed size with overlap
+        max_chunk_size = 1200  # characters (~300-400 tokens)
+        overlap = 200
         
-        # If no double newlines, fallback to sentence-ish chunks
-        if not chunks:
-            chunks = [text[i:i+1000] for i in range(0, len(text), 850)]
+        chunks = []
+        if len(text) <= max_chunk_size:
+            chunks = [text.strip()]
+        else:
+            start = 0
+            while start < len(text):
+                end = start + max_chunk_size
+                # Try to find a natural break (newline or space) near the end
+                if end < len(text):
+                    # Look back up to 200 chars for a newline
+                    last_newline = text.rfind('\n', end - 200, end)
+                    if last_newline != -1:
+                        end = last_newline
+                    else:
+                        # Look for a space
+                        last_space = text.rfind(' ', end - 50, end)
+                        if last_space != -1:
+                            end = last_space
+                
+                chunk = text[start:end].strip()
+                if len(chunk) > 20: # Skip tiny fragments
+                    chunks.append(chunk)
+                
+                start = end - overlap
+                if start >= len(text) - overlap:
+                    break
 
         count = 0
         for i, chunk in enumerate(chunks):
