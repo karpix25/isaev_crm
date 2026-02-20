@@ -305,7 +305,8 @@ class OpenRouterService:
             
             # Fallback for generic SDK validation errors that might contain the real error inside 'input_value'
             import re
-            match = re.search(r"input_value={'error':\s*{'message':\s*'([^']*)'", err_str)
+            # Extract from 'message': '...' or any key containing the error text
+            match = re.search(r"['\"]message['\"]\s*:\s*['\"]([^'\"]*)['\"]", err_str)
             if match:
                 real_msg = match.group(1)
                 raise ValueError(f"Ошибка OpenRouter: {real_msg}")
