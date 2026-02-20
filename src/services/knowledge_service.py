@@ -86,14 +86,24 @@ class KnowledgeService:
         """Process an uploaded file, extract text, and add to knowledge base"""
         text = ""
         if filename.endswith(".pdf"):
-            pdf_doc = fitz.open(stream=file_content, filetype="pdf")
-            for page in pdf_doc:
-                text += page.get_text()
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Processing PDF: {filename} ({len(file_content)} bytes)")
+            try:
+                pdf_doc = fitz.open(stream=file_content, filetype="pdf")
+                for page in pdf_doc:
+                    text += page.get_text()
+                logger.info(f"Extracted {len(text)} characters from PDF")
+            except Exception as e:
+                logger.error(f"Failed to extract text from PDF: {e}")
+                raise ValueError(f"Ошибка чтения PDF: {str(e)}")
         else:
             # Assume text/markdown
             text = file_content.decode("utf-8", errors="ignore")
 
         if not text.strip():
+            import logging
+            logging.getLogger(__name__).warning(f"Extracted text is empty for file {filename}")
             return 0
 
         # Robust chunking: fixed size with overlap
