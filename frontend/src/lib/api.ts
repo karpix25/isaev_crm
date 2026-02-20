@@ -48,12 +48,12 @@ export const leadsAPI = {
     },
 
     getById: async (id: string): Promise<Lead> => {
-        const response = await api.get<Lead>(`/leads/${id}/`)
+        const response = await api.get<Lead>(`/leads/${id}`)
         return response.data
     },
 
     update: async (id: string, data: Partial<Lead>): Promise<Lead> => {
-        const response = await api.patch<Lead>(`/leads/${id}/`, data)
+        const response = await api.patch<Lead>(`/leads/${id}`, data)
         return response.data
     },
 
