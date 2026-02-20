@@ -149,8 +149,15 @@ async def main():
                     client = user_bot_service.clients.get(msg.lead.org_id)
                     if client and client.is_connected():
                         try:
+                            # Attempt to get the entity to force it into cache before sending
+                            try:
+                                from telethon.tl.types import PeerUser
+                                await client.get_entity(PeerUser(int(msg.lead.telegram_id)))
+                            except Exception as entity_err:
+                                logger.warning(f"Failed to fetch entity for {msg.lead.telegram_id}, attempting to send anyway: {entity_err}")
+                                
                             # Send message via userbot
-                            await client.send_message(msg.lead.telegram_id, msg.content)
+                            await client.send_message(int(msg.lead.telegram_id), msg.content)
                             
                             # Mark as sent by giving it a dummy ID (-1) so it doesn't get picked up again
                             msg.telegram_message_id = -1
