@@ -39,6 +39,7 @@ export function Leads() {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
     const [showStageFilters, setShowStageFilters] = useState(false)
     const [showCreateModal, setShowCreateModal] = useState(false)
+    const [draggedOverColumn, setDraggedOverColumn] = useState<LeadStatus | null>(null)
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
     const leads = data?.leads || []
@@ -63,6 +64,18 @@ export function Leads() {
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+    }
+
+    const handleDragEnter = (e: React.DragEvent, status: LeadStatus) => {
+        e.preventDefault()
+        setDraggedOverColumn(status)
+    }
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        const relatedTarget = e.relatedTarget as Node;
+        if (e.currentTarget.contains(relatedTarget)) return;
+        setDraggedOverColumn(null)
     }
 
     const handleDrop = (e: React.DragEvent, status: LeadStatus) => {
@@ -90,6 +103,7 @@ export function Leads() {
             }
         }
         setDraggedLead(null)
+        setDraggedOverColumn(null)
     }
 
     const filteredColumns = columns.filter(col => visibleStages.includes(col.id))
@@ -212,8 +226,11 @@ export function Leads() {
                     return (
                         <div
                             key={column.id}
-                            className="flex flex-col rounded-lg border bg-card min-width-[320px] w-[320px] shrink-0"
+                            className={`flex flex-col rounded-lg border bg-card min-width-[320px] w-[320px] shrink-0 transition-colors duration-200 ${draggedOverColumn === column.id ? 'ring-2 ring-primary bg-primary/5 border-primary/50' : ''
+                                }`}
                             onDragOver={handleDragOver}
+                            onDragEnter={(e) => handleDragEnter(e, column.id)}
+                            onDragLeave={handleDragLeave}
                             onDrop={(e) => handleDrop(e, column.id)}
                         >
                             <div className="flex items-center justify-between border-b p-4">
