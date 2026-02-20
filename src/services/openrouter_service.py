@@ -267,13 +267,13 @@ class OpenRouterService:
         logger.info(f"Generating embeddings with model: {emb_model}")
         
         try:
-            from openrouter import AsyncOpenRouter
-            openrouter_client = AsyncOpenRouter(
+            from openrouter import OpenRouter
+            openrouter_client = OpenRouter(
                 api_key=self.api_key,
-                base_url=self.base_url
+                server_url=self.base_url
             )
             
-            res = await openrouter_client.embeddings.generate(
+            res = await openrouter_client.embeddings.generate_async(
                 input=text,
                 model=emb_model
             )
