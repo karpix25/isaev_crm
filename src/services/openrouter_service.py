@@ -270,7 +270,9 @@ class OpenRouterService:
             from openrouter import OpenRouter
             openrouter_client = OpenRouter(
                 api_key=self.api_key,
-                server_url=self.base_url
+                server_url=self.base_url,
+                http_referer="https://github.com/karpix25/isaev_crm",
+                x_title="Isaev CRM"
             )
             
             res = await openrouter_client.embeddings.generate_async(
@@ -286,10 +288,24 @@ class OpenRouterService:
             return res.data[0].embedding
             
         except Exception as e:
-            logger.error(f"Error generating embeddings via OpenRouter SDK: {e}")
-            if "No successful provider responses" in str(e):
-                raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов или выберите другую модель.")
-            raise ValueError(f"Ошибка OpenRouter: {str(e)}")
+            err_str = str(e)
+            logger.error(f"Error generating embeddings via OpenRouter SDK: {err_str}")
+            
+            # Extract common OpenRouter error messages from SDK validation errors
+            if "No successful provider responses" in err_str:
+                raise ValueError(f"OpenRouter не нашел провайдера для '{emb_model}'. Проверьте баланс кредитов или настройки провайдеров в OpenRouter.")
+            
+            if "User not found" in err_str or "401" in err_str:
+                raise ValueError("OpenRouter сообщает: 'User not found' или 401. Вероятно, ваш API ключ недействителен или неверно указан.")
+            
+            # Fallback for generic SDK validation errors that might contain the real error inside 'input_value'
+            import re
+            match = re.search(r"input_value={'error':\s*{'message':\s*'([^']*)'", err_str)
+            if match:
+                real_msg = match.group(1)
+                raise ValueError(f"Ошибка OpenRouter: {real_msg}")
+                
+            raise ValueError(f"Ошибка OpenRouter: {err_str}")
 
     async def close(self):
         """Close HTTP client"""
