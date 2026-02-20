@@ -23,6 +23,7 @@ const columns = [
     { id: LeadStatus.CONTRACT, title: 'Контракт', color: 'bg-indigo-500' },
     { id: LeadStatus.WON, title: 'Выигран', color: 'bg-green-500' },
     { id: LeadStatus.LOST, title: 'Проигран', color: 'bg-red-500' },
+    { id: LeadStatus.SPAM, title: 'Спам', color: 'bg-slate-800' },
 ]
 
 export function Leads() {

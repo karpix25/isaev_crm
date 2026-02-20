@@ -7,7 +7,8 @@ export enum LeadStatus {
     ESTIMATE = 'ESTIMATE',
     CONTRACT = 'CONTRACT',
     WON = 'WON',
-    LOST = 'LOST'
+    LOST = 'LOST',
+    SPAM = 'SPAM'
 }
 
 export enum MessageDirection {

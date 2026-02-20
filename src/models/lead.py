@@ -17,6 +17,7 @@ class LeadStatus(str, enum.Enum):
     CONTRACT = "CONTRACT"
     WON = "WON"
     LOST = "LOST"
+    SPAM = "SPAM"
 
 
 class Lead(BaseModel):

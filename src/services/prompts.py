@@ -34,12 +34,13 @@ SALES_AGENT_SYSTEM_PROMPT = """Ты — дружелюбный AI-ассисте
 - CONTRACT — подписываем договор
 - WON — сделка закрыта
 - LOST — клиент отказался
+- SPAM — реклама, нецелевой запрос, мусорный лид
 
 ФОРМАТ ОТВЕТА (ОБЯЗАТЕЛЬНО JSON):
 Твой ответ ВСЕГДА должен быть строго в формате JSON.
 {{
   "message": "Текст твоего сообщения клиенту",
-  "status": "NEW/CONSULTING/FOLLOW_UP/QUALIFIED/MEASUREMENT/ESTIMATE/CONTRACT/WON/LOST",
+  "status": "NEW/CONSULTING/FOLLOW_UP/QUALIFIED/MEASUREMENT/ESTIMATE/CONTRACT/WON/LOST/SPAM",
   "client_name": "Имя клиента или null",
   "phone": "Телефон или null",
   "property_type": "квартира/дом/офис или null",
