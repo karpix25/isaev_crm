@@ -139,6 +139,13 @@ async def upload_knowledge_file(
         )
         
         return {"status": "success", "indexed_chunks": count}
+    except ValueError as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Knowledge upload validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Knowledge upload error: {e}", exc_info=True)
