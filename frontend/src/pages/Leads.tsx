@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2
+    Calendar, ClipboardList, Sparkles, Trash2, Mic
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -463,11 +463,17 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                         className={`flex flex-col ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}
                                     >
                                         <div
-                                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm text-[13px] ${msg.direction === MessageDirection.OUTBOUND
+                                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm text-[13px] relative group ${msg.direction === MessageDirection.OUTBOUND
                                                 ? 'bg-primary text-primary-foreground rounded-br-none'
-                                                : 'bg-white border text-slate-900 rounded-bl-none'
+                                                : 'bg-slate-100 text-slate-900 border rounded-bl-none'
                                                 }`}
                                         >
+                                            {msg.ai_metadata?.is_voice && (
+                                                <div className={`flex items-center gap-1 mb-1.5 text-xs font-semibold ${msg.direction === MessageDirection.OUTBOUND ? 'text-primary-foreground/80' : 'text-slate-500'}`}>
+                                                    <Mic className="h-3 w-3" />
+                                                    Голосовое сообщение
+                                                </div>
+                                            )}
                                             <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                         </div>
 
