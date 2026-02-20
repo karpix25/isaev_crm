@@ -167,7 +167,16 @@ async def main():
                                 except ValueError:
                                     # Cache miss! Force network request to Telegram API to cache the user
                                     logger.info(f"Entity {msg.lead.telegram_id} not in cache, fetching from Telegram API...")
-                                    await client.get_entity(peer)
+                                    try:
+                                        await client.get_entity(peer)
+                                    except ValueError:
+                                        # Telegram sometimes refuses to fetch by ID alone without access_hash. Try by username if available.
+                                        username = getattr(msg.lead, "username", None)
+                                        if username:
+                                            logger.info(f"Fetching entity by username: {username}")
+                                            await client.get_entity(username)
+                                        else:
+                                            raise
                             except Exception as entity_err:
                                 logger.warning(f"Failed to fetch entity for {msg.lead.telegram_id}, attempting to send anyway: {entity_err}")
                                 
