@@ -218,7 +218,25 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
                     <FormField label="НАЗВАНИЕ КОНФИГУРАЦИИ" value={formData.name} onChange={(v) => setFormData({ ...formData, name: v })} placeholder="Напр: Sales Agent v2.1" />
                     <div className="grid grid-cols-2 gap-4">
                         <FormField label="LLM МОДЕЛЬ" value={formData.llm_model} onChange={(v) => setFormData({ ...formData, llm_model: v })} placeholder="openai/gpt-4o" isSelect options={['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.1-70b']} />
-                        <FormField label="EMBEDDING МОДЕЛЬ" value={formData.embedding_model} onChange={(v) => setFormData({ ...formData, embedding_model: v })} placeholder="openai/text-embedding-3-small" isSelect options={['openai/text-embedding-3-small', 'openai/text-embedding-3-large']} />
+                        <div>
+                            <FormField
+                                label="EMBEDDING МОДЕЛЬ"
+                                value={formData.embedding_model}
+                                onChange={(v) => setFormData({ ...formData, embedding_model: v })}
+                                placeholder="openai/text-embedding-3-small"
+                                isSelect
+                                options={[
+                                    'openai/text-embedding-3-small',
+                                    'openai/text-embedding-3-large',
+                                    'openai/text-embedding-ada-002',
+                                    'google/gemini-embedding-001'
+                                ]}
+                            />
+                            <p className="text-[10px] text-muted-foreground mt-1 ml-1 italic">
+                                * База данных настроена на 1536 измерений (используйте 'small' или 'ada-002').
+                                {formData.embedding_model.includes('large') && <span className="text-destructive font-bold block">! Внимание: 'large' имеет 3072 измерения и вызовет ошибку.</span>}
+                            </p>
+                        </div>
                     </div>
                 </div>
 

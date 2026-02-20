@@ -278,12 +278,19 @@ class OpenRouterService:
             
             # Log key presence (masked)
             key_status = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key else "MISSING"
-            logger.info(f"Using OpenRouter API Key: {key_status}")
+            logger.info(f"Using OpenRouter API Key: {key_status} for model: {emb_model}")
             
             res = await openrouter_client.embeddings.generate_async(
                 input=text,
                 model=emb_model
             )
+            
+            # Diagnostic: check dimension
+            if res and res.data and len(res.data) > 0:
+                dim = len(res.data[0].embedding)
+                logger.info(f"OpenRouter returned embedding with dimension: {dim} for model: {emb_model}")
+                if dim != 1536:
+                    logger.warning(f"Embedding dimension mismatch! Got {dim}, expected 1536 for the 'knowledge_base' table.")
             
             # The SDK returns a strongly typed CreateEmbeddingsResponse object
             # Accessing .data[0].embedding
