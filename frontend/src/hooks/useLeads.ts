@@ -22,7 +22,7 @@ export function useCreateLead() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: (data: { full_name?: string; phone?: string; source?: string; org_id: string }) => leadsAPI.create(data),
+        mutationFn: (data: { full_name?: string; phone?: string; username?: string; source?: string; org_id: string }) => leadsAPI.create(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['leads'] })
         },

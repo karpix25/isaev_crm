@@ -42,7 +42,7 @@ export const leadsAPI = {
         return response.data
     },
 
-    create: async (data: { full_name?: string; phone?: string; source?: string; org_id: string }): Promise<Lead> => {
+    create: async (data: { full_name?: string; phone?: string; username?: string; source?: string; org_id: string }): Promise<Lead> => {
         const response = await api.post<Lead>('/leads/', data)
         return response.data
     },

@@ -647,14 +647,15 @@ function DataField({ label, value, icon }: { label: string, value: string | null
     )
 }
 
-export function CreateLeadModal({ onClose, onSubmit, isLoading }: { onClose: () => void, onSubmit: (data: { full_name: string; phone: string; source: string }) => void, isLoading: boolean }) {
+export function CreateLeadModal({ onClose, onSubmit, isLoading }: { onClose: () => void, onSubmit: (data: { full_name: string; phone: string; username?: string; source: string }) => void, isLoading: boolean }) {
     const [name, setName] = useState('')
     const [phone, setPhone] = useState('')
+    const [username, setUsername] = useState('')
     const [source, setSource] = useState('CRM')
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        onSubmit({ full_name: name, phone, source })
+        onSubmit({ full_name: name, phone, username, source })
     }
 
     return (
@@ -688,6 +689,17 @@ export function CreateLeadModal({ onClose, onSubmit, isLoading }: { onClose: () 
                             onChange={(e) => setPhone(e.target.value)}
                             className="w-full h-11 px-4 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm"
                             placeholder="+7 999 123 45 67"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium mb-1.5 block text-foreground/90">Никнейм (Telegram)</label>
+                        <input
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="w-full h-11 px-4 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm"
+                            placeholder="@username (необязательно)"
                         />
                     </div>
 

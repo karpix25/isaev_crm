@@ -61,6 +61,7 @@ async def create_lead(
         org_id=current_user.org_id,
         full_name=lead_data.full_name,
         phone=lead_data.phone,
+        username=lead_data.username,
         source=lead_data.source or "CRM"
     )
     

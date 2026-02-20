@@ -75,12 +75,30 @@ class LeadService:
         org_id: uuid.UUID,
         full_name: Optional[str] = None,
         phone: Optional[str] = None,
+        username: Optional[str] = None,
         source: str = "CRM"
     ) -> Lead:
-        """Create a new manual lead from CRM interface without Telegram ID"""
+        """Create a new manual lead from CRM interface, optionally resolving Telegram ID by username"""
+        resolved_telegram_id = None
+        clean_username = None
+
+        if username:
+            clean_username = username.strip()
+            if clean_username.startswith('@'):
+                clean_username = clean_username[1:]
+
+            from src.services.user_bot_service import user_bot_service
+            import logging
+            logger = logging.getLogger(__name__)
+            try:
+                resolved_telegram_id = await user_bot_service.resolve_username(db, org_id, clean_username)
+            except Exception as e:
+                logger.error(f"Failed to resolve username {clean_username} during manual creation: {e}")
+
         lead = Lead(
             org_id=org_id,
-            telegram_id=None,
+            telegram_id=resolved_telegram_id,
+            username=clean_username,
             full_name=full_name,
             phone=phone,
             status=LeadStatus.NEW,

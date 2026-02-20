@@ -398,7 +398,42 @@ class UserBotService:
                 raise Exception("User Bot not connected or not authorized for this organization")
 
         await client.send_message(telegram_id, text)
+        await client.send_message(telegram_id, text)
 
+    async def resolve_username(self, db: AsyncSession, org_id: uuid.UUID, username: str) -> Optional[int]:
+        """Resolves a Telegram username to a numeric telegram_id using the User Bot"""
+        client = self.clients.get(org_id)
+        if not client:
+            # Try to restore session if not in memory
+            bot_record = await self._get_or_create_bot_record(db, org_id)
+            if bot_record.is_authorized and bot_record.session_string:
+                try:
+                    client = TelegramClient(sessions.StringSession(bot_record.session_string), bot_record.api_id, bot_record.api_hash)
+                    await client.connect()
+                    if await client.is_user_authorized():
+                        self.clients[org_id] = client
+                        self._setup_handlers(org_id, client)
+                    else:
+                        logger.warning(f"[USERBOT] Session invalid when trying to resolve username {username} for org {org_id}")
+                        return None
+                except Exception as e:
+                    logger.error(f"[USERBOT] Failed to restore User Bot session to resolve username: {e}")
+                    return None
+            else:
+                logger.warning(f"[USERBOT] User Bot not connected or not authorized for org {org_id}. Cannot resolve username {username}.")
+                return None
+
+        try:
+            # Clean username just in case it has an @
+            clean_username = username.strip()
+            if clean_username.startswith('@'):
+                clean_username = clean_username[1:]
+                
+            entity = await client.get_entity(clean_username)
+            return entity.id
+        except Exception as e:
+            logger.error(f"[USERBOT] Failed to resolve username '{username}': {e}")
+            return None
 
     async def _get_or_create_bot_record(self, db: AsyncSession, org_id: uuid.UUID) -> TelegramUserBot:
         result = await db.execute(select(TelegramUserBot).where(TelegramUserBot.org_id == org_id))
