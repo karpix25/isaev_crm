@@ -267,6 +267,26 @@ export function Leads() {
                     }}
                 />
             )}
+
+            {showCreateModal && (
+                <CreateLeadModal
+                    onClose={() => setShowCreateModal(false)}
+                    onSubmit={(data) => {
+                        createLead.mutate({ ...data, org_id: '00000000-0000-0000-0000-000000000000' }, {
+                            onSuccess: () => {
+                                setNotification({ message: 'Лид успешно создан!', type: 'success' })
+                                setTimeout(() => setNotification(null), 5000)
+                                setShowCreateModal(false)
+                            },
+                            onError: (err: any) => {
+                                setNotification({ message: 'Ошибка при создании: ' + (err.response?.data?.detail || err.message), type: 'error' })
+                                setTimeout(() => setNotification(null), 5000)
+                            }
+                        })
+                    }}
+                    isLoading={createLead.isPending}
+                />
+            )}
         </div>
     )
 }
@@ -545,26 +565,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 
                 </div>
             </div>
-
-            {showCreateModal && (
-                <CreateLeadModal
-                    onClose={() => setShowCreateModal(false)}
-                    onSubmit={(data) => {
-                        createLead.mutate({ ...data, org_id: '00000000-0000-0000-0000-000000000000' }, {
-                            onSuccess: () => {
-                                setNotification({ message: 'Лид успешно создан!', type: 'success' })
-                                setTimeout(() => setNotification(null), 5000)
-                                setShowCreateModal(false)
-                            },
-                            onError: (err: any) => {
-                                setNotification({ message: 'Ошибка при создании: ' + (err.response?.data?.detail || err.message), type: 'error' })
-                                setTimeout(() => setNotification(null), 5000)
-                            }
-                        })
-                    }}
-                    isLoading={createLead.isPending}
-                />
-            )}
         </div>
     )
 }
@@ -642,6 +642,72 @@ function DataField({ label, value, icon }: { label: string, value: string | null
             </div>
             <div className="text-xs font-medium text-slate-800">
                 {value || <span className="text-slate-300 font-normal">Нет данных</span>}
+            </div>
+        </div>
+    )
+}
+
+export function CreateLeadModal({ onClose, onSubmit, isLoading }: { onClose: () => void, onSubmit: (data: { full_name: string; phone: string; source: string }) => void, isLoading: boolean }) {
+    const [name, setName] = useState('')
+    const [phone, setPhone] = useState('')
+    const [source, setSource] = useState('CRM')
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault()
+        onSubmit({ full_name: name, phone, source })
+    }
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="w-full max-w-sm bg-card border rounded-2xl shadow-2xl p-6 scale-in-center">
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold">Добавить лида</h3>
+                    <button type="button" onClick={onClose} className="p-2 hover:bg-accent rounded-full transition-colors">
+                        <X className="h-5 w-5 text-muted-foreground" />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="text-sm font-medium mb-1.5 block text-foreground/90">Имя и Фамилия</label>
+                        <input
+                            type="text"
+                            required
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="w-full h-11 px-4 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm"
+                            placeholder="Иван Иванов"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium mb-1.5 block text-foreground/90">Номер телефона</label>
+                        <input
+                            type="tel"
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                            className="w-full h-11 px-4 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm"
+                            placeholder="+7 999 123 45 67"
+                        />
+                    </div>
+
+                    <div className="pt-4 flex justify-end gap-3 mt-4">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-5 py-2.5 rounded-xl font-medium border hover:bg-accent transition-colors"
+                        >
+                            Отмена
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isLoading || !name.trim()}
+                            className="px-5 py-2.5 rounded-xl font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-95"
+                        >
+                            {isLoading ? 'Сохранение...' : 'Создать'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     )
