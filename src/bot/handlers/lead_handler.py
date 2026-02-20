@@ -163,9 +163,15 @@ async def process_debounced_message(user_id: int):
             conversation = []
             for msg in reversed(messages):  # Oldest first (messages are DESC, so reverse)
                 role = "user" if msg.direction == "inbound" else "assistant"
+                text_content = msg.content
+                
+                # Tell AI if the user sent a voice message
+                if msg.ai_metadata and msg.ai_metadata.get("is_voice"):
+                    text_content = f"[Голосовое сообщение] {text_content}"
+                    
                 conversation.append({
                     "role": role,
-                    "content": msg.content
+                    "content": text_content
                 })
             
             # Get active prompt configuration

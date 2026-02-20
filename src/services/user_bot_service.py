@@ -251,7 +251,8 @@ class UserBotService:
                     db, 
                     lead_id=lead.id, 
                     content=content,
-                    telegram_message_id=None
+                    telegram_message_id=None,
+                    ai_metadata={"is_voice": True} if is_voice else None
                 )
                 
                 # 3. Check if agent is active for this bot
@@ -310,10 +311,17 @@ class UserBotService:
                     
                     # 6. Get conversation history
                     history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
-                    formatted_history = [
-                        {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
-                        for m in reversed(history_msgs)
-                    ]
+                    
+                    formatted_history = []
+                    for m in reversed(history_msgs):
+                        role = "user" if m.direction == MessageDirection.INBOUND else "assistant"
+                        text_content = m.content
+                        
+                        # Tell AI if the user sent a voice message
+                        if m.ai_metadata and m.ai_metadata.get("is_voice"):
+                            text_content = f"[Голосовое сообщение] {text_content}"
+                            
+                        formatted_history.append({"role": role, "content": text_content})
                     
                     # 7. Generate AI response
                     ai_response = await openrouter_service.generate_response(
