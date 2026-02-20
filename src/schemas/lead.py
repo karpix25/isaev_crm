@@ -32,7 +32,7 @@ class LeadResponse(BaseModel):
     
     id: uuid.UUID
     org_id: uuid.UUID
-    telegram_id: int
+    telegram_id: Optional[int] = None
     full_name: Optional[str] = None
     phone: Optional[str] = None
     username: Optional[str] = None
