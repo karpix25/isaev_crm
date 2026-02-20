@@ -106,12 +106,17 @@ async def search_knowledge(
     db: AsyncSession = Depends(get_db)
 ):
     """Test semantic search in the Knowledge Base"""
+    # Get active config to know which embedding model was used for indexing
+    config = await prompt_service.get_active_config(db, current_user.org_id)
+    embedding_model = config.embedding_model if config else None
+    
     return await knowledge_service.search_knowledge(
         db=db,
         org_id=current_user.org_id,
         query=data.query,
         limit=data.limit,
-        category=data.category
+        category=data.category,
+        embedding_model=embedding_model
     )
 
 @router.post("/knowledge/upload")
