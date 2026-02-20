@@ -81,16 +81,8 @@ async def send_message_to_lead(
     
     # Send message via Telegram
     if lead.source == "userbot":
-        # Send via User Bot
-        try:
-            from src.services.user_bot_service import user_bot_service
-            await user_bot_service.send_message(db, lead.org_id, lead.telegram_id, message_data.content)
-            telegram_message_id = None # User bot doesn't return msg id easily yet
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to send User Bot message: {str(e)}"
-            )
+        # Background worker (run_user_bot.py) will pick this up from the DB and send it
+        telegram_message_id = 0 # 0 means pending to be sent by worker
     else:
         # Send via Official Bot
         if not bot:

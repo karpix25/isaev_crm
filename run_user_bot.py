@@ -123,11 +123,50 @@ async def main():
                         logger.error(f"Failed to start bot for org {bot.org_id}: {e}")
                         
         except Exception as e:
-            logger.error(f"Error in worker loop: {e}")
+            logger.error(f"Error in worker bot check loop: {e}")
             
-        # Wait for 60 seconds or until stop_event is set
+        # --- Poll for pending outbound messages ---
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=60)
+            from src.models import ChatMessage, Lead, MessageDirection
+            from sqlalchemy.orm import selectinload
+            
+            async with AsyncSessionLocal() as db:
+                # Find all OUTBOUND messages without a telegram_message_id
+                # joined with Lead to ensure we only process 'userbot' leads
+                result = await db.execute(
+                    select(ChatMessage)
+                    .join(Lead, ChatMessage.lead_id == Lead.id)
+                    .where(
+                        ChatMessage.direction == MessageDirection.OUTBOUND,
+                        ChatMessage.telegram_message_id == 0,
+                        Lead.source == "userbot"
+                    )
+                    .options(selectinload(ChatMessage.lead))
+                )
+                pending_messages = result.scalars().all()
+                
+                for msg in pending_messages:
+                    client = user_bot_service.clients.get(msg.lead.org_id)
+                    if client and client.is_connected():
+                        try:
+                            # Send message via userbot
+                            await client.send_message(msg.lead.telegram_id, msg.content)
+                            
+                            # Mark as sent by giving it a dummy ID (-1) so it doesn't get picked up again
+                            msg.telegram_message_id = -1
+                            await db.commit()
+                            logger.info(f"Successfully sent pending message {msg.id} to {msg.lead.telegram_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to send pending message {msg.id}: {e}")
+                            # To prevent infinite loops on permanent errors, we can mark it with -2
+                            msg.telegram_message_id = -2
+                            await db.commit()
+        except Exception as e:
+            logger.error(f"Error checking pending messages: {e}")
+
+        # Wait for 2 seconds or until stop_event is set
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=2)
         except asyncio.TimeoutError:
             continue
     
