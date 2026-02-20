@@ -56,14 +56,23 @@ async def create_lead(
     Requires ADMIN or MANAGER role.
     """
     # Override org_id to match the current user's org
-    lead = await lead_service.create_manual_lead(
-        db=db,
-        org_id=current_user.org_id,
-        full_name=lead_data.full_name,
-        phone=lead_data.phone,
-        username=lead_data.username,
-        source=lead_data.source or "CRM"
-    )
+    from sqlalchemy.exc import IntegrityError
+    
+    try:
+        lead = await lead_service.create_manual_lead(
+            db=db,
+            org_id=current_user.org_id,
+            full_name=lead_data.full_name,
+            phone=lead_data.phone,
+            username=lead_data.username,
+            source=lead_data.source or "CRM"
+        )
+    except IntegrityError as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Этот пользователь (с таким Telegram ID, номером телефона или никнеймом) уже существует в CRM."
+        )
     
     return LeadResponse.model_validate(lead)
 
