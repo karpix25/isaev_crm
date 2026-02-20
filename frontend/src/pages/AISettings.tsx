@@ -28,6 +28,7 @@ export function AISettings() {
         addKnowledge,
         createPrompt,
         searchKnowledge,
+        clearKnowledge,
         knowledge,
         uploadFile,
         deleteKnowledge
@@ -126,6 +127,14 @@ export function AISettings() {
                                 })
                             }}
                             onSearch={(q) => searchKnowledge.mutate({ query: q })}
+                            onClearAll={() => {
+                                if (window.confirm('Вы уверены, что хотите полностью очистить базу знаний? Это действие необратимо.')) {
+                                    clearKnowledge.mutate(undefined, {
+                                        onSuccess: () => toast.success('База знаний очищена'),
+                                        onError: () => toast.error('Ошибка при очистке базы')
+                                    })
+                                }
+                            }}
                         />
                     )}
                     {activeTab === 'userbot' && (
@@ -269,7 +278,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
     )
 }
 
-function KnowledgeBasePanel({ items, isLoading, isAdding, onAdd, onUpload, onDelete, onSearch }: { items: any[], isLoading: boolean, isAdding: boolean, onAdd: (data: any) => void, onUpload: (f: File, c: string) => void, onDelete: (id: string) => void, onSearch: (q: string) => void }) {
+function KnowledgeBasePanel({ items, isLoading, isAdding, onAdd, onUpload, onDelete, onSearch, onClearAll }: { items: any[], isLoading: boolean, isAdding: boolean, onAdd: (data: any) => void, onUpload: (f: File, c: string) => void, onDelete: (id: string) => void, onSearch: (q: string) => void, onClearAll: () => void }) {
     const [newItem, setNewItem] = useState({ title: '', content: '', category: 'FAQ' })
     const [searchQuery, setSearchQuery] = useState('')
     const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -368,10 +377,20 @@ function KnowledgeBasePanel({ items, isLoading, isAdding, onAdd, onUpload, onDel
 
                 {/* Right: Existing Items List */}
                 <div className="bg-card border rounded-3xl p-6 shadow-sm overflow-hidden flex flex-col">
-                    <h3 className="text-lg font-black mb-4 flex items-center gap-2">
-                        <Database className="h-5 w-5 text-primary" />
-                        БАЗА ЗНАНИЙ ({items.length})
-                    </h3>
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-black flex items-center gap-2">
+                            <Database className="h-5 w-5 text-primary" />
+                            БАЗА ЗНАНИЙ ({items.length})
+                        </h3>
+                        {items.length > 0 && (
+                            <button
+                                onClick={onClearAll}
+                                className="text-[10px] font-black text-destructive/50 hover:text-destructive transition-colors uppercase tracking-widest border-b border-transparent hover:border-destructive"
+                            >
+                                Очистить всё
+                            </button>
+                        )}
+                    </div>
                     <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-primary/10">
                         {isLoading ? (
                             <div className="flex flex-col items-center justify-center h-full gap-4">

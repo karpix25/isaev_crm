@@ -84,12 +84,24 @@ export function useAI() {
         }
     })
 
+    const clearKnowledge = useMutation({
+        mutationFn: async () => {
+            const { data } = await api.delete('/ai/knowledge')
+            return data
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai', 'knowledge'] })
+            queryClient.setQueryData(['ai', 'knowledge', 'search'], null)
+        }
+    })
+
     return {
         prompts,
         activePrompt,
         createPrompt,
         addKnowledge,
         searchKnowledge,
+        clearKnowledge,
         uploadFile,
         deleteKnowledge,
         knowledge

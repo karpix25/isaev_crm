@@ -151,4 +151,13 @@ class KnowledgeService:
         
         return count
 
+    @staticmethod
+    async def clear_knowledge(db: AsyncSession, org_id: uuid.UUID) -> int:
+        """Delete all knowledge items for an organization"""
+        from sqlalchemy import delete
+        stmt = delete(KnowledgeItem).where(KnowledgeItem.org_id == org_id)
+        result = await db.execute(stmt)
+        await db.commit()
+        return result.rowcount
+
 knowledge_service = KnowledgeService()

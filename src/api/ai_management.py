@@ -158,3 +158,12 @@ async def upload_knowledge_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка индексации файла: {str(e)}"
         )
+
+@router.delete("/knowledge")
+async def clear_knowledge(
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db)
+):
+    """Clear all items from the knowledge base"""
+    count = await knowledge_service.clear_knowledge(db, current_user.org_id)
+    return {"status": "success", "deleted_count": count}
