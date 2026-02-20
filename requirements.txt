@@ -28,12 +28,12 @@ celery==5.3.6
 minio==7.2.3
 
 # HTTP Client
-httpx>=0.25.0,<0.26.0
+httpx>=0.28.1
 aiohttp==3.9.1
 
 # Utilities
 python-dotenv==1.0.0
 # AI and PDF processing
 PyMuPDF==1.23.22
-langfuse==2.11.0
+langfuse>=3.14.0
 openrouter
