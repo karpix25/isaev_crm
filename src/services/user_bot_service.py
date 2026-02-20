@@ -190,8 +190,8 @@ class UserBotService:
         logger = logging.getLogger(__name__)
         
         # Note: This needs a fresh DB session
-        from src.database import async_session_factory
-        async with async_session_factory() as db:
+        from src.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
             try:
                 # 1. Find or create lead
                 from src.services.lead_service import lead_service
