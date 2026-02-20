@@ -243,41 +243,51 @@ class UserBotService:
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
                 system_prompt = f"{enhanced_prompt}{technical_rules}"
                 
-                # 5. RAG: Search knowledge base for relevant context
-                ai_metadata = {}
+                client = self.clients.get(org_id)
+                typing_context = client.action(int(tg_user_id), 'typing') if client else None
+                
+                if typing_context:
+                    await typing_context.__aenter__()
+
                 try:
-                    relevant_docs = await knowledge_service.search_knowledge(
-                        db=db,
-                        org_id=org_id,
-                        query=content,
-                        limit=3,
-                        embedding_model=config.embedding_model if config else None
-                    )
-                    
-                    if relevant_docs:
-                        context_str = "\n\n".join([f"Source: {d.title}\nContent: {d.content}" for d in relevant_docs])
-                        system_prompt = f"{system_prompt}\n\nRELEVANT KNOWLEDGE:\n{context_str}\n\nUse this context to answer accurately."
+                    # 5. RAG: Search knowledge base for relevant context
+                    ai_metadata = {}
+                    try:
+                        relevant_docs = await knowledge_service.search_knowledge(
+                            db=db,
+                            org_id=org_id,
+                            query=content,
+                            limit=3,
+                            embedding_model=config.embedding_model if config else None
+                        )
                         
-                        ai_metadata["retrieved_context"] = [
-                            {"title": d.title, "content": d.content, "id": str(d.id)}
-                            for d in relevant_docs
-                        ]
-                except Exception as rag_err:
-                    logger.warning(f"RAG search failed (non-critical): {rag_err}")
-                
-                # 6. Get conversation history
-                history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
-                formatted_history = [
-                    {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
-                    for m in reversed(history_msgs)
-                ]
-                
-                # 7. Generate AI response
-                ai_response = await openrouter_service.generate_response(
-                    formatted_history, 
-                    system_prompt,
-                    model=config.llm_model if config else None
-                )
+                        if relevant_docs:
+                            context_str = "\n\n".join([f"Source: {d.title}\nContent: {d.content}" for d in relevant_docs])
+                            system_prompt = f"{system_prompt}\n\nRELEVANT KNOWLEDGE:\n{context_str}\n\nUse this context to answer accurately."
+                            
+                            ai_metadata["retrieved_context"] = [
+                                {"title": d.title, "content": d.content, "id": str(d.id)}
+                                for d in relevant_docs
+                            ]
+                    except Exception as rag_err:
+                        logger.warning(f"RAG search failed (non-critical): {rag_err}")
+                    
+                    # 6. Get conversation history
+                    history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
+                    formatted_history = [
+                        {"role": "user" if m.direction == MessageDirection.INBOUND else "assistant", "content": m.content}
+                        for m in reversed(history_msgs)
+                    ]
+                    
+                    # 7. Generate AI response
+                    ai_response = await openrouter_service.generate_response(
+                        formatted_history, 
+                        system_prompt,
+                        model=config.llm_model if config else None
+                    )
+                finally:
+                    if typing_context:
+                        await typing_context.__aexit__(None, None, None)
                 reply_text = ai_response["text"]
                 
                 # 8. Send reply via User Bot
