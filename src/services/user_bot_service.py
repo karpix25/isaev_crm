@@ -182,6 +182,8 @@ class UserBotService:
             
             content = event.message.message
             is_voice = False
+            image_base64 = None
+            photo_caption = ""
             
             # 2. Check for voice/audio/video note
             if event.message.voice or event.message.audio or event.message.video_note:
@@ -189,9 +191,7 @@ class UserBotService:
                 import tempfile
                 from src.services.voice_service import voice_service
                 
-                # Send a preliminary message like a real user might, or just notify (less natural for a userbot though)
-                # For Userbot, we probably don't want to reply "Распознаю..." as it breaks the illusion of a human.
-                # So we just silently download and transcribe.
+                # Silently download and transcribe
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
                         temp_path = temp_file.name
@@ -210,17 +210,51 @@ class UserBotService:
                         logger.info(f"[USERBOT] Voice transcribed: {content}")
                     else:
                         logger.warning("[USERBOT] Failed to transcribe voice message")
-                        # If we can't transcribe, we can't process it meaningfully with text AI
                         return
                         
                 except Exception as e:
                     logger.error(f"[USERBOT] Error processing voice message: {e}", exc_info=True)
                     return
             
-            # Use a separate background task to avoid blocking the client
-            asyncio.create_task(self._process_message(org_id, sender_id, sender, content, is_voice))
+            # 3. Check for photo messages
+            elif event.message.photo:
+                photo_caption = event.message.message or "" # caption text if any
+                if event.message.fwd_from:
+                    content = f"[Клиент переслал фото (возможно, фото объекта для ремонта)]"
+                elif photo_caption:
+                    content = f"[Клиент прислал фото с подписью] {photo_caption}"
+                else:
+                    content = "[Клиент прислал фото без текста (возможно, фото объекта для ремонта)]"
+                
+                # Download and encode for vision
+                try:
+                    import base64
+                    import tempfile
+                    import os
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                        temp_path = tmp.name
+                    await client.download_media(event.message, file=temp_path)
+                    with open(temp_path, "rb") as f:
+                        image_base64 = base64.b64encode(f.read()).decode("utf-8")
+                    os.remove(temp_path)
+                    logger.info(f"[USERBOT] Photo downloaded and encoded for vision from {sender_id}")
+                except Exception as e:
+                    logger.error(f"[USERBOT] Failed to download photo for vision: {e}")
 
-    async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str, is_voice: bool = False):
+                logger.info(f"[USERBOT] Photo received from {sender_id}: {content}")
+            
+            # 4. Skip if no content at all
+            elif not content:
+                return
+            
+            # Use a separate background task to avoid blocking the client
+            asyncio.create_task(self._process_message(
+                org_id, sender_id, sender, content, 
+                is_voice=is_voice, image_base64=image_base64, photo_caption=photo_caption
+            ))
+
+    async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str, 
+                               is_voice: bool = False, image_base64: str = None, photo_caption: str = ""):
         """Logic to generate AI response and save to CRM with RAG"""
         import json
         import logging
@@ -275,16 +309,14 @@ class UserBotService:
                 # Get base prompt
                 if config and config.system_prompt:
                     base_prompt = config.system_prompt
+                    from src.services.custom_field_service import enrich_system_prompt
+                    system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
                 else:
                     from src.services.prompts import build_system_prompt
-                    base_prompt = build_system_prompt("наша компания")
-                
-                # Inject custom fields into prompt
-                from src.services.custom_field_service import inject_custom_fields_into_prompt
-                enhanced_prompt = await inject_custom_fields_into_prompt(db, org_id, base_prompt)
+                    system_prompt = await build_system_prompt(db, org_id, "наша компания")
                 
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
-                system_prompt = f"{enhanced_prompt}{technical_rules}"
+                system_prompt = f"{system_prompt}{technical_rules}"
                 
                 client = self.clients.get(org_id)
                 typing_context = client.action(int(tg_user_id), 'typing') if client else None
@@ -330,11 +362,20 @@ class UserBotService:
                         formatted_history.append({"role": role, "content": text_content})
                     
                     # 7. Generate AI response
-                    ai_response = await openrouter_service.generate_response(
-                        formatted_history, 
-                        system_prompt,
-                        model=config.llm_model if config else None
-                    )
+                    if image_base64:
+                        ai_response = await openrouter_service.generate_vision_response(
+                            formatted_history,
+                            system_prompt,
+                            image_base64=image_base64,
+                            image_caption=photo_caption,
+                            model=config.llm_model if config else None
+                        )
+                    else:
+                        ai_response = await openrouter_service.generate_response(
+                            formatted_history, 
+                            system_prompt,
+                            model=config.llm_model if config else None
+                        )
                 finally:
                     if typing_context:
                         await typing_context.__aexit__(None, None, None)

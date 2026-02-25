@@ -608,7 +608,17 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
                         </div>
                     )}
                     <div>
-                        <div className="font-medium group-hover:text-primary transition-colors text-[13px]">{lead.full_name || lead.username || 'Неизвестно'}</div>
+                        <div className="flex items-center gap-2">
+                            <div className="font-medium group-hover:text-primary transition-colors text-[13px]">{lead.full_name || lead.username || 'Неизвестно'}</div>
+                            {lead.readiness_score && (
+                                <span className={`inline-flex items-center justify-center h-4 w-4 rounded text-[10px] font-bold ${lead.readiness_score === 'A' ? 'bg-emerald-100 text-emerald-700' :
+                                        lead.readiness_score === 'B' ? 'bg-yellow-100 text-yellow-700' :
+                                            'bg-red-100 text-red-700'
+                                    }`}>
+                                    {lead.readiness_score}
+                                </span>
+                            )}
+                        </div>
                         {lead.username && (
                             <div className="text-[10px] text-muted-foreground">@{lead.username}</div>
                         )}
@@ -647,7 +657,7 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     )
 }
 

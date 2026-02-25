@@ -55,6 +55,12 @@ async def startup():
         except Exception as e:
             logger.error("Failed to set Telegram webhook: %s", e)
             logger.warning("Application will continue without Telegram bot functionality. Please check TELEGRAM_BOT_TOKEN.")
+    
+    # Start follow-up background loop
+    import asyncio
+    from src.services.followup_service import start_followup_loop
+    asyncio.create_task(start_followup_loop())
+    logger.info("Follow-up background loop scheduled")
 
 @app.on_event("shutdown")
 async def shutdown():

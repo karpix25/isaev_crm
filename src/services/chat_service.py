@@ -40,13 +40,14 @@ class ChatService:
         
         db.add(message)
         
-        # Update lead's last message time and increment unread count
+        # Update lead's last message time, increment unread count, and reset follow-up counter
         await db.execute(
             update(Lead)
             .where(Lead.id == lead_id)
             .values(
                 last_message_at=datetime.utcnow(),
-                unread_count=Lead.unread_count + 1
+                unread_count=Lead.unread_count + 1,
+                followup_count=0
             )
         )
         

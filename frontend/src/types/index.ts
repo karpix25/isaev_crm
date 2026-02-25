@@ -26,6 +26,7 @@ export interface Lead {
     status: LeadStatus
     ai_summary: string | null
     ai_qualification_status?: string
+    readiness_score?: 'A' | 'B' | 'C' | null
     source: string | null
     avatar_url?: string
     converted_to_project_id?: string | null

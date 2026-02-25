@@ -20,6 +20,13 @@ class LeadStatus(str, enum.Enum):
     SPAM = "SPAM"
 
 
+class ReadinessScore(str, enum.Enum):
+    """A/B/C Client readiness score"""
+    A = "A"
+    B = "B"
+    C = "C"
+
+
 class Lead(BaseModel):
     """
     Lead model for tracking potential clients.
@@ -65,6 +72,12 @@ class Lead(BaseModel):
         default="in_progress"
     )  # in_progress, qualified, not_interested, handoff_required
     
+    # A/B/C Readiness Score
+    readiness_score = Column(
+        SQLEnum(ReadinessScore, name="readiness_score"),
+        nullable=True
+    )
+    
     # Extracted data from AI conversation (JSON)
     extracted_data = Column(Text, nullable=True)  # JSON string
     
@@ -77,6 +90,10 @@ class Lead(BaseModel):
     # Chat tracking
     last_message_at = Column(DateTime(timezone=True), nullable=True)
     unread_count = Column(Integer, nullable=False, default=0)
+    
+    # Follow-up tracking
+    followup_count = Column(Integer, nullable=False, default=0)  # consecutive follow-ups sent
+    last_followup_at = Column(DateTime(timezone=True), nullable=True)
     
     # Project connection
     converted_to_project_id = Column(

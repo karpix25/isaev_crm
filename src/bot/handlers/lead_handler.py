@@ -184,18 +184,19 @@ async def process_debounced_message(user_id: int):
             org = org_result.scalar_one_or_none()
             company_name = org.name if org else "наша компания"
             
-            base_prompt = config.system_prompt if config else build_system_prompt(company_name)
-            # If using DB prompt, still inject company name if placeholder present
-            if "{company_name}" in base_prompt:
-                base_prompt = base_prompt.format(company_name=company_name)
-            
-            # Inject custom fields into prompt
-            from src.services.custom_field_service import inject_custom_fields_into_prompt
-            enhanced_prompt = await inject_custom_fields_into_prompt(db, org_id, base_prompt)
+            if config and config.system_prompt:
+                base_prompt = config.system_prompt
+                if "{company_name}" in base_prompt:
+                    base_prompt = base_prompt.format(company_name=company_name)
+                
+                from src.services.custom_field_service import enrich_system_prompt
+                system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
+            else:
+                system_prompt = await build_system_prompt(db, org_id, company_name)
             
             # Technical constraints to prevent breakage
             technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
-            system_prompt = f"{enhanced_prompt}{technical_rules}"
+            system_prompt = f"{system_prompt}{technical_rules}"
             
             # Perform RAG (Retrieval)
             trace_id = f"lead_{lead.id}_{len(messages)}" # Unique per turn
@@ -265,6 +266,11 @@ async def process_debounced_message(user_id: int):
                 # Qualification Status
                 if extracted_data.get("is_hot_lead"):
                     update_fields["ai_qualification_status"] = "qualified"
+                    
+                # A/B/C Readiness Score
+                readiness_score = extracted_data.get("readiness_score")
+                if readiness_score in ["A", "B", "C"]:
+                    update_fields["readiness_score"] = readiness_score
                 
                 # Save extracted data as JSON string
                 update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
@@ -383,7 +389,13 @@ async def handle_lead_voice(message: Message):
 async def handle_lead_photo(message: Message):
     """
     Handle photo messages from leads.
+    Downloads the photo and sends it to AI via vision API so AI can actually see the image.
     """
+    import base64
+    import tempfile
+    import os
+    from src.models import MessageDirection
+    
     # Get photo file_id (largest size)
     photo = message.photo[-1]
     
@@ -400,18 +412,137 @@ async def handle_lead_photo(message: Message):
             username=message.from_user.username
         )
         
-        # Save message with photo
-        caption = message.caption or "[Photo]"
+        # Save incoming message
+        caption = message.caption or ""
+        content_for_db = f"[Фото] {caption}" if caption else "[Фото]"
+        
         await chat_service.save_incoming_message(
             db=db,
             lead_id=lead.id,
-            content=caption,
+            content=content_for_db,
             telegram_message_id=message.message_id,
             media_url=f"tg://photo/{photo.file_id}",
             sender_name=message.from_user.full_name
         )
-    
-    await message.answer("✅ Фото получено! Спасибо за дополнительную информацию.")
+        
+        # Download photo and convert to base64
+        image_base64 = None
+        try:
+            file_info = await bot.get_file(photo.file_id)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                temp_path = tmp.name
+            await bot.download_file(file_info.file_path, destination=temp_path)
+            
+            with open(temp_path, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            
+            os.remove(temp_path)
+        except Exception as e:
+            logger.error(f"Failed to download photo: {e}", exc_info=True)
+        
+        # Build system prompt
+        config = await prompt_service.get_active_config(db, org_id)
+        
+        if config and config.system_prompt:
+            base_prompt = config.system_prompt
+            if "{company_name}" in base_prompt:
+                from src.models.organization import Organization
+                from sqlalchemy import select
+                org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+                org = org_result.scalar_one_or_none()
+                company_name = org.name if org else "наша компания"
+                base_prompt = base_prompt.format(company_name=company_name)
+            
+            from src.services.custom_field_service import enrich_system_prompt
+            system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
+        else:
+            from src.models.organization import Organization
+            from sqlalchemy import select
+            org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+            org = org_result.scalar_one_or_none()
+            company_name = org.name if org else "наша компания"
+            system_prompt = await build_system_prompt(db, org_id, company_name)
+        
+        technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
+        system_prompt = f"{system_prompt}{technical_rules}"
+        
+        # Get conversation history (exclude the photo message we just saved — it's sent separately via vision)
+        history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
+        
+        formatted_history = []
+        for m in reversed(history_msgs):
+            # Skip the photo message we just saved (it'll be sent as an image)
+            if m.telegram_message_id == message.message_id:
+                continue
+            role = "user" if m.direction == MessageDirection.INBOUND else "assistant"
+            formatted_history.append({"role": role, "content": m.content})
+        
+        # Generate AI response — use vision if photo downloaded, fallback to text
+        try:
+            if image_base64:
+                ai_response = await openrouter_service.generate_vision_response(
+                    conversation_history=formatted_history,
+                    system_prompt=system_prompt,
+                    image_base64=image_base64,
+                    image_caption=caption,
+                    model=config.llm_model if config else None
+                )
+            else:
+                # Fallback: tell AI about the photo via text
+                formatted_history.append({
+                    "role": "user",
+                    "content": f"[Клиент прислал фото] {caption}" if caption else "[Клиент прислал фото объекта]"
+                })
+                ai_response = await openrouter_service.generate_response(
+                    formatted_history,
+                    system_prompt,
+                    model=config.llm_model if config else None
+                )
+        except Exception as e:
+            logger.error(f"Vision API failed, trying text fallback: {e}")
+            formatted_history.append({
+                "role": "user",
+                "content": f"[Клиент прислал фото] {caption}" if caption else "[Клиент прислал фото объекта]"
+            })
+            ai_response = await openrouter_service.generate_response(
+                formatted_history,
+                system_prompt,
+                model=config.llm_model if config else None
+            )
+        
+        reply_text = ai_response["text"]
+        await message.answer(reply_text)
+        
+        # Extract data and save
+        extracted_data = ai_response.get("extracted_data")
+        ai_metadata = {"usage": ai_response.get("usage"), "has_vision": bool(image_base64)}
+        update_fields = {}
+        if extracted_data:
+            if extracted_data.get("client_name") and not lead.full_name:
+                update_fields["full_name"] = extracted_data.get("client_name")
+            if extracted_data.get("phone") and not lead.phone:
+                update_fields["phone"] = extracted_data.get("phone")
+            
+            ai_status = extracted_data.get("status")
+            if ai_status and ai_status in [s.value for s in LeadStatus]:
+                update_fields["status"] = ai_status
+            
+            if extracted_data.get("is_hot_lead"):
+                update_fields["ai_qualification_status"] = "qualified"
+                
+            readiness_score = extracted_data.get("readiness_score")
+            if readiness_score in ["A", "B", "C"]:
+                update_fields["readiness_score"] = readiness_score
+            
+            update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
+        
+        await chat_service.send_outbound_message(
+            db, lead_id=lead.id, content=reply_text,
+            sender_name="AI Agent", ai_metadata=ai_metadata
+        )
+        
+        if update_fields:
+            await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
 
 
 # Register router with dispatcher

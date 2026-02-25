@@ -32,22 +32,25 @@ def build_custom_fields_section(custom_fields: List[CustomField]) -> str:
     if not custom_fields:
         return ""
     
-    lines = ["\n\nКАСТОМНЫЕ ПОЛЯ ДЛЯ СБОРА:"]
+    lines = ["\n\nДОПОЛНИТЕЛЬНЫЕ ПОЛЯ ДЛЯ СБОРА (СПРАШИВАЙ ПО КОНТЕКСТУ):"]
     
     for idx, field in enumerate(custom_fields, start=1):
-        field_desc = f"{idx}. **{field.field_label}** ({field.field_name})"
+        field_desc = f"{idx}. **{field.field_label}** (`{field.field_name}`)"
         
         if field.field_type == "select" and field.options:
-            field_desc += f" - варианты: {', '.join(field.options)}"
+            field_desc += f" [Варианты: {', '.join(field.options)}]"
         elif field.field_type == "boolean":
-            field_desc += " - да/нет"
+            field_desc += " [Тип: да/нет]"
         elif field.field_type == "number":
-            field_desc += " - число"
+            field_desc += " [Тип: число]"
         
         if field.description:
-            field_desc += f" - {field.description}"
+            # Explicitly highlight the purpose/logic for the AI
+            field_desc += f"\n   - ЦЕЛЬ/ПОДСКАЗКА: {field.description}"
         
         lines.append(field_desc)
+    
+    lines.append("\nИнструкция для AI: Не спрашивай всё сразу. Вплетай эти вопросы в диалог, когда это логично (например, после обсуждения площади или типа объекта).")
     
     return "\n".join(lines)
 
@@ -73,51 +76,72 @@ def build_custom_fields_json_schema(custom_fields: List[CustomField]) -> str:
     return "\n".join(lines)
 
 
-async def inject_custom_fields_into_prompt(
+async def enrich_system_prompt(
     db: AsyncSession,
-    org_id: UUID,
+    org_id: str,
     base_prompt: str
 ) -> str:
     """
-    Inject custom fields into the system prompt.
+    Enrich the system prompt with current CRM statuses and custom fields.
     
     This function:
-    1. Fetches active custom fields for the organization
-    2. Builds the custom fields section
-    3. Builds the JSON schema section
-    4. Injects both into the base prompt
-    
-    Args:
-        db: Database session
-        org_id: Organization ID
-        base_prompt: The base system prompt
-    
-    Returns:
-        Enhanced prompt with custom fields injected
+    1. Fetches current LeadStatus enum values.
+    2. Fetches active custom fields for the organization.
+    3. Injects both into the base_prompt using {crm_statuses} and {custom_fields} placeholders.
     """
-    custom_fields = await get_custom_fields_for_org(db, org_id)
+    from src.models.lead import LeadStatus
+    import uuid
     
-    if not custom_fields:
-        return base_prompt
+    # 1. Prepare CRM Statuses section
+    status_descriptions = {
+        "NEW": "(Новый)",
+        "CONSULTING": "(Консультация)",
+        "FOLLOW_UP": "(Думает/дорого)",
+        "QUALIFIED": "(Есть телефон/проект)",
+        "MEASUREMENT": "(Договорились о замере)",
+        "ESTIMATE": "(Подготовка сметы)",
+        "CONTRACT": "(Подписание договора)",
+        "WON": "(Успешно)",
+        "LOST": "(Отказ)",
+        "SPAM": "(Реклама/спам)"
+    }
     
-    # Build sections
-    fields_section = build_custom_fields_section(custom_fields)
-    json_schema = build_custom_fields_json_schema(custom_fields)
+    statuses_lines = []
+    for status in LeadStatus:
+        desc = status_descriptions.get(status.value, "")
+        statuses_lines.append(f"- {status.value} {desc}")
     
-    # Find injection points
-    # 1. After standard fields section (before JSON format)
-    if "ФОРМАТ ОТВЕТА" in base_prompt:
-        parts = base_prompt.split("ФОРМАТ ОТВЕТА")
-        enhanced_prompt = parts[0] + fields_section + "\n\nФОРМАТ ОТВЕТА" + parts[1]
+    crm_statuses_text = "\n".join(statuses_lines)
+    
+    # 2. Prepare Custom Fields section
+    try:
+        org_uuid = uuid.UUID(str(org_id))
+        custom_fields = await get_custom_fields_for_org(db, org_uuid)
+    except Exception:
+        custom_fields = []
+        
+    custom_fields_text = ""
+    json_schema_text = ""
+    
+    if custom_fields:
+        custom_fields_text = build_custom_fields_section(custom_fields)
+        json_schema_text = build_custom_fields_json_schema(custom_fields)
+    
+    # 3. Inject into prompt
+    enhanced_prompt = base_prompt.replace("{crm_statuses}", crm_statuses_text)
+    
+    # Custom fields injection
+    if custom_fields_text:
+        enhanced_prompt = enhanced_prompt.replace("{custom_fields}", custom_fields_text)
+        
+        # Also inject into technical JSON format if we can find it
+        placeholder = 'ТЕХНИЧЕСКИЙ ВЫВОД: Always respond in VALID JSON format.'
+        if placeholder in enhanced_prompt:
+            enhanced_prompt = enhanced_prompt.replace(
+                placeholder,
+                f"В ДОПОЛНЕНИЕ К СТАНДАРТНЫМ ПОЛЯМ, ОБЯЗАТЕЛЬНО ВКЛЮЧИ В JSON:\n{json_schema_text}\n\n{placeholder}"
+            )
     else:
-        # Fallback: append at the end before JSON
-        enhanced_prompt = base_prompt + fields_section
-    
-    # 2. Inject into JSON schema (before closing brace)
-    if '"is_hot_lead": boolean' in enhanced_prompt:
-        enhanced_prompt = enhanced_prompt.replace(
-            '"is_hot_lead": boolean',
-            f'"is_hot_lead": boolean,\n{json_schema}'
-        )
-    
+        enhanced_prompt = enhanced_prompt.replace("{custom_fields}", "")
+        
     return enhanced_prompt

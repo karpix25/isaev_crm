@@ -150,6 +150,104 @@ class OpenRouterService:
             logger.error("Error calling OpenRouter API: %s", e)
             raise
     
+    async def generate_vision_response(
+        self,
+        conversation_history: List[Dict],
+        system_prompt: str,
+        image_base64: str,
+        image_caption: str = "",
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate AI response with an image attached (vision).
+        Uses multimodal content format supported by Claude, GPT-4V, etc.
+        
+        Args:
+            conversation_history: Previous messages
+            system_prompt: System prompt 
+            image_base64: Base64-encoded image data
+            image_caption: Optional text caption from the client
+            model: Override model
+        
+        Returns:
+            Same format as generate_response
+        """
+        try:
+            # Build the user message with image
+            user_content = []
+            
+            # Add the image
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_base64}"
+                }
+            })
+            
+            # Add text context
+            if image_caption:
+                user_content.append({
+                    "type": "text",
+                    "text": f"Клиент прислал фото с подписью: {image_caption}"
+                })
+            else:
+                user_content.append({
+                    "type": "text", 
+                    "text": "Клиент прислал это фото. Ответь на основе того, что видишь на изображении."
+                })
+            
+            # Build messages: history + new multimodal message
+            messages = [
+                {"role": "system", "content": system_prompt}
+            ] + conversation_history + [
+                {"role": "user", "content": user_content}
+            ]
+            
+            response = await self.client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://renovation-crm.com",
+                    "X-Title": "Renovation CRM"
+                },
+                json={
+                    "model": model or self.model,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 1000,
+                }
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            ai_message = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            
+            extracted_data = self._extract_json_from_response(ai_message)
+            
+            if extracted_data and "message" in extracted_data:
+                clean_text = str(extracted_data["message"])
+            else:
+                clean_text = self._remove_json_from_response(ai_message)
+                if not clean_text or clean_text.isspace():
+                    clean_text = ai_message
+            
+            return {
+                "text": clean_text,
+                "extracted_data": extracted_data,
+                "usage": {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                }
+            }
+            
+        except Exception as e:
+            logger.error("Error calling OpenRouter Vision API: %s", e, exc_info=True)
+            raise
+    
     def _extract_json_from_response(self, text: str) -> Optional[Dict[str, Any]]:
         """
         Extract JSON data from AI response with robust recovery logic.
