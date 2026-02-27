@@ -5,7 +5,7 @@ from typing import Optional, List
 from datetime import datetime
 import uuid
 
-from src.models import Lead, ChatMessage, MessageDirection
+from src.models import Lead, ChatMessage, MessageDirection, MessageStatus
 from src.schemas.chat import ChatMessageCreate
 
 
@@ -64,7 +64,8 @@ class ChatService:
         media_url: Optional[str] = None,
         telegram_message_id: Optional[int] = None,
         sender_name: str = "Admin",
-        ai_metadata: Optional[dict] = None
+        ai_metadata: Optional[dict] = None,
+        status: MessageStatus = MessageStatus.PENDING
     ) -> ChatMessage:
         """
         Save outbound message from admin or AI to lead.
@@ -79,7 +80,8 @@ class ChatService:
             telegram_message_id=telegram_message_id,
             is_read=True,  # Outbound messages are always "read"
             sender_name=sender_name,
-            ai_metadata=ai_metadata
+            ai_metadata=ai_metadata,
+            status=status
         )
         
         db.add(message)

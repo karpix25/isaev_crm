@@ -11,6 +11,12 @@ class MessageDirection(str, enum.Enum):
     INBOUND = "inbound"   # From lead to bot
     OUTBOUND = "outbound"  # From bot/manager to lead
 
+class MessageStatus(str, enum.Enum):
+    """Status of the message delivery"""
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+
 
 class ChatMessage(BaseModel):
     """
@@ -32,6 +38,12 @@ class ChatMessage(BaseModel):
     direction = Column(
         SQLEnum(MessageDirection, name="message_direction"),
         nullable=False
+    )
+    
+    status = Column(
+        SQLEnum(MessageStatus, name="message_status"),
+        nullable=False,
+        default=MessageStatus.SENT
     )
     
     content = Column(Text, nullable=False)

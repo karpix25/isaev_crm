@@ -86,10 +86,8 @@ async def send_message_to_lead(
         )
     
     # Send message via Telegram
-    if lead.source == "userbot" or (lead.source == "CRM" and lead.telegram_id is not None):
-        # Background worker (run_user_bot.py) will pick this up from the DB and send it
-        telegram_message_id = 0 # 0 means pending to be sent by worker
-    else:
+    telegram_message_id = None
+    if lead.source != "userbot" and lead.source != "CRM":
         # Send via Official Bot
         if not bot:
             raise HTTPException(
@@ -109,8 +107,7 @@ async def send_message_to_lead(
                 detail=f"Failed to send Telegram message: {str(e)}"
             )
 
-    
-    # Save message to database
+    # Save message to database (UserBot messages will be picked up by the worker because status defaults to PENDING)
     message = await chat_service.send_outbound_message(
         db=db,
         lead_id=lead_id,
@@ -119,6 +116,7 @@ async def send_message_to_lead(
         telegram_message_id=telegram_message_id,
         ai_metadata={"source": "CRM"}
     )
+
     
     return ChatMessageResponse.model_validate(message)
 

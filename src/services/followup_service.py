@@ -158,14 +158,10 @@ async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
     Send a follow-up message to the lead via UserBot.
     Returns True if sent successfully.
     """
-    from src.services.user_bot_service import user_bot_service
     from sqlalchemy import update as sql_update
     
     try:
-        # Send via UserBot
-        await user_bot_service.send_message(db, lead.org_id, lead.telegram_id, message, username=lead.username)
-        
-        # Save as outbound message
+        # Save as outbound message (worker will pick it up due to PENDING status)
         await chat_service.send_outbound_message(
             db,
             lead_id=lead.id,

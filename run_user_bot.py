@@ -135,18 +135,18 @@ async def main():
             
         # --- Poll for pending outbound messages ---
         try:
-            from src.models import ChatMessage, Lead, MessageDirection
+            from src.models import ChatMessage, Lead, MessageDirection, MessageStatus
             from sqlalchemy.orm import selectinload
             
             async with AsyncSessionLocal() as db:
-                # Find all OUTBOUND messages without a telegram_message_id
+                # Find all OUTBOUND messages with PENDING status
                 # joined with Lead to ensure we only process 'userbot' leads
                 result = await db.execute(
                     select(ChatMessage)
                     .join(Lead, ChatMessage.lead_id == Lead.id)
                     .where(
                         ChatMessage.direction == MessageDirection.OUTBOUND,
-                        ChatMessage.telegram_message_id == 0,
+                        ChatMessage.status == MessageStatus.PENDING,
                         Lead.source.in_(["userbot", "CRM"])
                     )
                     .options(selectinload(ChatMessage.lead))
@@ -181,16 +181,18 @@ async def main():
                                 logger.warning(f"Failed to fetch entity for {msg.lead.telegram_id}, attempting to send anyway: {entity_err}")
                                 
                             # Send message via userbot
-                            await client.send_message(int(msg.lead.telegram_id), msg.content)
+                            sent_msg = await client.send_message(int(msg.lead.telegram_id), msg.content)
                             
-                            # Mark as sent by giving it a dummy ID (-1) so it doesn't get picked up again
-                            msg.telegram_message_id = -1
+                            # Mark as sent
+                            msg.status = MessageStatus.SENT
+                            if hasattr(sent_msg, 'id'):
+                                msg.telegram_message_id = sent_msg.id
                             await db.commit()
                             logger.info(f"Successfully sent pending message {msg.id} to {msg.lead.telegram_id}")
                         except Exception as e:
                             logger.error(f"Failed to send pending message {msg.id}: {e}")
-                            # To prevent infinite loops on permanent errors, we can mark it with -2
-                            msg.telegram_message_id = -2
+                            # Mark as failed to prevent infinite loops
+                            msg.status = MessageStatus.FAILED
                             await db.commit()
         except Exception as e:
             logger.error(f"Error checking pending messages: {e}")
