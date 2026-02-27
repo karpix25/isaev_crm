@@ -408,14 +408,16 @@ class UserBotService:
                     
                     update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
 
-                # 10. Save outbound message WITH ai_metadata
+                # 10. Save outbound message WITH ai_metadata and mark as SENT to prevent duplicate queue send
+                from src.models import MessageStatus
                 ai_metadata["usage"] = ai_response.get("usage")
                 await chat_service.send_outbound_message(
                     db,
                     lead_id=lead.id,
                     content=reply_text,
                     sender_name="AI Agent",
-                    ai_metadata=ai_metadata
+                    ai_metadata=ai_metadata,
+                    status=MessageStatus.SENT
                 )
                 
                 # 11. Apply updates to the lead
