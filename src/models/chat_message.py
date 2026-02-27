@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Enum as SQLEnum, Text, BigInteger, Boolean, JSON
+from sqlalchemy import Column, String, ForeignKey, Enum as SQLEnum, Text, BigInteger, Boolean, JSON, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -25,6 +25,9 @@ class ChatMessage(BaseModel):
     """
     
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index('ix_chat_messages_lead_id_created_at', 'lead_id', 'created_at'),
+    )
     
     # Lead reference
     lead_id = Column(

@@ -56,9 +56,9 @@ class Lead(BaseModel):
     
     # Status
     status = Column(
-        SQLEnum(LeadStatus, name="lead_status"),
+        String(50),
         nullable=False,
-        default=LeadStatus.NEW,
+        default=LeadStatus.NEW.value,
         index=True
     )
     
@@ -74,7 +74,7 @@ class Lead(BaseModel):
     
     # A/B/C Readiness Score
     readiness_score = Column(
-        SQLEnum(ReadinessScore, name="readiness_score"),
+        String(10),
         nullable=True
     )
     
