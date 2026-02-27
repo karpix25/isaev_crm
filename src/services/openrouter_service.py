@@ -8,10 +8,21 @@ from typing import Optional, Dict, Any, List
 import httpx
 from datetime import datetime
 from langfuse import Langfuse
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception
 
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+def should_retry_api_error(retry_state):
+    """Determine if we should retry based on the exception type and HTTP status."""
+    if retry_state.outcome.failed:
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, httpx.RequestError):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in (429, 500, 502, 503, 504)
+    return False
 
 
 class OpenRouterService:
@@ -21,7 +32,10 @@ class OpenRouterService:
         self.api_key = settings.openrouter_api_key
         self.model = settings.openrouter_model
         self.base_url = getattr(settings, 'openrouter_base_url', 'https://openrouter.ai/api/v1')
-        self.client = httpx.AsyncClient(timeout=30.0)
+        
+        limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+        timeout = httpx.Timeout(45.0, connect=10.0)
+        self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
         
         # Langfuse Tracing
         if settings.langfuse_public_key and settings.langfuse_secret_key:
@@ -33,6 +47,13 @@ class OpenRouterService:
         else:
             self.langfuse = None
     
+    @retry(
+        retry=retry_if_exception(should_retry_api_error),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+        before_sleep=lambda retry_state: logger.warning(f"Retrying OpenRouter API... Attempt {retry_state.attempt_number}")
+    )
     async def generate_response(
         self,
         conversation_history: List[Dict[str, str]],
@@ -150,6 +171,13 @@ class OpenRouterService:
             logger.error("Error calling OpenRouter API: %s", e)
             raise
     
+    @retry(
+        retry=retry_if_exception(should_retry_api_error),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+        before_sleep=lambda retry_state: logger.warning(f"Retrying OpenRouter API (Vision)... Attempt {retry_state.attempt_number}")
+    )
     async def generate_vision_response(
         self,
         conversation_history: List[Dict],
