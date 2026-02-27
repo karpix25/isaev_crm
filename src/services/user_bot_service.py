@@ -268,8 +268,9 @@ class UserBotService:
                 from src.services.lead_service import lead_service
                 
                 # Extract sender info safely
-                full_name = getattr(sender, 'first_name', '') + " " + getattr(sender, 'last_name', '')
-                full_name = full_name.strip() or "Unknown"
+                first_name = getattr(sender, 'first_name', '') or ""
+                last_name = getattr(sender, 'last_name', '') or ""
+                full_name = f"{first_name} {last_name}".strip() or "Unknown"
                 username = getattr(sender, 'username', None)
                 
                 lead = await lead_service.create_or_get_lead(
