@@ -44,7 +44,7 @@ class ChatMessage(BaseModel):
     )
     
     status = Column(
-        SQLEnum(MessageStatus, name="message_status"),
+        SQLEnum(MessageStatus, name="message_status", values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         default=MessageStatus.SENT
     )
