@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
+import { Virtuoso } from 'react-virtuoso'
 import { useLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
@@ -14,21 +15,12 @@ export function Chat() {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
     const [message, setMessage] = useState('')
     const [activeTrace, setActiveTrace] = useState<any>(null)
-    const messagesEndRef = useRef<HTMLDivElement>(null)
 
     const { data: chatData } = useChatHistory(selectedLead?.id || '', 1)
     const sendMessage = useSendMessage()
 
     const leads = data?.leads || []
     const messages = chatData?.messages || []
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-
-    useEffect(() => {
-        scrollToBottom()
-    }, [messages])
 
     // Select lead from URL
     useEffect(() => {
@@ -127,70 +119,76 @@ export function Chat() {
                         </div>
 
                         {/* Messages */}
-                        <div className="flex-1 space-y-4 overflow-y-auto p-4 flex flex-col">
+                        <div className="flex-1 flex flex-col bg-background/50">
                             {messages.length === 0 ? (
-                                <div className="flex h-full items-center justify-center text-muted-foreground">
+                                <div className="flex flex-1 items-center justify-center text-muted-foreground p-4">
                                     История диалога пуста. Начните общение.
                                 </div>
                             ) : (
-                                [...messages].reverse().map((msg) => (
-                                    <div
-                                        key={msg.id}
-                                        className={`flex flex-col ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}
-                                    >
-                                        <div
-                                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm text-[13px] relative group ${msg.direction === MessageDirection.OUTBOUND
-                                                ? 'bg-primary text-primary-foreground rounded-br-none'
-                                                : 'bg-slate-100 text-slate-900 border rounded-bl-none'
-                                                }`}
-                                        >
-                                            {msg.ai_metadata?.is_voice && (
-                                                <div className={`flex items-center gap-1 mb-1.5 text-xs font-semibold ${msg.direction === MessageDirection.OUTBOUND ? 'text-primary-foreground/80' : 'text-slate-500'}`}>
-                                                    <Mic className="h-3 w-3" />
-                                                    Голосовое сообщение
-                                                </div>
-                                            )}
-                                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-
-                                            {/* AI Trace Icon */}
-                                            {msg.sender_name === 'AI' && msg.ai_metadata && (
-                                                <button
-                                                    onClick={() => setActiveTrace(msg.ai_metadata)}
-                                                    className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 bg-background border rounded-full text-primary opacity-0 group-hover:opacity-100 transition-all shadow-sm hover:scale-110"
-                                                    title="AI Reasoning Log"
+                                <Virtuoso
+                                    className="flex-1 h-full w-full"
+                                    data={[...messages].reverse()}
+                                    initialTopMostItemIndex={messages.length - 1}
+                                    followOutput="smooth"
+                                    itemContent={(index, msg) => (
+                                        <div className="px-4 py-2">
+                                            <div
+                                                className={`flex flex-col ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}
+                                            >
+                                                <div
+                                                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm text-[13px] relative group ${msg.direction === MessageDirection.OUTBOUND
+                                                        ? 'bg-primary text-primary-foreground rounded-br-none'
+                                                        : 'bg-slate-100 text-slate-900 border rounded-bl-none'
+                                                        }`}
                                                 >
-                                                    <Sparkles className="h-4 w-4" />
-                                                </button>
-                                            )}
-                                        </div>
+                                                    {msg.ai_metadata?.is_voice && (
+                                                        <div className={`flex items-center gap-1 mb-1.5 text-xs font-semibold ${msg.direction === MessageDirection.OUTBOUND ? 'text-primary-foreground/80' : 'text-slate-500'}`}>
+                                                            <Mic className="h-3 w-3" />
+                                                            Голосовое сообщение
+                                                        </div>
+                                                    )}
+                                                    <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
 
-                                        <div className={`flex flex-col mt-1.5 gap-1.5 ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}>
-                                            {/* AI Status Change Indicators */}
-                                            {msg.ai_metadata?.status_changed_to && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-[11px] font-medium border border-primary/20 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                                                    <ShieldCheck className="h-3.5 w-3.5" />
-                                                    ИИ перевел на стадию: {msg.ai_metadata.status_changed_to}
+                                                    {/* AI Trace Icon */}
+                                                    {msg.sender_name === 'AI' && msg.ai_metadata && (
+                                                        <button
+                                                            onClick={() => setActiveTrace(msg.ai_metadata)}
+                                                            className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 bg-background border rounded-full text-primary opacity-0 group-hover:opacity-100 transition-all shadow-sm hover:scale-110"
+                                                            title="AI Reasoning Log"
+                                                        >
+                                                            <Sparkles className="h-4 w-4" />
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            )}
-                                            {msg.ai_metadata?.qualification_changed_to && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[11px] font-medium border border-emerald-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                                                    <Sparkles className="h-3.5 w-3.5" />
-                                                    ИИ квалифицировал лида
+
+                                                <div className={`flex flex-col mt-1.5 gap-1.5 ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}>
+                                                    {/* AI Status Change Indicators */}
+                                                    {msg.ai_metadata?.status_changed_to && (
+                                                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-[11px] font-medium border border-primary/20 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                                            <ShieldCheck className="h-3.5 w-3.5" />
+                                                            ИИ перевел на стадию: {msg.ai_metadata.status_changed_to}
+                                                        </div>
+                                                    )}
+                                                    {msg.ai_metadata?.qualification_changed_to && (
+                                                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[11px] font-medium border border-emerald-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                                            <Sparkles className="h-3.5 w-3.5" />
+                                                            ИИ квалифицировал лида
+                                                        </div>
+                                                    )}
+                                                    {msg.ai_metadata?.source === 'CRM' && (
+                                                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-medium border border-slate-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                                            Отправлено из CRM
+                                                        </div>
+                                                    )}
+                                                    <span className="px-1 text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
+                                                        {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
                                                 </div>
-                                            )}
-                                            {msg.ai_metadata?.source === 'CRM' && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-medium border border-slate-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                                                    Отправлено из CRM
-                                                </div>
-                                            )}
-                                            <span className="px-1 text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                                {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                                            </div>
                                         </div>
-                                    </div>
-                                ))
+                                    )}
+                                />
                             )}
-                            <div ref={messagesEndRef} />
                         </div>
 
                         {/* AI Trace Modal */}

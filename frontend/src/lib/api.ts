@@ -1,4 +1,5 @@
 import axios from 'axios'
+import axiosRetry from 'axios-retry'
 import type { Lead, ChatMessage, DashboardMetrics, LoginRequest, TokenResponse } from '@/types'
 
 const api = axios.create({
@@ -6,6 +7,17 @@ const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
+})
+
+// Configure robust automatic retries for network and 5xx errors
+axiosRetry(api, {
+    retries: 3,
+    retryDelay: axiosRetry.exponentialDelay,
+    retryCondition: (error) => {
+        // Retry on network errors or 5xx server errors
+        return axiosRetry.isNetworkOrIdempotentRequestError(error) ||
+            (error.response?.status !== undefined && error.response.status >= 500);
+    }
 })
 
 // Request interceptor to add auth token
