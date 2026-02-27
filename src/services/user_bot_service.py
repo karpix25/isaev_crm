@@ -424,8 +424,8 @@ class UserBotService:
             except Exception as e:
                 logger.error(f"Error processing User Bot message from {tg_user_id}: {e}", exc_info=True)
 
-    async def send_message(self, db: AsyncSession, org_id: uuid.UUID, telegram_id: int, text: str):
-        """Send message via User Bot"""
+    async def send_message(self, db: AsyncSession, org_id: uuid.UUID, telegram_id: int, text: str, username: Optional[str] = None):
+        """Send message via User Bot with entity resolution fallback"""
         client = self.clients.get(org_id)
         if not client:
             # Try to restore session if not in memory
@@ -443,7 +443,22 @@ class UserBotService:
             else:
                 raise Exception("User Bot not connected or not authorized for this organization")
 
-        await client.send_message(telegram_id, text)
+        try:
+            # Try sending by ID
+            await client.send_message(telegram_id, text)
+        except ValueError as e:
+            # If entity not found in cache, try username if available
+            if "Could not find the input entity" in str(e) and username:
+                logger.info(f"[USERBOT] ID resolution failed for {telegram_id}, trying username @{username}")
+                try:
+                    await client.send_message(username, text)
+                except Exception as user_err:
+                    logger.error(f"[USERBOT] Final send failure for @{username}: {user_err}")
+                    raise
+            else:
+                # If no username or different error
+                logger.error(f"[USERBOT] Message send failed: {e}")
+                raise
 
     async def resolve_username(self, db: AsyncSession, org_id: uuid.UUID, username: str) -> Optional[int]:
         """Resolves a Telegram username to a numeric telegram_id using the User Bot"""
