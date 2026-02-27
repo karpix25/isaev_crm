@@ -163,7 +163,7 @@ async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
     
     try:
         # Send via UserBot
-        await user_bot_service.send_message(db, lead.org_id, lead.telegram_id, message)
+        await user_bot_service.send_message(db, lead.org_id, lead.telegram_id, message, username=lead.username)
         
         # Save as outbound message
         await chat_service.send_outbound_message(
