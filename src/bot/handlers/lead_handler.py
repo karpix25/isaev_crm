@@ -205,6 +205,7 @@ async def process_debounced_message(user_id: int):
                 org_id=org_id,
                 query=combined_text,
                 limit=3,
+                lead_id=lead.id,
                 embedding_model=config.embedding_model if config else None,
                 trace_id=trace_id,
                 user_id=str(message.from_user.id)

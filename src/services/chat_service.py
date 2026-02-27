@@ -95,6 +95,39 @@ class ChatService:
         
         await db.commit()
         await db.refresh(message)
+
+        # Index CRM messages into knowledge base for long-term memory
+        # Only index if it's explicitly from CRM or marked as admin
+        is_crm = ai_metadata and ai_metadata.get("source") == "CRM"
+        if is_crm or sender_name == "Admin":
+            try:
+                from src.services.knowledge_service import knowledge_service
+                
+                # We need org_id for knowledge items. Fetch it if not provided.
+                lead_result = await db.execute(select(Lead.org_id).where(Lead.id == lead_id))
+                org_id = lead_result.scalar_one_or_none()
+                
+                if org_id:
+                    # Index in background (non-blocking for the API response)
+                    import asyncio
+                    from src.database import AsyncSessionLocal
+                    
+                    async def index_task(oid, lid, cont):
+                        async with AsyncSessionLocal() as index_db:
+                            await knowledge_service.add_knowledge_item(
+                                db=index_db,
+                                org_id=oid,
+                                lead_id=lid,
+                                content=cont,
+                                category="chat_history",
+                                title=f"CRM Message to lead {lid}"
+                            )
+                    
+                    asyncio.create_task(index_task(org_id, lead_id, content))
+            except Exception as e:
+                # Log but don't fail the message send
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to index CRM message to knowledge base: {e}")
         
         return message
     

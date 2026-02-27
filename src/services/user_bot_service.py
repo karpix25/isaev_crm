@@ -334,6 +334,7 @@ class UserBotService:
                             org_id=org_id,
                             query=content,
                             limit=3,
+                            lead_id=lead.id,
                             embedding_model=config.embedding_model if config else None
                         )
                         

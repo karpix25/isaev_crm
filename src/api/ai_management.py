@@ -116,6 +116,7 @@ async def search_knowledge(
         query=data.query,
         limit=data.limit,
         category=data.category,
+        lead_id=data.lead_id,
         embedding_model=embedding_model
     )
 

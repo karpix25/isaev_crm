@@ -25,6 +25,14 @@ class KnowledgeItem(BaseModel):
     embedding = Column(Vector(1536), nullable=True)
     
     metadata_json = Column(JSON, nullable=True) # Extra info like source URL, tags
+    
+    # Lead reference (optional, for lead-specific context)
+    lead_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("leads.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
 
     def __repr__(self):
         return f"<KnowledgeItem(id={self.id}, title={self.title}, category={self.category})>"

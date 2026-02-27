@@ -30,6 +30,7 @@ class KnowledgeItemBase(BaseModel):
     content: str
     category: Optional[str] = None
     title: Optional[str] = None
+    lead_id: Optional[UUID] = None
     metadata_json: Optional[dict] = None
 
 class KnowledgeItemCreate(KnowledgeItemBase):
@@ -48,3 +49,4 @@ class KnowledgeSearchRequest(BaseModel):
     query: str
     limit: int = 5
     category: Optional[str] = None
+    lead_id: Optional[UUID] = None

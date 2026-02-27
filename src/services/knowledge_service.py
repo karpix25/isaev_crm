@@ -17,6 +17,7 @@ class KnowledgeService:
         content: str,
         category: Optional[str] = None,
         title: Optional[str] = None,
+        lead_id: Optional[uuid.UUID] = None,
         metadata_json: Optional[dict] = None,
         embedding_model: Optional[str] = None
     ) -> KnowledgeItem:
@@ -25,6 +26,7 @@ class KnowledgeService:
         
         item = KnowledgeItem(
             org_id=org_id,
+            lead_id=lead_id,
             content=content,
             category=category,
             title=title,
@@ -43,6 +45,7 @@ class KnowledgeService:
         query: str,
         limit: int = 5,
         category: Optional[str] = None,
+        lead_id: Optional[uuid.UUID] = None,
         embedding_model: Optional[str] = None,
         trace_id: Optional[str] = None,
         user_id: Optional[str] = None
@@ -57,7 +60,24 @@ class KnowledgeService:
         query_embedding = await openrouter_service.generate_embeddings(query, model=embedding_model)
         
         # 1. Vector Search
-        vec_stmt = select(KnowledgeItem).where(KnowledgeItem.org_id == org_id)
+        # We search for items that:
+        # a) Belong to the organization AND have NO lead_id (general knowledge)
+        # b) OR belong to the organization AND match the specific lead_id (this lead's history)
+        from sqlalchemy import or_
+        vec_stmt = select(KnowledgeItem).where(
+            KnowledgeItem.org_id == org_id
+        )
+        
+        if lead_id:
+            vec_stmt = vec_stmt.where(
+                or_(
+                    KnowledgeItem.lead_id == None,
+                    KnowledgeItem.lead_id == lead_id
+                )
+            )
+        else:
+            vec_stmt = vec_stmt.where(KnowledgeItem.lead_id == None)
+
         if category:
             vec_stmt = vec_stmt.where(KnowledgeItem.category == category)
             
@@ -74,6 +94,17 @@ class KnowledgeService:
             KnowledgeItem.org_id == org_id,
             ts_vector.op('@@')(ts_query)
         )
+        
+        if lead_id:
+            fts_stmt = fts_stmt.where(
+                or_(
+                    KnowledgeItem.lead_id == None,
+                    KnowledgeItem.lead_id == lead_id
+                )
+            )
+        else:
+            fts_stmt = fts_stmt.where(KnowledgeItem.lead_id == None)
+
         if category:
             fts_stmt = fts_stmt.where(KnowledgeItem.category == category)
             
