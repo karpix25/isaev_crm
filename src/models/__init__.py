@@ -7,7 +7,7 @@ from src.models.base import BaseModel
 from src.models.organization import Organization
 from src.models.user import User, UserRole
 from src.models.lead import Lead, LeadStatus
-from src.models.chat_message import ChatMessage, MessageDirection
+from src.models.chat_message import ChatMessage, MessageDirection, MessageStatus
 from src.models.project import Project
 from src.models.stage import Stage, StageStatus
 from src.models.daily_report import DailyReport
@@ -27,6 +27,7 @@ __all__ = [
     "LeadStatus",
     "ChatMessage",
     "MessageDirection",
+    "MessageStatus",
     "Project",
     "Stage",
     "StageStatus",
