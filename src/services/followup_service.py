@@ -133,7 +133,7 @@ async def generate_followup_message(db: AsyncSession, lead: Lead) -> str | None:
         
         # Generate with AI — simple prompt, no JSON parsing needed
         response = await openrouter_service.generate_response(
-            messages=[],  # No chat history, everything is in the system prompt
+            conversation_history=[],  # No chat history, everything is in the system prompt
             system_prompt=prompt,
             model=config.llm_model if config else None
         )
