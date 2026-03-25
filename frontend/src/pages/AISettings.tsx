@@ -226,7 +226,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
                 <div className="grid grid-cols-2 gap-6">
                     <FormField label="НАЗВАНИЕ КОНФИГУРАЦИИ" value={formData.name} onChange={(v) => setFormData({ ...formData, name: v })} placeholder="Напр: Sales Agent v2.1" />
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField label="LLM МОДЕЛЬ" value={formData.llm_model} onChange={(v) => setFormData({ ...formData, llm_model: v })} placeholder="openai/gpt-4o" isSelect options={['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.1-70b']} />
+                        <FormField label="LLM МОДЕЛЬ" value={formData.llm_model} onChange={(v) => setFormData({ ...formData, llm_model: v })} placeholder="openai/gpt-4o" isSelect options={['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'google/gemini-2.5-flash', 'meta-llama/llama-3.1-70b']} />
                         <div>
                             <FormField
                                 label="EMBEDDING МОДЕЛЬ"
