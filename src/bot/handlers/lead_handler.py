@@ -204,7 +204,7 @@ async def process_debounced_message(user_id: int):
             if config and config.system_prompt:
                 base_prompt = config.system_prompt
                 if "{company_name}" in base_prompt:
-                    base_prompt = base_prompt.format(company_name=company_name)
+                    base_prompt = base_prompt.replace("{company_name}", company_name)
                 
                 from src.services.custom_field_service import enrich_system_prompt
                 system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
@@ -477,7 +477,7 @@ async def handle_lead_photo(message: Message):
                 org_result = await db.execute(select(Organization).where(Organization.id == org_id))
                 org = org_result.scalar_one_or_none()
                 company_name = org.name if org else "наша компания"
-                base_prompt = base_prompt.format(company_name=company_name)
+                base_prompt = base_prompt.replace("{company_name}", company_name)
             
             from src.services.custom_field_service import enrich_system_prompt
             system_prompt = await enrich_system_prompt(db, org_id, base_prompt)

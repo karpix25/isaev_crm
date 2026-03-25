@@ -325,7 +325,7 @@ class UserBotService:
                 if config and config.system_prompt:
                     base_prompt = config.system_prompt
                     if "{company_name}" in base_prompt:
-                        base_prompt = base_prompt.format(company_name=company_name)
+                        base_prompt = base_prompt.replace("{company_name}", company_name)
                     from src.services.custom_field_service import enrich_system_prompt
                     system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
                 else:
