@@ -14,14 +14,15 @@ from src.models import Lead, LeadStatus, ChatMessage, MessageDirection
 from src.services.chat_service import chat_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompts import FOLLOWUP_PROMPT
+from src.services.business_hours import is_business_hours, get_business_now
 
 logger = logging.getLogger(__name__)
 
 # Follow-up timing thresholds (hours since last message)
 FOLLOWUP_THRESHOLDS = {
-    0: 4,    # 1st follow-up: 4 hours after last client message
-    1: 24,   # 2nd follow-up: 24 hours after 1st follow-up
-    2: 72,   # 3rd follow-up: 72 hours after 2nd follow-up
+    0: 24,   # 1st follow-up: 24 hours after last client message
+    1: 72,   # 2nd follow-up: 72 hours after 1st follow-up
+    2: 168,  # 3rd follow-up: 7 days after 2nd follow-up
 }
 
 MAX_FOLLOWUPS = 3
@@ -197,6 +198,10 @@ async def check_and_send_followups():
     Main function: check all leads and send follow-ups where needed.
     """
     logger.info("[FOLLOWUP] Running follow-up check...")
+
+    if not is_business_hours():
+        logger.info("[FOLLOWUP] Outside business hours at %s, skipping sends.", get_business_now().isoformat())
+        return
     
     async with AsyncSessionLocal() as db:
         try:

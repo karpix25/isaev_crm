@@ -13,6 +13,7 @@ from src.services.openrouter_service import openrouter_service
 from src.services.chat_service import chat_service
 from src.models import Lead, MessageDirection
 from src.config import settings
+from src.services.business_hours import is_business_hours, get_business_now
 
 import logging
 logger = logging.getLogger(__name__)
@@ -301,20 +302,35 @@ class UserBotService:
                 if not bot_record.is_active:
                     return
 
+                if not is_business_hours():
+                    logger.info(
+                        "[USERBOT] Outside business hours at %s, skipping auto-reply for lead %s",
+                        get_business_now().isoformat(),
+                        lead.id
+                    )
+                    return
+
                 # 4. Build system prompt
                 from src.services.prompt_service import prompt_service
                 from src.services.knowledge_service import knowledge_service
+                from src.models.organization import Organization
+                from sqlalchemy import select
                 
                 config = await prompt_service.get_active_config(db, org_id)
+                org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+                org = org_result.scalar_one_or_none()
+                company_name = org.name if org else "наша компания"
                 
                 # Get base prompt
                 if config and config.system_prompt:
                     base_prompt = config.system_prompt
+                    if "{company_name}" in base_prompt:
+                        base_prompt = base_prompt.format(company_name=company_name)
                     from src.services.custom_field_service import enrich_system_prompt
                     system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
                 else:
                     from src.services.prompts import build_system_prompt
-                    system_prompt = await build_system_prompt(db, org_id, "наша компания")
+                    system_prompt = await build_system_prompt(db, org_id, company_name)
                 
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
                 system_prompt = f"{system_prompt}{technical_rules}"

@@ -19,6 +19,7 @@ from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
 from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, get_initial_message, build_system_prompt
+from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
 
@@ -70,6 +71,14 @@ async def cmd_start(message: Message):
         org_result = await db.execute(select(Organization).where(Organization.id == org_id))
         org = org_result.scalar_one_or_none()
         company_name = org.name if org else "наша компания"
+
+        if not is_business_hours():
+            logger.info(
+                "Outside business hours at %s, skipping /start welcome for lead %s",
+                get_business_now().isoformat(),
+                lead.id
+            )
+            return
         
         welcome_text = config.welcome_message if config and config.welcome_message else get_initial_message(company_name)
         
@@ -142,6 +151,14 @@ async def process_debounced_message(user_id: int):
             sender_name=message.from_user.full_name,
             ai_metadata=metadata
         )
+
+        if not is_business_hours():
+            logger.info(
+                "Outside business hours at %s, skipping bot reply for lead %s",
+                get_business_now().isoformat(),
+                lead.id
+            )
+            return
         
         # Check if AI should handle this lead
         if lead.ai_qualification_status == "handoff_required":
@@ -443,6 +460,14 @@ async def handle_lead_photo(message: Message):
         
         # Build system prompt
         config = await prompt_service.get_active_config(db, org_id)
+
+        if not is_business_hours():
+            logger.info(
+                "Outside business hours at %s, skipping photo reply for lead %s",
+                get_business_now().isoformat(),
+                lead.id
+            )
+            return
         
         if config and config.system_prompt:
             base_prompt = config.system_prompt
