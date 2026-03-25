@@ -154,6 +154,8 @@ class OpenRouterService:
                 if not clean_text or clean_text.isspace():
                     clean_text = ai_message
 
+            clean_text = self._sanitize_lead_message(clean_text)
+
             return {
                 "text": clean_text,
                 "extracted_data": extracted_data,
@@ -261,6 +263,8 @@ class OpenRouterService:
                 clean_text = self._remove_json_from_response(ai_message)
                 if not clean_text or clean_text.isspace():
                     clean_text = ai_message
+
+            clean_text = self._sanitize_lead_message(clean_text)
             
             return {
                 "text": clean_text,
@@ -354,6 +358,32 @@ class OpenRouterService:
                 pass
 
         return clean.strip()
+
+    def _sanitize_lead_message(self, text: str) -> str:
+        """
+        Remove common bad self-introductions and mistaken hardcoded naming
+        before sending the text to the client.
+        """
+        clean = text.strip()
+
+        substitutions = [
+            (r'^\s*Александр\s*,\s*здравствуйте[.!]?\s*', 'Здравствуйте. '),
+            (r'^\s*Александр\s+здравствуйте[.!]?\s*', 'Здравствуйте. '),
+            (r'\bЯ\s+AI-ассистент\b[^.?!]*[.?!]?\s*', ''),
+            (r'\bЯ\s+ИИ\b[^.?!]*[.?!]?\s*', ''),
+            (r'\bЯ\s+бот\b[^.?!]*[.?!]?\s*', ''),
+            (r'\bЯ\s+виртуальный помощник\b[^.?!]*[.?!]?\s*', ''),
+            (r'\bЯ\s+Александр\b[^.?!]*[.?!]?\s*', ''),
+            (r'\bМеня зовут Александр\b[^.?!]*[.?!]?\s*', ''),
+        ]
+
+        for pattern, replacement in substitutions:
+            clean = re.sub(pattern, replacement, clean, flags=re.IGNORECASE)
+
+        clean = re.sub(r'\s{2,}', ' ', clean).strip()
+        clean = re.sub(r'^\.\s*', '', clean)
+
+        return clean or "Здравствуйте. Чем могу помочь по ремонту?"
     
     def should_handoff(self, extracted_data: Optional[Dict[str, Any]]) -> bool:
         """

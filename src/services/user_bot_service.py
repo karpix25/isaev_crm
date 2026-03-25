@@ -332,8 +332,10 @@ class UserBotService:
                     from src.services.prompts import build_system_prompt
                     system_prompt = await build_system_prompt(db, org_id, company_name)
                 
+                from src.services.prompts import IDENTITY_GUARDRAILS
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
-                system_prompt = f"{system_prompt}{technical_rules}"
+                identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
+                system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
                 
                 client = self.clients.get(org_id)
                 typing_context = client.action(int(tg_user_id), 'typing') if client else None

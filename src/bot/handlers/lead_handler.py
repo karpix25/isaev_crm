@@ -18,7 +18,7 @@ from src.services.chat_service import chat_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
-from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, get_initial_message, build_system_prompt
+from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS, get_initial_message, build_system_prompt
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
@@ -213,7 +213,8 @@ async def process_debounced_message(user_id: int):
             
             # Technical constraints to prevent breakage
             technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
-            system_prompt = f"{system_prompt}{technical_rules}"
+            identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
+            system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
             
             # Perform RAG (Retrieval)
             trace_id = f"lead_{lead.id}_{len(messages)}" # Unique per turn
@@ -490,7 +491,8 @@ async def handle_lead_photo(message: Message):
             system_prompt = await build_system_prompt(db, org_id, company_name)
         
         technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
-        system_prompt = f"{system_prompt}{technical_rules}"
+        identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
+        system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
         
         # Get conversation history (exclude the photo message we just saved — it's sent separately via vision)
         history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
