@@ -5,63 +5,14 @@ import sqlalchemy as sa
 import logging
 
 from src.database import get_db
-from src.models import User
-from src.schemas.auth import LoginRequest, TokenResponse
+from src.models import User, Organization
+from src.models.user import UserRole
+from src.schemas.auth import TokenResponse
 from src.services.auth import auth_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-
-@router.post("/login", response_model=TokenResponse)
-async def login(
-    credentials: LoginRequest,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Admin/Manager login with email and password.
-    Returns JWT access and refresh tokens.
-    """
-    email = credentials.email.lower() if credentials.email else ""
-    
-    # Find user by email (case-insensitive)
-    result = await db.execute(
-        select(User).where(sa.func.lower(User.email) == email)
-    )
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        logger.warning("Login failed - User not found for email: %s", email)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
-        )
-    
-    if not user.password_hash:
-        logger.warning("Login failed - User %s has no password_hash", email)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
-        )
-    
-    # Verify password
-    if not auth_service.verify_password(credentials.password, user.password_hash):
-        logger.warning("Login failed - Incorrect password for user: %s", email)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
-        )
-    
-    # Create tokens
-    access_token = auth_service.create_access_token(data={"sub": str(user.id)})
-    refresh_token = auth_service.create_refresh_token(data={"sub": str(user.id)})
-    
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token
-    )
-
 
 @router.post("/telegram", response_model=TokenResponse)
 async def telegram_auth(
@@ -69,29 +20,58 @@ async def telegram_auth(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Telegram user authentication using initData validation.
-    Creates user if doesn't exist.
+    Telegram widget authentication.
+    Bootstraps the first user as ADMIN if the database is empty.
     """
-    # Validate Telegram auth data
-    if not auth_service.validate_telegram_auth(auth_data):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Telegram authentication data"
-        )
+    # Validate Telegram auth data from widget
+    if not auth_service.validate_telegram_widget_auth(auth_data.copy()):
+        # Try Mini App validation as fallback just in case
+        if not auth_service.validate_telegram_auth(auth_data.copy()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Telegram authentication data"
+            )
     
     telegram_id = auth_data.get("id")
+    if not telegram_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No telegram_id provided"
+        )
     
-    # Find or create user
-    result = await db.execute(
-        select(User).where(User.telegram_id == telegram_id)
-    )
+    # Check if this user exists
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
     
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found. Please contact administrator."
-        )
+        # Check if database is completely empty (0 users)
+        count_result = await db.execute(select(sa.func.count(User.id)))
+        total_users = count_result.scalar() or 0
+        
+        if total_users == 0:
+            logger.info("Initializing empty database with first Telegram Admin!")
+            
+            # Create a default organization since none exists
+            organization = Organization(name="Default Organization")
+            db.add(organization)
+            await db.flush()  # to get organization.id
+            
+            # Create the admin user
+            user = User(
+                org_id=organization.id,
+                telegram_id=telegram_id,
+                role=UserRole.ADMIN,
+                first_name=auth_data.get("first_name"),
+                username=auth_data.get("username")
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found. Please contact administrator."
+            )
     
     # Create tokens
     access_token = auth_service.create_access_token(data={"sub": str(user.id)})

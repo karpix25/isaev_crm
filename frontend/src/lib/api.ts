@@ -42,8 +42,8 @@ api.interceptors.response.use(
 )
 
 export const authAPI = {
-    login: async (data: LoginRequest): Promise<TokenResponse> => {
-        const response = await api.post<TokenResponse>('/auth/login', data)
+    telegramLogin: async (data: Record<string, any>): Promise<TokenResponse> => {
+        const response = await api.post<TokenResponse>('/auth/telegram', data)
         return response.data
     },
 }

@@ -1,102 +1,94 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Building2, Lock, Mail, Loader2 } from 'lucide-react'
+import { Building2, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { authAPI } from '@/lib/api'
 
 export function Login() {
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const navigate = useNavigate()
+    const containerRef = useRef<HTMLDivElement>(null)
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setLoading(true)
-        setError(null)
-
-        try {
-            const response = await authAPI.login({ email, password })
-            localStorage.setItem('access_token', response.access_token)
-            navigate('/')
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Неверный email или пароль')
-        } finally {
-            setLoading(false)
+    useEffect(() => {
+        // Expose callback to window for the Telegram script
+        ;(window as any).onTelegramAuth = async (user: any) => {
+            setLoading(true)
+            setError(null)
+            try {
+                const response = await authAPI.telegramLogin(user)
+                localStorage.setItem('access_token', response.access_token)
+                navigate('/')
+            } catch (err: any) {
+                setError(err.response?.data?.detail || 'Ошибка авторизации через Telegram')
+            } finally {
+                setLoading(false)
+            }
         }
-    }
+
+        // Create script
+        const script = document.createElement('script')
+        script.src = 'https://telegram.org/js/telegram-widget.js?22'
+        script.setAttribute('data-telegram-login', import.meta.env.VITE_TELEGRAM_BOT_NAME || 'isaev_karpix_bot')
+        script.setAttribute('data-size', 'large')
+        script.setAttribute('data-radius', '10')
+        script.setAttribute('data-request-access', 'write')
+        script.setAttribute('data-onauth', 'onTelegramAuth(user)')
+        script.async = true
+
+        if (containerRef.current) {
+            containerRef.current.innerHTML = ''
+            containerRef.current.appendChild(script)
+        }
+
+        return () => {
+            // Cleanup
+            delete (window as any).onTelegramAuth
+        }
+    }, [navigate])
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background px-4">
             <div className="w-full max-w-md space-y-8 rounded-2xl border bg-card p-8 shadow-lg">
                 <div className="flex flex-col items-center text-center">
-                    <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-                        <Building2 className="h-7 w-7 text-primary-foreground" />
+                    <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                        <Building2 className="h-8 w-8 text-primary" />
                     </div>
-                    <h1 className="text-2xl font-bold tracking-tight">Вход в RenovaCRM</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">Вход в CRM</h1>
                     <p className="mt-2 text-sm text-muted-foreground">
-                        Введите свои данные для доступа в систему
+                        Авторизуйтесь через официального бота компании для доступа к системе
                     </p>
                 </div>
 
                 {error && (
-                    <div className="rounded-lg bg-destructive/10 p-3 text-center text-sm font-medium text-destructive">
-                        {error}
+                    <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-4 text-sm font-medium text-destructive">
+                        <ShieldAlert className="h-5 w-5 shrink-0" />
+                        <p>{error}</p>
                     </div>
                 )}
 
-                <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium leading-6 text-foreground">
-                                Email адрес
-                            </label>
-                            <div className="relative mt-2">
-                                <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                                <input
-                                    type="email"
-                                    required
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="block w-full rounded-lg border bg-background py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                    placeholder="admin@example.com"
-                                />
-                            </div>
+                <div className="mt-8 flex flex-col items-center justify-center space-y-6">
+                    {loading ? (
+                        <div className="flex flex-col items-center gap-4 py-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="text-sm text-muted-foreground">Проверка доступов...</p>
                         </div>
-
-                        <div>
-                            <label className="block text-sm font-medium leading-6 text-foreground">
-                                Пароль
-                            </label>
-                            <div className="relative mt-2">
-                                <Lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                                <input
-                                    type="password"
-                                    required
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="block w-full rounded-lg border bg-background py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                    placeholder="••••••••"
-                                />
+                    ) : (
+                        <div className="flex flex-col items-center gap-6">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 py-2 px-4 rounded-full">
+                                <ShieldCheck className="h-4 w-4 text-green-500" />
+                                <span>Безопасный вход без паролей</span>
                             </div>
+                            
+                            {/* Container for Telegram Widget */}
+                            <div ref={containerRef} className="h-[40px] flex items-center justify-center"></div>
+                            
+                            <p className="text-center text-xs text-muted-foreground mt-4 leading-relaxed max-w-[280px]">
+                                Внимание: первый авторизовавшийся пользователь автоматически получит права Администратора.
+                            </p>
                         </div>
-                    </div>
-
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-                    >
-                        {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {loading ? 'Вход...' : 'Войти в систему'}
-                    </button>
-
-                    <div className="text-center text-xs text-muted-foreground">
-                        <p>Используйте данные администратора по умолчанию:</p>
-                        <p className="mt-1 font-mono">admin@test.com / admin123</p>
-                    </div>
-                </form>
+                    )}
+                </div>
             </div>
         </div>
     )
-}
+} 

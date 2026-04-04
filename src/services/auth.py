@@ -105,6 +105,31 @@ class AuthService:
         
         return calculated_hash == received_hash
 
-
+    @staticmethod
+    def validate_telegram_widget_auth(auth_data: dict) -> bool:
+        """
+        Validate Telegram Login Widget hash.
+        
+        Reference: https://core.telegram.org/widgets/login#checking-authorization
+        """
+        received_hash = auth_data.pop("hash", None)
+        if not received_hash:
+            return False
+        
+        # Create data check string
+        data_check_arr = [f"{k}={v}" for k, v in sorted(auth_data.items())]
+        data_check_string = "\n".join(data_check_arr)
+        
+        # Calculate secret key (different from Mini App)
+        secret_key = hashlib.sha256(settings.telegram_bot_token.encode()).digest()
+        
+        # Calculate hash
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return calculated_hash == received_hash
 # Global instance
 auth_service = AuthService()
