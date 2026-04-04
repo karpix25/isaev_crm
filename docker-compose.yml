@@ -1,13 +1,35 @@
 name: renovation-crm
 
 services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - default
+
+  redis:
+    image: redis:alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - default
+
   app:
     build: .
     restart: always
     env_file: .env
     networks:
       - default
-      - supabase_net
+    depends_on:
+      - db
+      - redis
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
@@ -22,9 +44,10 @@ services:
     env_file: .env
     depends_on:
       - app
+      - db
+      - redis
     networks:
       - default
-      - supabase_net
 
   frontend:
     build:
@@ -32,11 +55,14 @@ services:
     restart: always
     depends_on:
       - app
+    networks:
+      - default
 
 networks:
   default:
     external: true
     name: easypanel
-  supabase_net:
-    external: true
-    name: test_supabase_default
+
+volumes:
+  postgres_data:
+  redis_data:
