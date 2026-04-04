@@ -142,19 +142,7 @@ class OpenRouterService:
             extracted_data = self._extract_json_from_response(ai_message)
             
             logger.debug("AI response received, extracted_data keys: %s", list(extracted_data.keys()) if extracted_data else None)
-            
-            # PRIORITY 1: If JSON has "message" field, use it (this is the user-facing text)
-            if extracted_data and "message" in extracted_data:
-                clean_text = str(extracted_data["message"])
-            else:
-                # PRIORITY 2: Try to get clean text (without JSON block)
-                clean_text = self._remove_json_from_response(ai_message)
-                
-                # PRIORITY 3: If still nothing, use the raw AI message as fallback
-                if not clean_text or clean_text.isspace():
-                    clean_text = ai_message
-
-            clean_text = self._sanitize_lead_message(clean_text)
+            clean_text = self._extract_user_facing_text(ai_message, extracted_data)
 
             return {
                 "text": clean_text,
@@ -256,15 +244,7 @@ class OpenRouterService:
             usage = data.get("usage", {})
             
             extracted_data = self._extract_json_from_response(ai_message)
-            
-            if extracted_data and "message" in extracted_data:
-                clean_text = str(extracted_data["message"])
-            else:
-                clean_text = self._remove_json_from_response(ai_message)
-                if not clean_text or clean_text.isspace():
-                    clean_text = ai_message
-
-            clean_text = self._sanitize_lead_message(clean_text)
+            clean_text = self._extract_user_facing_text(ai_message, extracted_data)
             
             return {
                 "text": clean_text,
@@ -359,12 +339,79 @@ class OpenRouterService:
 
         return clean.strip()
 
+    def _extract_user_facing_text(self, ai_message: str, extracted_data: Optional[Dict[str, Any]]) -> str:
+        """
+        Extract the text that is safe to send to the lead.
+        Never return raw JSON or structured payloads.
+        """
+        if extracted_data:
+            for key in ("message", "reply", "text"):
+                value = extracted_data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return self._sanitize_lead_message(value)
+
+        quoted_message = self._extract_message_field(ai_message)
+        if quoted_message:
+            return self._sanitize_lead_message(quoted_message)
+
+        clean_text = self._remove_json_from_response(ai_message)
+        if clean_text and not self._looks_like_structured_payload(clean_text):
+            return self._sanitize_lead_message(clean_text)
+
+        if not self._looks_like_structured_payload(ai_message):
+            return self._sanitize_lead_message(ai_message)
+
+        logger.warning("AI returned structured payload without usable message field")
+        return "Здравствуйте. Чем могу помочь по ремонту?"
+
+    def _extract_message_field(self, text: str) -> Optional[str]:
+        """
+        Best-effort extraction of the JSON `message` field from malformed payloads.
+        """
+        match = re.search(r'"message"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.DOTALL)
+        if not match:
+            return None
+
+        try:
+            return json.loads(f'"{match.group(1)}"')
+        except Exception:
+            raw_value = match.group(1)
+            raw_value = raw_value.replace('\\"', '"').replace("\\n", "\n").replace("\\t", "\t")
+            return raw_value.strip() or None
+
+    def _looks_like_structured_payload(self, text: str) -> bool:
+        """
+        Detect JSON-like payloads that should never be shown to the lead as plain text.
+        """
+        stripped = text.strip()
+        if not stripped:
+            return False
+
+        if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
+            return True
+
+        structured_markers = (
+            '"message":',
+            '"status":',
+            '"activity":',
+            '"client_name":',
+            '"phone":',
+            '"confidence":',
+            '"bot_id":',
+            '"is_hot_lead":',
+        )
+        marker_hits = sum(1 for marker in structured_markers if marker in stripped)
+        return marker_hits >= 2
+
     def _sanitize_lead_message(self, text: str) -> str:
         """
         Remove common bad self-introductions and mistaken hardcoded naming
         before sending the text to the client.
         """
         clean = text.strip()
+
+        if self._looks_like_structured_payload(clean):
+            return "Здравствуйте. Чем могу помочь по ремонту?"
 
         substitutions = [
             (r'^\s*Александр\s*,\s*здравствуйте[.!]?\s*', 'Здравствуйте. '),
@@ -384,6 +431,36 @@ class OpenRouterService:
         clean = re.sub(r'^\.\s*', '', clean)
 
         return clean or "Здравствуйте. Чем могу помочь по ремонту?"
+
+    def enforce_identity_answer(self, user_message: str, ai_text: str, company_name: str) -> str:
+        """
+        If the client explicitly asks who they are talking to, ensure the reply
+        identifies the speaker as a company manager instead of giving a generic answer.
+        """
+        user_text = (user_message or "").strip().lower()
+        reply_text = (ai_text or "").strip()
+
+        identity_patterns = (
+            r'\bкто\s+вы\b',
+            r'\bвы\s+кто\b',
+            r'\bс\s+кем\s+я\s+говорю\b',
+            r'\bс\s+кем\s+общаюсь\b',
+            r'\bкак\s+вас\s+зовут\b',
+            r'\bпредставь(?:тесь|ся)\b',
+        )
+        is_identity_question = any(re.search(pattern, user_text, re.IGNORECASE) for pattern in identity_patterns)
+
+        if not is_identity_question:
+            return reply_text
+
+        reply_is_identity_answer = any(
+            marker in reply_text.lower()
+            for marker in ("менеджер", "компани", company_name.lower())
+        )
+        if reply_is_identity_answer:
+            return reply_text
+
+        return f'Я менеджер компании "{company_name}". Подскажу по вопросам ремонта квартиры.'
     
     def should_handoff(self, extracted_data: Optional[Dict[str, Any]]) -> bool:
         """

@@ -18,7 +18,7 @@ from src.services.chat_service import chat_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
-from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS, get_initial_message, build_system_prompt
+from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS, get_initial_message, build_system_prompt, normalize_system_prompt_template
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
@@ -212,6 +212,7 @@ async def process_debounced_message(user_id: int):
                 system_prompt = await build_system_prompt(db, org_id, company_name)
             
             # Technical constraints to prevent breakage
+            system_prompt = normalize_system_prompt_template(system_prompt)
             technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
             identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
             system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
@@ -250,7 +251,11 @@ async def process_debounced_message(user_id: int):
             )
             
             # Send AI response to user
-            response_text = ai_response["text"]
+            response_text = openrouter_service.enforce_identity_answer(
+                user_message=combined_text,
+                ai_text=ai_response["text"],
+                company_name=company_name
+            )
             sent_message = await message.answer(response_text)
             
             # Save AI response to database
@@ -490,6 +495,7 @@ async def handle_lead_photo(message: Message):
             company_name = org.name if org else "наша компания"
             system_prompt = await build_system_prompt(db, org_id, company_name)
         
+        system_prompt = normalize_system_prompt_template(system_prompt)
         technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
         identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
         system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"

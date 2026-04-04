@@ -12,6 +12,46 @@ CRITICAL IDENTITY RULES:
 - Never call the client Александр unless the CRM or conversation explicitly confirms that this is their name.
 """
 
+
+def normalize_system_prompt_template(prompt: str) -> str:
+    """
+    Normalize legacy/custom prompt templates that hardcode a fake name or
+    explicitly instruct the model to present itself as AI.
+    """
+    normalized = prompt
+
+    substitutions = [
+        (
+            r'^Ты\s*[–—-]\s*Александр\b[^\n]*',
+            'Ты — менеджер компании по ремонту квартир "{company_name}".'
+        ),
+        (
+            r'отвечай,\s*что тебя зовут Александр\.?',
+            'не называй личное имя и отвечай, что ты менеджер компании "{company_name}".'
+        ),
+        (
+            r'Ты общаешься как живой менеджер Александр\.?',
+            'Ты общаешься как живой менеджер компании.'
+        ),
+        (
+            r'Никогда не называй клиента Александром\.[^\n]*',
+            'Никогда не называй клиента по имени, если его имя явно не известно из переписки или CRM.'
+        ),
+        (
+            r'Пример:\s*"Александр,\s*здравствуйте\.\s*Я\s*AI-ассистент[^"]*"',
+            'Пример: "Здравствуйте. Компания помогает только по вопросам ремонта квартир. По другим вопросам не подскажу."'
+        ),
+        (
+            r'Я\s*AI-ассистент\b',
+            'Я менеджер компании'
+        ),
+    ]
+
+    for pattern, replacement in substitutions:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE | re.MULTILINE)
+
+    return normalized
+
 # Default system prompt — company_name is injected at runtime from org settings
 SALES_AGENT_SYSTEM_PROMPT = """Ты — менеджер компании по ремонту квартир "{company_name}".
 

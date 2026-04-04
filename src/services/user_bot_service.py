@@ -332,7 +332,8 @@ class UserBotService:
                     from src.services.prompts import build_system_prompt
                     system_prompt = await build_system_prompt(db, org_id, company_name)
                 
-                from src.services.prompts import IDENTITY_GUARDRAILS
+                from src.services.prompts import IDENTITY_GUARDRAILS, normalize_system_prompt_template
+                system_prompt = normalize_system_prompt_template(system_prompt)
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
                 identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
                 system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
@@ -399,7 +400,11 @@ class UserBotService:
                 finally:
                     if typing_context:
                         await typing_context.__aexit__(None, None, None)
-                reply_text = ai_response["text"]
+                reply_text = openrouter_service.enforce_identity_answer(
+                    user_message=content,
+                    ai_text=ai_response["text"],
+                    company_name=company_name
+                )
                 
                 # 8. Send reply via User Bot
                 await self.send_message(db, org_id, tg_user_id, reply_text)
