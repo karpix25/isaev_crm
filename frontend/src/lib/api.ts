@@ -46,6 +46,19 @@ export const authAPI = {
         const response = await api.post<TokenResponse>('/auth/telegram', data)
         return response.data
     },
+    telegramBotLoginStart: async (): Promise<{ state: string; expires_in: number }> => {
+        const response = await api.post<{ state: string; expires_in: number }>('/auth/telegram/bot/start')
+        return response.data
+    },
+    telegramBotLoginStatus: async (
+        state: string
+    ): Promise<{ status: 'pending' | 'approved' | 'expired'; access_token?: string; refresh_token?: string }> => {
+        const response = await api.get<{ status: 'pending' | 'approved' | 'expired'; access_token?: string; refresh_token?: string }>(
+            '/auth/telegram/bot/status',
+            { params: { state } }
+        )
+        return response.data
+    },
 }
 
 export const leadsAPI = {

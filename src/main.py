@@ -8,6 +8,7 @@ from src.config import settings
 from src.database import init_db, close_db
 from src.api import api_router
 from src.bot import bot, dp
+from src.services.redis_client import close_redis
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ async def startup():
 async def shutdown():
     await bot.session.close()
     await close_db()
+    await close_redis()
 
 # Include API routes
 app.include_router(api_router)

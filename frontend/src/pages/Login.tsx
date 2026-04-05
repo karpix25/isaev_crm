@@ -1,13 +1,91 @@
-import React from 'react'
-import { Building2, Send, ShieldCheck } from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Building2, Loader2, Send, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { authAPI } from '@/lib/api'
 
 export function Login() {
+    const navigate = useNavigate()
+
     const telegramBotName = String(
         (import.meta as any).env.VITE_TELEGRAM_BOT_NAME || 'isaev_karpix_bot'
     ).replace(/^@/, '')
-    // Use deep-linking with a start payload so Telegram can re-run /start flow from the link
-    // (the user may still need to tap "Start/Restart" depending on Telegram client behavior).
-    const telegramBotUrl = `https://t.me/${telegramBotName}?start=crm`
+
+    const [session, setSession] = useState<{ state: string; expiresAt: number } | null>(null)
+    const [started, setStarted] = useState(false)
+    const [status, setStatus] = useState<'idle' | 'pending' | 'expired'>('idle')
+    const [error, setError] = useState<string | null>(null)
+
+    const telegramBotUrl = useMemo(() => {
+        if (!session) return null
+        return `https://t.me/${telegramBotName}?start=crm_login_${session.state}`
+    }, [session, telegramBotName])
+
+    const createSession = useCallback(async () => {
+        setError(null)
+        setStatus('idle')
+        setStarted(false)
+        try {
+            const res = await authAPI.telegramBotLoginStart()
+            const expiresAt = Date.now() + res.expires_in * 1000
+            setSession({ state: res.state, expiresAt })
+            localStorage.setItem('tg_login_state', res.state)
+            localStorage.setItem('tg_login_expires_at', String(expiresAt))
+            localStorage.removeItem('tg_login_started')
+        } catch (e: any) {
+            setError(e?.response?.data?.detail || 'Не удалось подготовить вход через Telegram')
+        }
+    }, [])
+
+    useEffect(() => {
+        const savedState = localStorage.getItem('tg_login_state')
+        const savedExpiresAt = Number(localStorage.getItem('tg_login_expires_at') || 0)
+        const savedStarted = localStorage.getItem('tg_login_started') === '1'
+
+        if (savedState && savedExpiresAt && savedExpiresAt > Date.now()) {
+            setSession({ state: savedState, expiresAt: savedExpiresAt })
+            setStarted(savedStarted)
+            setStatus(savedStarted ? 'pending' : 'idle')
+            return
+        }
+
+        createSession()
+    }, [createSession])
+
+    useEffect(() => {
+        if (!started || !session) return
+
+        let stopped = false
+        const interval = window.setInterval(async () => {
+            if (stopped) return
+            try {
+                const res = await authAPI.telegramBotLoginStatus(session.state)
+                if (res.status === 'approved' && res.access_token) {
+                    localStorage.setItem('access_token', res.access_token)
+                    if (res.refresh_token) localStorage.setItem('refresh_token', res.refresh_token)
+                    localStorage.removeItem('tg_login_state')
+                    localStorage.removeItem('tg_login_expires_at')
+                    localStorage.removeItem('tg_login_started')
+                    navigate('/')
+                    return
+                }
+                if (res.status === 'expired') {
+                    setStatus('expired')
+                    setStarted(false)
+                    localStorage.removeItem('tg_login_started')
+                    return
+                }
+                setStatus('pending')
+            } catch {
+                // Keep polling; transient network errors happen during app switching
+                setStatus('pending')
+            }
+        }, 1200)
+
+        return () => {
+            stopped = true
+            window.clearInterval(interval)
+        }
+    }, [navigate, session, started])
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -29,18 +107,57 @@ export function Login() {
                             <span>Вход через Telegram-бота</span>
                         </div>
 
+                        {error && (
+                            <div className="flex w-full items-center gap-2 rounded-lg bg-destructive/10 p-4 text-sm font-medium text-destructive">
+                                <ShieldAlert className="h-5 w-5 shrink-0" />
+                                <p className="leading-snug">{error}</p>
+                            </div>
+                        )}
+
                         <a
-                            href={telegramBotUrl}
+                            href={telegramBotUrl || '#'}
                             target="_blank"
                             rel="noreferrer"
-                            className="w-full rounded-xl bg-primary px-5 py-3 text-center text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 active:opacity-90 flex items-center justify-center gap-2"
+                            onClick={(e) => {
+                                if (!telegramBotUrl) {
+                                    e.preventDefault()
+                                    return
+                                }
+                                setStarted(true)
+                                setStatus('pending')
+                                localStorage.setItem('tg_login_started', '1')
+                            }}
+                            className={`w-full rounded-xl bg-primary px-5 py-3 text-center text-sm font-semibold text-primary-foreground shadow-sm transition-opacity flex items-center justify-center gap-2 ${
+                                telegramBotUrl ? 'hover:opacity-90 active:opacity-90' : 'opacity-50 pointer-events-none'
+                            }`}
                         >
                             <Send className="h-4 w-4" />
                             <span>Открыть бота в Telegram</span>
                         </a>
 
+                        {started && status === 'pending' && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <span>Ожидаем подтверждение в Telegram…</span>
+                            </div>
+                        )}
+
+                        {status === 'expired' && (
+                            <div className="flex flex-col items-center gap-3 text-center">
+                                <p className="text-xs text-muted-foreground">
+                                    Ссылка для входа истекла. Сгенерируйте новую и откройте бота ещё раз.
+                                </p>
+                                <button
+                                    onClick={createSession}
+                                    className="rounded-lg bg-muted px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/80"
+                                >
+                                    Сгенерировать новую ссылку
+                                </button>
+                            </div>
+                        )}
+
                         <p className="text-center text-xs text-muted-foreground leading-relaxed max-w-[320px]">
-                            Если Telegram установлен, ссылка откроется в приложении и приведёт в чат с ботом.
+                            После открытия бота нажмите «Start/Запустить». Затем вернитесь на сайт — вход произойдёт автоматически.
                         </p>
                     </div>
                 </div>

@@ -38,6 +38,36 @@ async def cmd_start(message: Message):
     Handle /start command from potential leads.
     Creates lead if new user and starts AI conversation.
     """
+    # CRM web login handshake: /start crm_login_<state>
+    try:
+        payload = None
+        if message.text:
+            parts = message.text.split(maxsplit=1)
+            if len(parts) == 2:
+                payload = parts[1].strip()
+
+        if payload and payload.startswith("crm_login_"):
+            from src.services.telegram_bot_login_service import telegram_bot_login_service
+
+            state = payload.removeprefix("crm_login_")
+            if message.chat and getattr(message.chat, "type", None) != "private":
+                await message.answer("Напишите боту в личные сообщения для входа в CRM.")
+                return
+
+            ok = await telegram_bot_login_service.approve_session(
+                state=state,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+            )
+            if ok:
+                await message.answer("✅ Авторизация подтверждена. Вернитесь на сайт — вход выполнится автоматически.")
+            else:
+                await message.answer("⏳ Ссылка для входа устарела. Откройте страницу входа на сайте ещё раз.")
+            return
+    except Exception as e:
+        logger.error("Failed to process crm_login_ /start payload: %s", e, exc_info=True)
+
     async with AsyncSessionLocal() as db:
         # Get default organization ID
         org_id = await get_default_org_id(db)
