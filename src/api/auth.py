@@ -6,7 +6,7 @@ import logging
 import time
 from pydantic import BaseModel
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.database import get_db
 from src.models import User, Organization, AuthSession
@@ -108,8 +108,14 @@ async def telegram_bot_login_check(session_id: str, db: AsyncSession = Depends(g
         return TelegramBotCheckResponse(status="expired")
 
     # Expire old sessions
-    created_at = session.created_at or datetime.utcnow()
-    if datetime.utcnow() - created_at > timedelta(seconds=AUTH_SESSION_TTL_SECONDS):
+    now = datetime.now(timezone.utc)
+    created_at = session.created_at or now
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    else:
+        created_at = created_at.astimezone(timezone.utc)
+
+    if now - created_at > timedelta(seconds=AUTH_SESSION_TTL_SECONDS):
         await db.delete(session)
         await db.commit()
         return TelegramBotCheckResponse(status="expired")
