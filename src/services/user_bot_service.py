@@ -2,9 +2,12 @@ import asyncio
 import os
 import random
 import uuid
+import re
 from typing import Dict, Optional, List
+import httpx
 
 from telethon import TelegramClient, events, sessions
+from telethon import functions, types
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -489,25 +492,10 @@ class UserBotService:
 
     async def resolve_username(self, db: AsyncSession, org_id: uuid.UUID, username: str) -> Optional[int]:
         """Resolves a Telegram username to a numeric telegram_id using the User Bot"""
-        client = self.clients.get(org_id)
+        client = await self._get_or_restore_client(db, org_id)
         if not client:
-            # Try to restore session if not in memory
-            bot_record = await self._get_or_create_bot_record(db, org_id)
-            if bot_record.is_authorized and bot_record.session_string:
-                try:
-                    client = TelegramClient(sessions.StringSession(bot_record.session_string), bot_record.api_id, bot_record.api_hash)
-                    await client.connect()
-                    if await client.is_user_authorized():
-                        self.clients[org_id] = client
-                    else:
-                        logger.warning(f"[USERBOT] Session invalid when trying to resolve username {username} for org {org_id}")
-                        return None
-                except Exception as e:
-                    logger.error(f"[USERBOT] Failed to restore User Bot session to resolve username: {e}")
-                    return None
-            else:
-                logger.warning(f"[USERBOT] User Bot not connected or not authorized for org {org_id}. Cannot resolve username {username}.")
-                return None
+            logger.warning(f"[USERBOT] User Bot not connected or not authorized for org {org_id}. Cannot resolve username {username}.")
+            return None
 
         try:
             # Clean username just in case it has an @
@@ -520,6 +508,152 @@ class UserBotService:
         except Exception as e:
             logger.error(f"[USERBOT] Failed to resolve username '{username}': {e}")
             return None
+
+    async def resolve_phone(self, db: AsyncSession, org_id: uuid.UUID, phone: str) -> Optional[dict]:
+        """
+        Resolve phone number via Telegram contacts.importContacts.
+        Returns dict:
+        - {"active": True, telegram_id, username, full_name} if number exists in Telegram
+        - {"active": False} if checked and not found in Telegram
+        - None if could not check (no userbot/invalid phone/error)
+        """
+        normalized_phone = self._normalize_phone(phone)
+        if not normalized_phone:
+            return None
+
+        client = await self._get_or_restore_client(db, org_id)
+        if not client:
+            logger.warning(f"[USERBOT] User Bot not connected or not authorized for org {org_id}. Cannot resolve phone {phone}.")
+            return None
+
+        imported_user = None
+        try:
+            contact = types.InputPhoneContact(
+                client_id=random.randint(10_000, 9_999_999_999),
+                phone=normalized_phone,
+                first_name="Lead",
+                last_name="Lookup",
+            )
+            result = await client(functions.contacts.ImportContactsRequest([contact]))
+            if not result.users:
+                return {"active": False}
+
+            imported_user = result.users[0]
+            first_name = (getattr(imported_user, "first_name", "") or "").strip()
+            last_name = (getattr(imported_user, "last_name", "") or "").strip()
+            full_name = f"{first_name} {last_name}".strip() or None
+
+            return {
+                "active": True,
+                "telegram_id": imported_user.id,
+                "username": getattr(imported_user, "username", None),
+                "full_name": full_name,
+            }
+        except Exception as e:
+            logger.error(f"[USERBOT] Failed to resolve phone '{normalized_phone}': {e}")
+            return None
+        finally:
+            # Best-effort cleanup: remove imported contact from UserBot contacts
+            if imported_user is not None:
+                try:
+                    await client(functions.contacts.DeleteContactsRequest(id=[imported_user]))
+                except Exception as cleanup_err:
+                    logger.warning(f"[USERBOT] Failed to cleanup imported contact for {normalized_phone}: {cleanup_err}")
+
+    async def resolve_whatsapp(self, phone: str) -> Optional[dict]:
+        """
+        Resolve WhatsApp presence via external lookup endpoint.
+        Returns dict:
+        - {"active": bool, "wa_id": Optional[str]} when check executed
+        - None when provider is not configured or request failed
+        """
+        lookup_url = (settings.whatsapp_lookup_url or "").strip()
+        if not lookup_url:
+            return None
+
+        normalized_phone = self._normalize_phone(phone)
+        if not normalized_phone:
+            return None
+
+        headers = {"Accept": "application/json"}
+        if settings.whatsapp_lookup_token:
+            headers["Authorization"] = f"Bearer {settings.whatsapp_lookup_token}"
+
+        try:
+            timeout = max(1, int(settings.whatsapp_lookup_timeout_seconds))
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                if settings.whatsapp_lookup_method == "get":
+                    if "{phone}" in lookup_url:
+                        response = await client.get(lookup_url.format(phone=normalized_phone), headers=headers)
+                    else:
+                        response = await client.get(lookup_url, headers=headers, params={"phone": normalized_phone})
+                else:
+                    if "{phone}" in lookup_url:
+                        response = await client.post(lookup_url.format(phone=normalized_phone), headers=headers)
+                    else:
+                        response = await client.post(lookup_url, headers=headers, json={"phone": normalized_phone})
+
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            if not isinstance(payload, dict):
+                return None
+
+            active = payload.get("active")
+            if active is None:
+                active = payload.get("exists")
+            if active is None:
+                active = payload.get("is_whatsapp")
+            if active is None:
+                active = payload.get("registered")
+            if active is None:
+                return None
+
+            wa_id = payload.get("wa_id") or payload.get("id")
+            return {
+                "active": bool(active),
+                "wa_id": str(wa_id) if wa_id is not None else None,
+            }
+        except Exception as e:
+            logger.error(f"[USERBOT] Failed to resolve WhatsApp for phone '{normalized_phone}': {e}")
+            return None
+
+    async def _get_or_restore_client(self, db: AsyncSession, org_id: uuid.UUID) -> Optional[TelegramClient]:
+        client = self.clients.get(org_id)
+        if client:
+            return client
+
+        bot_record = await self._get_or_create_bot_record(db, org_id)
+        if not (bot_record.is_authorized and bot_record.session_string):
+            return None
+
+        try:
+            client = TelegramClient(
+                sessions.StringSession(bot_record.session_string),
+                bot_record.api_id,
+                bot_record.api_hash,
+            )
+            await client.connect()
+            if await client.is_user_authorized():
+                self.clients[org_id] = client
+                return client
+            logger.warning(f"[USERBOT] Session invalid for org {org_id}")
+            return None
+        except Exception as e:
+            logger.error(f"[USERBOT] Failed to restore User Bot session for org {org_id}: {e}")
+            return None
+
+    @staticmethod
+    def _normalize_phone(phone: str) -> Optional[str]:
+        digits = re.sub(r"\D", "", phone or "")
+        if not digits:
+            return None
+        if len(digits) == 11 and digits.startswith("8"):
+            digits = "7" + digits[1:]
+        if len(digits) == 10:
+            digits = "7" + digits
+        if len(digits) < 10:
+            return None
+        return f"+{digits}"
 
     async def _get_or_create_bot_record(self, db: AsyncSession, org_id: uuid.UUID) -> TelegramUserBot:
         result = await db.execute(select(TelegramUserBot).where(TelegramUserBot.org_id == org_id))

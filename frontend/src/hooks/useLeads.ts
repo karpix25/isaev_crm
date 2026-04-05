@@ -1,12 +1,32 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { leadsAPI } from '@/lib/api'
 import type { Lead, LeadStatus } from '@/types'
 
-export function useLeads(params?: { status?: LeadStatus; source?: string; search?: string; page?: number; page_size?: number }) {
+type LeadsQueryParams = { status?: LeadStatus; source?: string; search?: string; page?: number; page_size?: number }
+
+export function useLeads(params?: LeadsQueryParams) {
     return useQuery({
         queryKey: ['leads', params],
         queryFn: () => leadsAPI.getAll(params),
         refetchInterval: 10000, // Poll every 10 seconds for new leads/unread counts
+    })
+}
+
+export function useLeadsInfinite(params?: Omit<LeadsQueryParams, 'page'>) {
+    return useInfiniteQuery({
+        queryKey: ['leads-infinite', params],
+        queryFn: ({ pageParam }) =>
+            leadsAPI.getAll({
+                ...params,
+                page: Number(pageParam),
+                page_size: params?.page_size,
+            }),
+        initialPageParam: 1,
+        getNextPageParam: (lastPage) => {
+            const loaded = lastPage.page * lastPage.page_size
+            if (loaded >= lastPage.total) return undefined
+            return lastPage.page + 1
+        },
     })
 }
 

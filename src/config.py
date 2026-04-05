@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     telegram_webhook_url: str = ""
     telegram_update_mode: str = "polling"  # polling | webhook | auto
     manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
+    whatsapp_lookup_url: str = ""
+    whatsapp_lookup_token: str = ""
+    whatsapp_lookup_method: str = "post"  # post | get
+    whatsapp_lookup_timeout_seconds: int = 10
 
     @field_validator("telegram_update_mode")
     @classmethod
@@ -112,6 +116,14 @@ class Settings(BaseSettings):
         if mode not in {"polling", "webhook", "auto"}:
             return "polling"
         return mode
+
+    @field_validator("whatsapp_lookup_method")
+    @classmethod
+    def validate_whatsapp_lookup_method(cls, v: str) -> str:
+        method = (v or "").strip().lower()
+        if method not in {"post", "get"}:
+            return "post"
+        return method
     
     # OpenRouter
     openrouter_api_key: str = ""

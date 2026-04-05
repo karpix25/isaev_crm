@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { useLeads, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads } from '@/hooks/useLeads'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { useLeadsInfinite, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload
+    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -44,12 +44,15 @@ const LEADS_PAGE_SIZE = 100
 export function Leads() {
     const [search, setSearch] = useState('')
     const [source, setSource] = useState<string>('')
-    const [page, setPage] = useState(1)
     const [visibleStages, setVisibleStages] = useState<LeadStatus[]>(columns.map(c => c.id))
-    const { data } = useLeads({
+    const {
+        data,
+        hasNextPage,
+        isFetchingNextPage,
+        fetchNextPage,
+    } = useLeadsInfinite({
         search: search || undefined,
         source: source || undefined,
-        page,
         page_size: LEADS_PAGE_SIZE,
     })
     const { data: customFields } = useCustomFields(true)
@@ -65,24 +68,35 @@ export function Leads() {
     const [draggedOverColumn, setDraggedOverColumn] = useState<LeadStatus | null>(null)
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
-    const leads = data?.leads || []
-    const totalLeads = data?.total || 0
-    const totalPages = Math.max(1, Math.ceil(totalLeads / LEADS_PAGE_SIZE))
-    const shownFrom = totalLeads === 0 ? 0 : (page - 1) * LEADS_PAGE_SIZE + 1
-    const shownTo = Math.min(page * LEADS_PAGE_SIZE, totalLeads)
-
-    useEffect(() => {
-        setPage(1)
-    }, [search, source])
-
-    useEffect(() => {
-        if (page > totalPages) {
-            setPage(totalPages)
+    const allLoadedLeads = data?.pages.flatMap((pageData) => pageData.leads) || []
+    const leads = useMemo(() => {
+        const unique = new Map<string, Lead>()
+        for (const lead of allLoadedLeads) {
+            if (!unique.has(lead.id)) {
+                unique.set(lead.id, lead)
+            }
         }
-    }, [page, totalPages])
+        return Array.from(unique.values())
+    }, [allLoadedLeads])
+
+    const totalLeads = data?.pages?.[0]?.total || 0
+    const loadedLeadsCount = leads.length
 
     const getLeadsByStatus = (status: LeadStatus) => {
         return leads.filter((lead) => lead.status === status)
+    }
+
+    const loadMoreLeads = () => {
+        if (!hasNextPage || isFetchingNextPage) return
+        fetchNextPage()
+    }
+
+    const handleColumnScroll = (event: React.UIEvent<HTMLDivElement>) => {
+        const element = event.currentTarget
+        const nearBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 200
+        if (nearBottom) {
+            loadMoreLeads()
+        }
     }
 
     const toggleStage = (stage: LeadStatus) => {
@@ -148,7 +162,12 @@ export function Leads() {
     return (
         <div className="h-full relative flex flex-col gap-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">Управление лидами</h2>
+                <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-bold">Управление лидами</h2>
+                    <span className="rounded-full border bg-card px-3 py-1 text-xs font-semibold">
+                        Всего лидов: {totalLeads}
+                    </span>
+                </div>
 
                 <div className="flex items-center gap-4">
                     <button
@@ -288,7 +307,7 @@ export function Leads() {
                                 </span>
                             </div>
 
-                            <div className="flex-1 space-y-2 overflow-y-auto p-4">
+                            <div className="flex-1 space-y-2 overflow-y-auto p-4" onScroll={handleColumnScroll}>
                                 {columnLeads.map((lead) => (
                                     <LeadCard
                                         key={lead.id}
@@ -305,25 +324,15 @@ export function Leads() {
 
             <div className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
                 <div className="text-sm text-muted-foreground">
-                    Показано <span className="font-semibold text-foreground">{shownFrom}-{shownTo}</span> из <span className="font-semibold text-foreground">{totalLeads}</span>
+                    Загружено <span className="font-semibold text-foreground">{loadedLeadsCount}</span> из <span className="font-semibold text-foreground">{totalLeads}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                        disabled={page <= 1}
+                        onClick={loadMoreLeads}
+                        disabled={!hasNextPage || isFetchingNextPage}
                         className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
                     >
-                        Назад
-                    </button>
-                    <span className="min-w-[92px] text-center text-sm font-medium">
-                        Стр. {page} из {totalPages}
-                    </span>
-                    <button
-                        onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                        disabled={page >= totalPages}
-                        className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                    >
-                        Вперёд
+                        {isFetchingNextPage ? 'Загрузка...' : hasNextPage ? 'Загрузить ещё' : 'Загружено всё'}
                     </button>
                 </div>
             </div>
@@ -451,6 +460,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const extractedData = typeof lead.extracted_data === 'string'
         ? JSON.parse(lead.extracted_data)
         : lead.extracted_data || {}
+    const messengerPresence = getMessengerPresence(lead)
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -480,6 +490,16 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                 <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {lead.phone || '—'}</span>
+                                {messengerPresence.telegram && (
+                                    <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-600" title="Telegram активен">
+                                        <Send className="h-3 w-3" /> TG
+                                    </span>
+                                )}
+                                {messengerPresence.whatsapp && (
+                                    <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600" title="WhatsApp активен">
+                                        <MessageCircle className="h-3 w-3" /> WA
+                                    </span>
+                                )}
                                 {lead.username && <span>• @{lead.username}</span>}
                                 {lead.source && <span className="flex items-center gap-1">• <MessageSquare className="h-3 w-3" /> {lead.source}</span>}
                             </div>
@@ -689,6 +709,8 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 }
 
 function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e: React.DragEvent) => void; onClick: () => void }) {
+    const messengerPresence = getMessengerPresence(lead)
+
     return (
         <div
             draggable
@@ -745,6 +767,16 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
                         <MessageSquare className="h-3 w-3" />
                         {lead.source || 'TG'}
                     </div>
+                    {messengerPresence.telegram && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/15 text-blue-600" title="Telegram активен">
+                            <Send className="h-3 w-3" />
+                        </div>
+                    )}
+                    {messengerPresence.whatsapp && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600" title="WhatsApp активен">
+                            <MessageCircle className="h-3 w-3" />
+                        </div>
+                    )}
                     {lead.phone && (
                         <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
                             <Phone className="h-3 w-3" />
@@ -761,6 +793,23 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
             </div>
         </div >
     )
+}
+
+function getMessengerPresence(lead: Lead): { telegram: boolean; whatsapp: boolean } {
+    let parsed: any = {}
+    try {
+        parsed = typeof lead.extracted_data === 'string'
+            ? JSON.parse(lead.extracted_data || '{}')
+            : (lead.extracted_data || {})
+    } catch {
+        parsed = {}
+    }
+
+    const messengers = parsed?.messengers || {}
+    return {
+        telegram: Boolean(messengers.telegram),
+        whatsapp: Boolean(messengers.whatsapp),
+    }
 }
 
 function DataField({ label, value, icon }: { label: string, value: string | null, icon?: React.ReactNode }) {

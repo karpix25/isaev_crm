@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from typing import Optional, List
 import uuid
+import json
 
 from src.models import Lead, LeadStatus
 from src.schemas.lead import LeadCreate, LeadUpdate
@@ -78,31 +79,80 @@ class LeadService:
         username: Optional[str] = None,
         source: str = "CRM"
     ) -> Lead:
-        """Create a new manual lead from CRM interface, optionally resolving Telegram ID by username"""
+        """Create a new manual lead from CRM, resolving Telegram by username and/or phone when possible."""
         resolved_telegram_id = None
         clean_username = None
+        resolved_full_name = full_name
+        messenger_presence: dict[str, bool] = {}
+        whatsapp_wa_id: Optional[str] = None
 
+        from src.services.user_bot_service import user_bot_service
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 1) Resolve by username first (explicit user input has priority)
         if username:
             clean_username = username.strip()
             if clean_username.startswith('@'):
                 clean_username = clean_username[1:]
 
-            from src.services.user_bot_service import user_bot_service
-            import logging
-            logger = logging.getLogger(__name__)
             try:
                 resolved_telegram_id = await user_bot_service.resolve_username(db, org_id, clean_username)
             except Exception as e:
                 logger.error(f"Failed to resolve username {clean_username} during manual creation: {e}")
 
+        # 2) Resolve by phone (requested behavior for manual lead creation)
+        #    Fill missing telegram_id/username/full_name if found.
+        if phone:
+            try:
+                phone_lookup = await user_bot_service.resolve_phone(db, org_id, phone)
+                if phone_lookup:
+                    telegram_active = phone_lookup.get("active")
+                    if telegram_active is not None:
+                        messenger_presence["telegram"] = bool(telegram_active)
+
+                    phone_tg_id = phone_lookup.get("telegram_id")
+                    if resolved_telegram_id and phone_tg_id and str(resolved_telegram_id) != str(phone_tg_id):
+                        logger.warning(
+                            "Manual lead resolve mismatch for org %s: username->%s, phone->%s",
+                            org_id,
+                            resolved_telegram_id,
+                            phone_tg_id,
+                        )
+                    elif not resolved_telegram_id and phone_tg_id:
+                        resolved_telegram_id = phone_tg_id
+
+                    if not clean_username and phone_lookup.get("username"):
+                        clean_username = phone_lookup.get("username")
+
+                    if not resolved_full_name and phone_lookup.get("full_name"):
+                        resolved_full_name = phone_lookup.get("full_name")
+            except Exception as e:
+                logger.error(f"Failed to resolve phone {phone} during manual creation: {e}")
+
+            try:
+                whatsapp_lookup = await user_bot_service.resolve_whatsapp(phone)
+                if whatsapp_lookup and whatsapp_lookup.get("active") is not None:
+                    messenger_presence["whatsapp"] = bool(whatsapp_lookup.get("active"))
+                    whatsapp_wa_id = whatsapp_lookup.get("wa_id")
+            except Exception as e:
+                logger.error(f"Failed to resolve WhatsApp for phone {phone} during manual creation: {e}")
+
+        extracted_data = {}
+        if messenger_presence:
+            extracted_data["messengers"] = messenger_presence
+        if whatsapp_wa_id:
+            extracted_data["whatsapp_wa_id"] = whatsapp_wa_id
+
         lead = Lead(
             org_id=org_id,
             telegram_id=resolved_telegram_id,
             username=clean_username,
-            full_name=full_name,
+            full_name=resolved_full_name,
             phone=phone,
             status=LeadStatus.NEW,
-            source=source
+            source=source,
+            extracted_data=json.dumps(extracted_data, ensure_ascii=False) if extracted_data else None
         )
         
         db.add(lead)
