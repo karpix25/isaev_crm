@@ -5,9 +5,11 @@ import sqlalchemy as sa
 import logging
 import time
 from pydantic import BaseModel
+import uuid
+from datetime import datetime, timedelta
 
 from src.database import get_db
-from src.models import User, Organization
+from src.models import User, Organization, AuthSession
 from src.models.user import UserRole
 from src.schemas.auth import TokenResponse
 from src.services.auth import auth_service
@@ -49,6 +51,90 @@ async def telegram_bot_info():
     except Exception as e:
         logger.error("Failed to fetch Telegram bot info: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch Telegram bot info")
+
+
+class TelegramBotInitResponse(BaseModel):
+    session_id: str
+    bot_username: str
+    expires_in: int
+
+
+class TelegramBotCheckResponse(BaseModel):
+    status: str  # pending | authorized | expired
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+
+
+AUTH_SESSION_TTL_SECONDS = 5 * 60
+
+
+@router.post("/telegram/bot/init", response_model=TelegramBotInitResponse)
+async def telegram_bot_login_init(db: AsyncSession = Depends(get_db)):
+    """
+    Creates a one-time auth session and returns bot deep-link parameters.
+    """
+    info = await telegram_bot_info()
+    if not info.username:
+        raise HTTPException(status_code=500, detail="Telegram bot has no username")
+
+    session = AuthSession(
+        id=uuid.uuid4(),
+        status="pending",
+    )
+    db.add(session)
+    await db.commit()
+
+    return TelegramBotInitResponse(
+        session_id=str(session.id),
+        bot_username=info.username,
+        expires_in=AUTH_SESSION_TTL_SECONDS,
+    )
+
+
+@router.get("/telegram/bot/check/{session_id}", response_model=TelegramBotCheckResponse)
+async def telegram_bot_login_check(session_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Poll endpoint: once bot marks session authorized, returns JWT tokens and consumes the session.
+    """
+    try:
+        sid = uuid.UUID(session_id)
+    except Exception:
+        return TelegramBotCheckResponse(status="expired")
+
+    result = await db.execute(select(AuthSession).where(AuthSession.id == sid))
+    session = result.scalar_one_or_none()
+    if not session:
+        return TelegramBotCheckResponse(status="expired")
+
+    # Expire old sessions
+    created_at = session.created_at or datetime.utcnow()
+    if datetime.utcnow() - created_at > timedelta(seconds=AUTH_SESSION_TTL_SECONDS):
+        await db.delete(session)
+        await db.commit()
+        return TelegramBotCheckResponse(status="expired")
+
+    if session.status != "authorized" or not session.telegram_id:
+        return TelegramBotCheckResponse(status="pending")
+
+    user = await _get_or_create_user_by_telegram(
+        db=db,
+        telegram_id=int(session.telegram_id),
+        full_name=session.full_name,
+        username=session.username,
+    )
+
+    access_token = auth_service.create_access_token(data={"sub": str(user.id)})
+    refresh_token = auth_service.create_refresh_token(data={"sub": str(user.id)})
+
+    await db.delete(session)
+    await db.commit()
+
+    return TelegramBotCheckResponse(
+        status="authorized",
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
 
 async def _get_or_create_user_by_telegram(
     db: AsyncSession,

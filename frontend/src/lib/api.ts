@@ -50,6 +50,18 @@ export const authAPI = {
         const response = await api.get<{ bot_id: number; username?: string | null }>('/auth/telegram/bot')
         return response.data
     },
+    telegramBotLoginInit: async (): Promise<{ session_id: string; bot_username: string; expires_in: number }> => {
+        const response = await api.post<{ session_id: string; bot_username: string; expires_in: number }>('/auth/telegram/bot/init')
+        return response.data
+    },
+    telegramBotLoginCheck: async (
+        sessionId: string
+    ): Promise<{ status: 'pending' | 'authorized' | 'expired'; access_token?: string; refresh_token?: string }> => {
+        const response = await api.get<{ status: 'pending' | 'authorized' | 'expired'; access_token?: string; refresh_token?: string }>(
+            `/auth/telegram/bot/check/${sessionId}`
+        )
+        return response.data
+    },
 }
 
 export const leadsAPI = {

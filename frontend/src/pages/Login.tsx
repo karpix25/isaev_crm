@@ -1,43 +1,33 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Building2, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { Building2, Loader2, Send, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { authAPI } from '@/lib/api'
 
 export function Login() {
     const navigate = useNavigate()
 
-    const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [scriptReady, setScriptReady] = useState(false)
-    const [botInfo, setBotInfo] = useState<{ bot_id: number; username?: string | null } | null>(null)
-
-    useEffect(() => {
-        let cancelled = false
-        const script = document.createElement('script')
-        script.src = 'https://telegram.org/js/telegram-widget.js?22'
-        script.async = true
-        script.onload = () => {
-            if (!cancelled) setScriptReady(true)
-        }
-        script.onerror = () => {
-            if (!cancelled) setError('Не удалось загрузить Telegram Login скрипт')
-        }
-        document.body.appendChild(script)
-
-        return () => {
-            cancelled = true
-            script.remove()
-        }
-    }, [])
+    const [loading, setLoading] = useState(true)
+    const [sessionId, setSessionId] = useState<string | null>(null)
+    const [botUsername, setBotUsername] = useState<string | null>(null)
+    const [isPolling, setIsPolling] = useState(false)
+    const [waitingConfirm, setWaitingConfirm] = useState(false)
 
     useEffect(() => {
         let cancelled = false
         ;(async () => {
+            setLoading(true)
+            setError(null)
             try {
-                const info = await authAPI.telegramBotInfo()
-                if (!cancelled) setBotInfo(info)
+                const res = await authAPI.telegramBotLoginInit()
+                if (cancelled) return
+                setSessionId(res.session_id)
+                setBotUsername(String(res.bot_username || '').replace(/^@/, ''))
+                setIsPolling(true)
             } catch (e: any) {
-                if (!cancelled) setError(e?.response?.data?.detail || 'Не удалось получить параметры Telegram-бота')
+                if (!cancelled) setError(e?.response?.data?.detail || 'Не удалось инициализировать вход через Telegram')
+            } finally {
+                if (!cancelled) setLoading(false)
             }
         })()
         return () => {
@@ -45,44 +35,47 @@ export function Login() {
         }
     }, [])
 
-    const canLogin = useMemo(() => {
-        return Boolean(
-            scriptReady &&
-                botInfo?.bot_id &&
-                (window as any).Telegram?.Login?.auth &&
-                typeof (window as any).Telegram?.Login?.auth === 'function'
-        )
-    }, [botInfo?.bot_id, scriptReady])
+    useEffect(() => {
+        if (!sessionId || !isPolling) return
 
-    const handleTelegramLogin = () => {
-        if (!canLogin || !botInfo) return
-        setLoading(true)
-        setError(null)
-
-        try {
-            ;(window as any).Telegram.Login.auth(
-                { bot_id: botInfo.bot_id, request_access: 'write' },
-                async (_origin: string, user: any) => {
-                    if (!user) {
-                        setLoading(false)
-                        return
-                    }
-                    try {
-                        const response = await authAPI.telegramLogin(user)
-                        localStorage.setItem('access_token', response.access_token)
-                        localStorage.setItem('refresh_token', response.refresh_token)
-                        navigate('/')
-                    } catch (err: any) {
-                        setError(err.response?.data?.detail || 'Ошибка авторизации через Telegram')
-                    } finally {
-                        setLoading(false)
-                    }
+        let stopped = false
+        const interval = window.setInterval(async () => {
+            if (stopped) return
+            try {
+                const res = await authAPI.telegramBotLoginCheck(sessionId)
+                if (res.status === 'authorized' && res.access_token) {
+                    localStorage.setItem('access_token', res.access_token)
+                    if (res.refresh_token) localStorage.setItem('refresh_token', res.refresh_token)
+                    setIsPolling(false)
+                    navigate('/')
+                    return
                 }
-            )
-        } catch (e: any) {
-            setLoading(false)
-            setError(e?.message || 'Ошибка запуска Telegram авторизации')
+                if (res.status === 'expired') {
+                    setIsPolling(false)
+                    setWaitingConfirm(false)
+                    setError('Сессия входа истекла. Обновите страницу и попробуйте снова.')
+                    return
+                }
+            } catch {
+                // ignore transient network errors during telegram switching
+            }
+        }, 2000)
+
+        return () => {
+            stopped = true
+            window.clearInterval(interval)
         }
+    }, [isPolling, navigate, sessionId])
+
+    const telegramDeepLink = useMemo(() => {
+        if (!botUsername || !sessionId) return null
+        return `https://t.me/${botUsername}?start=login_${sessionId}`
+    }, [botUsername, sessionId])
+
+    const handleOpenTelegram = () => {
+        if (!telegramDeepLink) return
+        setWaitingConfirm(true)
+        window.open(telegramDeepLink, '_blank', 'noopener,noreferrer')
     }
 
     return (
@@ -115,21 +108,31 @@ export function Login() {
                         {loading ? (
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                                <span>Ожидаем Telegram…</span>
+                                <span>Подготовка входа…</span>
                             </div>
                         ) : (
                             <button
                                 type="button"
-                                onClick={handleTelegramLogin}
-                                disabled={!canLogin}
+                                onClick={handleOpenTelegram}
+                                disabled={!telegramDeepLink}
                                 className="w-full rounded-xl bg-primary px-5 py-3 text-center text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 active:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                Войти через Telegram
+                                <span className="inline-flex items-center justify-center gap-2">
+                                    <Send className="h-4 w-4" />
+                                    <span>Открыть бота в Telegram</span>
+                                </span>
                             </button>
                         )}
 
+                        {waitingConfirm && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <span>Ждём подтверждения в Telegram…</span>
+                            </div>
+                        )}
+
                         <p className="text-center text-xs text-muted-foreground leading-relaxed max-w-[320px]">
-                            Если кнопка не открывает Telegram — в @BotFather настройте домен через /setdomain для этого бота.
+                            Откройте бота и нажмите «Start/Запустить». После подтверждения вернитесь на сайт — вход произойдёт автоматически.
                         </p>
                     </div>
                 </div>
