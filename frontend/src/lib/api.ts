@@ -46,6 +46,10 @@ export const authAPI = {
         const response = await api.post<TokenResponse>('/auth/telegram', data)
         return response.data
     },
+    telegramBotInfo: async (): Promise<{ bot_id: number; username?: string | null }> => {
+        const response = await api.get<{ bot_id: number; username?: string | null }>('/auth/telegram/bot')
+        return response.data
+    },
 }
 
 export const leadsAPI = {
