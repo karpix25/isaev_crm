@@ -26,6 +26,9 @@ export interface Lead {
     status: LeadStatus
     ai_summary: string | null
     operator_comment?: string | null
+    telegram_lookup_status?: string | null
+    telegram_lookup_checked_at?: string | null
+    telegram_lookup_error?: string | null
     ai_qualification_status?: string
     readiness_score?: 'A' | 'B' | 'C' | null
     source: string | null
@@ -116,6 +119,20 @@ export interface LeadImportResult {
 export interface LeadBulkDeleteResult {
     requested: number
     deleted: number
+}
+
+export interface LeadChangeLogItem {
+    id: string
+    action: string
+    source?: string | null
+    user_id?: string | null
+    user_name?: string | null
+    changes?: Record<string, { old: any; new: any }>
+    created_at: string
+}
+
+export interface LeadChangeLogResponse {
+    items: LeadChangeLogItem[]
 }
 
 // AI Configuration

@@ -67,6 +67,11 @@ class Lead(BaseModel):
     
     # Manual operator comment (CRM-side notes)
     operator_comment = Column(Text, nullable=True)
+
+    # Telegram lookup status for manual/imported leads
+    telegram_lookup_status = Column(String(32), nullable=False, default="not_checked", index=True)
+    telegram_lookup_checked_at = Column(DateTime(timezone=True), nullable=True)
+    telegram_lookup_error = Column(Text, nullable=True)
     
     # AI qualification status
     ai_qualification_status = Column(
@@ -109,6 +114,7 @@ class Lead(BaseModel):
     organization = relationship("Organization", back_populates="leads")
     chat_messages = relationship("ChatMessage", back_populates="lead", cascade="all, delete-orphan")
     project = relationship("Project", foreign_keys=[converted_to_project_id])
+    change_logs = relationship("LeadChangeLog", back_populates="lead", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Lead(id={self.id}, status={self.status}, telegram_id={self.telegram_id})>"

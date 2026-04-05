@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional
 import uuid
+import json
 
 from src.database import get_db
-from src.models import User, UserRole, LeadStatus
+from src.models import User, UserRole, LeadStatus, LeadChangeLog
 from src.schemas.lead import (
     LeadCreate,
     LeadResponse,
@@ -13,9 +15,12 @@ from src.schemas.lead import (
     LeadImportResponse,
     LeadBulkDeleteRequest,
     LeadBulkDeleteResponse,
+    LeadChangeLogItem,
+    LeadChangeLogResponse,
 )
 from src.services.lead_service import lead_service
 from src.services.lead_import_service import lead_import_service
+from src.services.lead_audit_service import lead_audit_service
 from src.dependencies.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -82,6 +87,23 @@ async def create_lead(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Этот пользователь (с таким Telegram ID, номером телефона или никнеймом) уже существует в CRM."
         )
+
+    create_changes = {
+        "full_name": {"old": None, "new": lead.full_name},
+        "phone": {"old": None, "new": lead.phone},
+        "username": {"old": None, "new": lead.username},
+        "status": {"old": None, "new": lead.status},
+        "telegram_lookup_status": {"old": None, "new": lead.telegram_lookup_status},
+    }
+    await lead_audit_service.log_change(
+        db=db,
+        lead=lead,
+        action="created",
+        source="manual",
+        user_id=current_user.id,
+        changes=create_changes,
+    )
+    await db.commit()
     
     return LeadResponse.model_validate(lead)
 
@@ -111,7 +133,8 @@ async def import_leads(
             org_id=current_user.org_id,
             filename=file.filename,
             file_bytes=content,
-            source=source or "IMPORT"
+            source=source or "IMPORT",
+            actor_user_id=current_user.id,
         )
         return LeadImportResponse(**result)
     except ValueError as exc:
@@ -198,6 +221,19 @@ async def update_lead(
         )
     
     payload = lead_data.model_dump(exclude_unset=True)
+    tracked_fields = (
+        "full_name",
+        "phone",
+        "status",
+        "ai_summary",
+        "operator_comment",
+        "avatar_url",
+        "readiness_score",
+        "extracted_data",
+        "telegram_lookup_status",
+        "telegram_lookup_error",
+    )
+    before_state = {field_name: getattr(lead, field_name, None) for field_name in tracked_fields}
     for field_name in (
         "full_name",
         "phone",
@@ -207,9 +243,23 @@ async def update_lead(
         "avatar_url",
         "readiness_score",
         "extracted_data",
+        "telegram_lookup_status",
+        "telegram_lookup_error",
     ):
         if field_name in payload:
             setattr(lead, field_name, payload[field_name])
+
+    after_state = {field_name: getattr(lead, field_name, None) for field_name in tracked_fields}
+    changes = lead_audit_service.build_field_changes(before_state, after_state)
+    if changes:
+        await lead_audit_service.log_change(
+            db=db,
+            lead=lead,
+            action="updated",
+            source="manual",
+            user_id=current_user.id,
+            changes=changes,
+        )
     
     await db.commit()
     await db.refresh(lead)
@@ -242,3 +292,59 @@ async def delete_lead(
         )
     
     await lead_service.delete_lead(db, lead_id)
+
+
+@router.get("/{lead_id}/history", response_model=LeadChangeLogResponse)
+async def get_lead_history(
+    lead_id: uuid.UUID,
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db)
+):
+    lead = await lead_service.get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lead not found"
+        )
+
+    if str(lead.org_id) != str(current_user.org_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    result = await db.execute(
+        select(LeadChangeLog, User.full_name, User.email)
+        .outerjoin(User, LeadChangeLog.user_id == User.id)
+        .where(
+            LeadChangeLog.lead_id == lead_id,
+            LeadChangeLog.org_id == current_user.org_id,
+        )
+        .order_by(LeadChangeLog.created_at.desc())
+        .limit(limit)
+    )
+    rows = result.all()
+
+    items: list[LeadChangeLogItem] = []
+    for log_item, user_full_name, user_email in rows:
+        parsed_changes = {}
+        if log_item.changes_json:
+            try:
+                parsed_changes = json.loads(log_item.changes_json)
+            except Exception:
+                parsed_changes = {}
+        user_name = user_full_name or user_email or None
+        items.append(
+            LeadChangeLogItem(
+                id=log_item.id,
+                action=log_item.action,
+                source=log_item.source,
+                user_id=log_item.user_id,
+                user_name=user_name,
+                changes=parsed_changes,
+                created_at=log_item.created_at,
+            )
+        )
+
+    return LeadChangeLogResponse(items=items)

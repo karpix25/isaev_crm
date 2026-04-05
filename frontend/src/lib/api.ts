@@ -1,6 +1,15 @@
 import axios from 'axios'
 import axiosRetry from 'axios-retry'
-import type { Lead, ChatMessage, DashboardMetrics, LoginRequest, TokenResponse, LeadImportResult, LeadBulkDeleteResult } from '@/types'
+import type {
+    Lead,
+    ChatMessage,
+    DashboardMetrics,
+    LoginRequest,
+    TokenResponse,
+    LeadImportResult,
+    LeadBulkDeleteResult,
+    LeadChangeLogResponse,
+} from '@/types'
 
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -104,6 +113,11 @@ export const leadsAPI = {
                 'Content-Type': 'multipart/form-data',
             },
         })
+        return response.data
+    },
+
+    getHistory: async (id: string, limit = 100): Promise<LeadChangeLogResponse> => {
+        const response = await api.get<LeadChangeLogResponse>(`/leads/${id}/history`, { params: { limit } })
         return response.data
     },
 }

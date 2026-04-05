@@ -518,13 +518,13 @@ class UserBotService:
         """
         Resolve phone number via Telegram contacts.importContacts.
         Returns dict:
-        - {"active": True, telegram_id, username, full_name} if number exists in Telegram
-        - {"active": False} if checked and not found in Telegram
-        - None if could not check (no userbot/invalid phone/error)
+        - {"active": True, telegram_id, username, full_name, reason="checked"} if number exists in Telegram
+        - {"active": False, reason="checked"} if checked and not found in Telegram
+        - {"active": None, reason="<reason>"} for non-fatal lookup issues
         """
         normalized_phone = self._normalize_phone(phone)
         if not normalized_phone:
-            return None
+            return {"active": None, "reason": "invalid_phone"}
 
         cache_key = f"tg:{org_id}:{normalized_phone}"
         cached = self._get_cached_lookup(cache_key)
@@ -540,12 +540,12 @@ class UserBotService:
                 org_id,
                 normalized_phone,
             )
-            return None
+            return {"active": None, "reason": "rate_limited"}
 
         client = await self._get_or_restore_client(db, org_id)
         if not client:
             logger.warning(f"[USERBOT] User Bot not connected or not authorized for org {org_id}. Cannot resolve phone {phone}.")
-            return None
+            return {"active": None, "reason": "userbot_unavailable"}
 
         imported_user = None
         try:
@@ -557,7 +557,7 @@ class UserBotService:
             )
             result = await client(functions.contacts.ImportContactsRequest([contact]))
             if not result.users:
-                payload = {"active": False}
+                payload = {"active": False, "reason": "checked"}
                 self._set_cached_lookup(cache_key, payload)
                 return payload
 
@@ -571,12 +571,13 @@ class UserBotService:
                 "telegram_id": imported_user.id,
                 "username": getattr(imported_user, "username", None),
                 "full_name": full_name,
+                "reason": "checked",
             }
             self._set_cached_lookup(cache_key, payload)
             return payload
         except Exception as e:
             logger.error(f"[USERBOT] Failed to resolve phone '{normalized_phone}': {e}")
-            return None
+            return {"active": None, "reason": "error"}
         finally:
             # Best-effort cleanup: remove imported contact from UserBot contacts
             if imported_user is not None:

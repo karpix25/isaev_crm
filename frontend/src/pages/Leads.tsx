@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { useLeadsInfinite, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads } from '@/hooks/useLeads'
+import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare
+    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -37,6 +37,24 @@ const statusLabels: { [key in LeadStatus]: string } = {
     [LeadStatus.WON]: 'Выигран',
     [LeadStatus.LOST]: 'Проигран',
     [LeadStatus.SPAM]: 'Спам',
+}
+
+const telegramLookupStatusLabels: Record<string, string> = {
+    active: 'Telegram найден',
+    inactive: 'Telegram не найден',
+    not_checked: 'Не проверяли',
+    unavailable: 'Проверка недоступна',
+    rate_limited: 'Лимит проверки',
+    invalid_phone: 'Невалидный номер',
+    error: 'Ошибка проверки',
+}
+
+function getTelegramLookupBadgeClass(status: string) {
+    if (status === 'active') return 'bg-emerald-500/10 text-emerald-700'
+    if (status === 'inactive') return 'bg-slate-500/10 text-slate-700'
+    if (status === 'rate_limited' || status === 'unavailable') return 'bg-amber-500/10 text-amber-700'
+    if (status === 'error' || status === 'invalid_phone') return 'bg-red-500/10 text-red-700'
+    return 'bg-muted text-muted-foreground'
 }
 
 const LEADS_PAGE_SIZE = 100
@@ -553,6 +571,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const [message, setMessage] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const { data: chatData } = useChatHistory(lead.id, 1)
+    const { data: historyData, isLoading: isHistoryLoading } = useLeadHistory(lead.id, 100)
     const sendMessage = useSendMessage()
     const deleteLead = useDeleteLead()
     const updateLead = useUpdateLead()
@@ -563,6 +582,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const [operatorCommentDraft, setOperatorCommentDraft] = useState(lead.operator_comment || '')
 
     const messages = chatData?.messages || []
+    const historyItems = historyData?.items || []
     const editableFields = useMemo<ExtractedFieldDescriptor[]>(() => {
         const baseKeys = new Set(BASE_EXTRACTED_FIELDS.map((field) => field.key))
         const customDescriptors = customFields
@@ -664,6 +684,38 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         return 'Вы'
     }
 
+    const getHistoryActionLabel = (action?: string) => {
+        if (action === 'created') return 'Создание'
+        if (action === 'updated') return 'Изменение'
+        return action || 'Изменение'
+    }
+
+    const getHistoryFieldLabel = (key: string) => {
+        const labels: Record<string, string> = {
+            full_name: 'ФИО',
+            phone: 'Телефон',
+            username: 'Username',
+            status: 'Стадия',
+            ai_summary: 'Саммари ИИ',
+            operator_comment: 'Комментарий оператора',
+            extracted_data: 'Извлеченные данные',
+            telegram_lookup_status: 'Статус Telegram',
+            telegram_lookup_error: 'Ошибка Telegram',
+            import_sync: 'Импорт',
+        }
+        return labels[key] || key
+    }
+
+    const formatHistorySummary = (changes?: Record<string, { old: any; new: any }>) => {
+        if (!changes) return 'Без деталей'
+        const entries = Object.entries(changes)
+        if (entries.length === 0) return 'Без деталей'
+        return entries
+            .slice(0, 3)
+            .map(([key, value]) => `${getHistoryFieldLabel(key)}: ${value?.new ?? '—'}`)
+            .join(' • ')
+    }
+
     const messengerPresence = getMessengerPresence(lead)
 
     return (
@@ -694,6 +746,12 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                 <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {lead.phone || '—'}</span>
+                                <span
+                                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getTelegramLookupBadgeClass(lead.telegram_lookup_status || 'not_checked')}`}
+                                    title={lead.telegram_lookup_error || ''}
+                                >
+                                    {telegramLookupStatusLabels[lead.telegram_lookup_status || 'not_checked'] || (lead.telegram_lookup_status || 'not_checked')}
+                                </span>
                                 {messengerPresence.telegram && (
                                     <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-600" title="Telegram активен">
                                         <Send className="h-3 w-3" /> TG
@@ -904,6 +962,35 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                     </button>
                                 </div>
                             </section>
+
+                            <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                                <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                                    <History className="h-3.5 w-3.5" /> История изменений
+                                </h3>
+                                {isHistoryLoading ? (
+                                    <div className="text-xs text-muted-foreground">Загрузка истории...</div>
+                                ) : historyItems.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground">Изменений пока нет</div>
+                                ) : (
+                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                        {historyItems.map((item: any) => (
+                                            <div key={item.id} className="rounded-lg border p-2.5 bg-slate-50/80">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-[11px] font-semibold text-slate-700">
+                                                        {item.user_name || 'Система'} • {getHistoryActionLabel(item.action)}
+                                                    </span>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        {new Date(item.created_at).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1 text-[11px] text-slate-600">
+                                                    {formatHistorySummary(item.changes)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
                         </div>
                     </div>
 
@@ -1071,6 +1158,12 @@ function LeadCard({
                     <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
                         <MessageSquare className="h-3 w-3" />
                         {lead.source || 'TG'}
+                    </div>
+                    <div
+                        className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${getTelegramLookupBadgeClass(lead.telegram_lookup_status || 'not_checked')}`}
+                        title={lead.telegram_lookup_error || ''}
+                    >
+                        {telegramLookupStatusLabels[lead.telegram_lookup_status || 'not_checked'] || (lead.telegram_lookup_status || 'not_checked')}
                     </div>
                     {messengerPresence.telegram && (
                         <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/15 text-blue-600" title="Telegram активен">

@@ -11,6 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Lead, LeadStatus
+from src.services.lead_service import lead_service
+from src.services.lead_audit_service import lead_audit_service
 
 
 FIELD_ALIASES: dict[str, list[str]] = {
@@ -46,6 +48,7 @@ class LeadImportService:
         filename: str,
         file_bytes: bytes,
         source: str = "IMPORT",
+        actor_user_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
         if not file_bytes:
             raise ValueError("Файл пустой.")
@@ -104,26 +107,60 @@ class LeadImportService:
                 phone=phone,
             )
 
+            resolved_contact = await lead_service.resolve_contact_data(
+                db=db,
+                org_id=org_id,
+                full_name=full_name,
+                phone=phone,
+                username=username,
+                source=source,
+            )
+            if not full_name:
+                full_name = resolved_contact.get("full_name") or full_name
+            if not username:
+                username = resolved_contact.get("username") or username
+            telegram_id = resolved_contact.get("telegram_id")
+            if resolved_contact.get("messenger_presence"):
+                extracted_data.setdefault("messengers", {}).update(resolved_contact["messenger_presence"])
+            if resolved_contact.get("whatsapp_wa_id"):
+                extracted_data["whatsapp_wa_id"] = resolved_contact["whatsapp_wa_id"]
+
             try:
                 existing_lead = await LeadImportService._find_existing_lead(
                     db=db,
                     org_id=org_id,
                     phone=phone,
                     username=username,
+                    telegram_id=telegram_id,
                 )
 
                 if existing_lead:
+                    before_state = LeadImportService._snapshot_for_history(existing_lead)
                     changed = LeadImportService._apply_updates_to_existing_lead(
                         lead=existing_lead,
                         full_name=full_name,
                         phone=phone,
                         username=username,
+                        telegram_id=telegram_id,
                         status=lead_status,
                         source=source,
                         extracted_data=extracted_data,
+                        telegram_lookup_status=resolved_contact.get("telegram_lookup_status"),
+                        telegram_lookup_checked_at=resolved_contact.get("telegram_lookup_checked_at"),
+                        telegram_lookup_error=resolved_contact.get("telegram_lookup_error"),
                     )
 
                     if changed:
+                        after_state = LeadImportService._snapshot_for_history(existing_lead)
+                        changes = lead_audit_service.build_field_changes(before_state, after_state)
+                        await lead_audit_service.log_change(
+                            db=db,
+                            lead=existing_lead,
+                            action="updated",
+                            source="import",
+                            user_id=actor_user_id,
+                            changes=changes or {"import_sync": {"old": None, "new": f"row:{row_number}"}},
+                        )
                         await db.commit()
                         updated += 1
                     else:
@@ -132,14 +169,34 @@ class LeadImportService:
 
                 new_lead = Lead(
                     org_id=org_id,
+                    telegram_id=telegram_id,
                     full_name=full_name,
                     phone=phone,
                     username=username,
                     status=lead_status.value if isinstance(lead_status, LeadStatus) else str(lead_status),
                     source=source,
                     extracted_data=json.dumps(extracted_data, ensure_ascii=False) if extracted_data else None,
+                    telegram_lookup_status=resolved_contact.get("telegram_lookup_status") or "not_checked",
+                    telegram_lookup_checked_at=resolved_contact.get("telegram_lookup_checked_at"),
+                    telegram_lookup_error=resolved_contact.get("telegram_lookup_error"),
                 )
                 db.add(new_lead)
+                await db.flush()
+                create_changes = {
+                    "full_name": {"old": None, "new": new_lead.full_name},
+                    "phone": {"old": None, "new": new_lead.phone},
+                    "username": {"old": None, "new": new_lead.username},
+                    "status": {"old": None, "new": new_lead.status},
+                    "telegram_lookup_status": {"old": None, "new": new_lead.telegram_lookup_status},
+                }
+                await lead_audit_service.log_change(
+                    db=db,
+                    lead=new_lead,
+                    action="created",
+                    source="import",
+                    user_id=actor_user_id,
+                    changes=create_changes,
+                )
                 await db.commit()
                 imported += 1
             except IntegrityError:
@@ -403,12 +460,15 @@ class LeadImportService:
         org_id: uuid.UUID,
         phone: Optional[str],
         username: Optional[str],
+        telegram_id: Optional[int],
     ) -> Optional[Lead]:
         conditions = []
         if phone:
             conditions.append(Lead.phone == phone)
         if username:
             conditions.append(func.lower(Lead.username) == username.lower())
+        if telegram_id:
+            conditions.append(Lead.telegram_id == telegram_id)
 
         if not conditions:
             return None
@@ -427,9 +487,13 @@ class LeadImportService:
         full_name: Optional[str],
         phone: Optional[str],
         username: Optional[str],
+        telegram_id: Optional[int],
         status: LeadStatus,
         source: str,
         extracted_data: dict[str, Any],
+        telegram_lookup_status: Optional[str],
+        telegram_lookup_checked_at: Any,
+        telegram_lookup_error: Optional[str],
     ) -> bool:
         changed = False
 
@@ -445,8 +509,24 @@ class LeadImportService:
             lead.username = username
             changed = True
 
+        if telegram_id and not lead.telegram_id:
+            lead.telegram_id = telegram_id
+            changed = True
+
         if source and not lead.source:
             lead.source = source
+            changed = True
+
+        if telegram_lookup_status and lead.telegram_lookup_status != telegram_lookup_status:
+            lead.telegram_lookup_status = telegram_lookup_status
+            changed = True
+
+        if telegram_lookup_checked_at and lead.telegram_lookup_checked_at != telegram_lookup_checked_at:
+            lead.telegram_lookup_checked_at = telegram_lookup_checked_at
+            changed = True
+
+        if lead.telegram_lookup_error != telegram_lookup_error:
+            lead.telegram_lookup_error = telegram_lookup_error
             changed = True
 
         if status and (not lead.status or str(lead.status).upper() == LeadStatus.NEW.value):
@@ -469,6 +549,20 @@ class LeadImportService:
             changed = True
 
         return changed
+
+    @staticmethod
+    def _snapshot_for_history(lead: Lead) -> dict[str, Any]:
+        return {
+            "full_name": lead.full_name,
+            "phone": lead.phone,
+            "username": lead.username,
+            "telegram_id": lead.telegram_id,
+            "status": lead.status,
+            "source": lead.source,
+            "extracted_data": lead.extracted_data,
+            "telegram_lookup_status": lead.telegram_lookup_status,
+            "telegram_lookup_error": lead.telegram_lookup_error,
+        }
 
     @staticmethod
     def _get_mapped_value(mapping: dict[str, int], field_name: str, row_values: list[Any]) -> Any:

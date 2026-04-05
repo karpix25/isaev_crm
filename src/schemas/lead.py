@@ -42,6 +42,9 @@ class LeadResponse(BaseModel):
     status: LeadStatus
     ai_summary: Optional[str] = None
     operator_comment: Optional[str] = None
+    telegram_lookup_status: Optional[str] = None
+    telegram_lookup_checked_at: Optional[datetime] = None
+    telegram_lookup_error: Optional[str] = None
     ai_qualification_status: Optional[str] = "pending"
     readiness_score: Optional[str] = None
     extracted_data: Optional[str] = None
@@ -83,3 +86,17 @@ class LeadBulkDeleteRequest(BaseModel):
 class LeadBulkDeleteResponse(BaseModel):
     requested: int
     deleted: int
+
+
+class LeadChangeLogItem(BaseModel):
+    id: uuid.UUID
+    action: str
+    source: Optional[str] = None
+    user_id: Optional[uuid.UUID] = None
+    user_name: Optional[str] = None
+    changes: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class LeadChangeLogResponse(BaseModel):
+    items: List[LeadChangeLogItem] = Field(default_factory=list)

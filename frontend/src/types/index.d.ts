@@ -24,6 +24,9 @@ export interface Lead {
     status: LeadStatus;
     ai_summary: string | null;
     operator_comment?: string | null;
+    telegram_lookup_status?: string | null;
+    telegram_lookup_checked_at?: string | null;
+    telegram_lookup_error?: string | null;
     ai_qualification_status?: string;
     source: string | null;
     avatar_url?: string;
@@ -135,4 +138,19 @@ export interface CustomField {
     display_order: string;
     created_at: string;
     updated_at: string;
+}
+export interface LeadChangeLogItem {
+    id: string;
+    action: string;
+    source?: string | null;
+    user_id?: string | null;
+    user_name?: string | null;
+    changes?: Record<string, {
+        old: any;
+        new: any;
+    }>;
+    created_at: string;
+}
+export interface LeadChangeLogResponse {
+    items: LeadChangeLogItem[];
 }

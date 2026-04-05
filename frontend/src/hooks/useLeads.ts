@@ -38,6 +38,14 @@ export function useLead(id: string) {
     })
 }
 
+export function useLeadHistory(id: string, limit = 100) {
+    return useQuery({
+        queryKey: ['lead-history', id, limit],
+        queryFn: () => leadsAPI.getHistory(id, limit),
+        enabled: !!id,
+    })
+}
+
 export function useCreateLead() {
     const queryClient = useQueryClient()
 
@@ -55,9 +63,10 @@ export function useUpdateLead() {
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: Partial<Lead> }) =>
             leadsAPI.update(id, data),
-        onSuccess: () => {
+        onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['leads'] })
             queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
+            queryClient.invalidateQueries({ queryKey: ['lead-history', variables.id] })
         },
     })
 }
