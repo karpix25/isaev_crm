@@ -121,6 +121,29 @@ export interface LeadBulkDeleteResult {
     deleted: number
 }
 
+export interface LeadCallStartPayload {
+    operator_phone?: string
+    business_card_message?: string
+}
+
+export interface LeadCallStartResponse {
+    event_id: string
+    call_status: string
+    call_session_id?: string | null
+    detail: string
+}
+
+export interface LeadDialPreparePayload {
+    operator_phone?: string
+    business_card_message?: string
+}
+
+export interface LeadDialPrepareResponse {
+    event_id: string
+    dial_url: string
+    detail: string
+}
+
 export interface LeadChangeLogItem {
     id: string
     action: string

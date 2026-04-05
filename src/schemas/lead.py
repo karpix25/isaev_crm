@@ -88,6 +88,29 @@ class LeadBulkDeleteResponse(BaseModel):
     deleted: int
 
 
+class LeadCallStartRequest(BaseModel):
+    operator_phone: Optional[str] = None
+    business_card_message: Optional[str] = None
+
+
+class LeadCallStartResponse(BaseModel):
+    event_id: uuid.UUID
+    call_status: str
+    call_session_id: Optional[str] = None
+    detail: str
+
+
+class LeadDialPrepareRequest(BaseModel):
+    operator_phone: Optional[str] = None
+    business_card_message: Optional[str] = None
+
+
+class LeadDialPrepareResponse(BaseModel):
+    event_id: uuid.UUID
+    dial_url: str
+    detail: str
+
+
 class LeadChangeLogItem(BaseModel):
     id: uuid.UUID
     action: str

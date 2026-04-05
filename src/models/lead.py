@@ -115,6 +115,7 @@ class Lead(BaseModel):
     chat_messages = relationship("ChatMessage", back_populates="lead", cascade="all, delete-orphan")
     project = relationship("Project", foreign_keys=[converted_to_project_id])
     change_logs = relationship("LeadChangeLog", back_populates="lead", cascade="all, delete-orphan")
+    call_events = relationship("LeadCallEvent", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Lead(id={self.id}, status={self.status}, telegram_id={self.telegram_id})>"

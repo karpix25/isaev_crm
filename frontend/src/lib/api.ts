@@ -8,6 +8,10 @@ import type {
     TokenResponse,
     LeadImportResult,
     LeadBulkDeleteResult,
+    LeadCallStartPayload,
+    LeadCallStartResponse,
+    LeadDialPreparePayload,
+    LeadDialPrepareResponse,
     LeadChangeLogResponse,
 } from '@/types'
 
@@ -118,6 +122,16 @@ export const leadsAPI = {
 
     getHistory: async (id: string, limit = 100): Promise<LeadChangeLogResponse> => {
         const response = await api.get<LeadChangeLogResponse>(`/leads/${id}/history`, { params: { limit } })
+        return response.data
+    },
+
+    startCall: async (id: string, payload?: LeadCallStartPayload): Promise<LeadCallStartResponse> => {
+        const response = await api.post<LeadCallStartResponse>(`/leads/${id}/call`, payload || {})
+        return response.data
+    },
+
+    prepareDial: async (id: string, payload?: LeadDialPreparePayload): Promise<LeadDialPrepareResponse> => {
+        const response = await api.post<LeadDialPrepareResponse>(`/leads/${id}/dial/prepare`, payload || {})
         return response.data
     },
 }

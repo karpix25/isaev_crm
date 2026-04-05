@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads } from '@/hooks/useLeads'
+import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads, usePrepareLeadDial } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History
+    ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -575,11 +575,13 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const sendMessage = useSendMessage()
     const deleteLead = useDeleteLead()
     const updateLead = useUpdateLead()
+    const prepareLeadDial = usePrepareLeadDial()
     const [isEditingExtracted, setIsEditingExtracted] = useState(false)
     const [savedExtractedData, setSavedExtractedData] = useState<Record<string, any>>(parseExtractedData(lead.extracted_data))
     const [extractedDraft, setExtractedDraft] = useState<Record<string, string>>({})
     const [savedOperatorComment, setSavedOperatorComment] = useState(lead.operator_comment || '')
     const [operatorCommentDraft, setOperatorCommentDraft] = useState(lead.operator_comment || '')
+    const [callFeedback, setCallFeedback] = useState<string | null>(null)
 
     const messages = chatData?.messages || []
     const historyItems = historyData?.items || []
@@ -618,6 +620,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         setSavedOperatorComment(lead.operator_comment || '')
         setOperatorCommentDraft(lead.operator_comment || '')
         setIsEditingExtracted(false)
+        setCallFeedback(null)
     }, [lead.id, lead.extracted_data, lead.operator_comment, editableFields])
 
     const handleSendMessage = () => {
@@ -673,6 +676,27 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                 onSuccess: () => {
                     setSavedOperatorComment(nextComment)
                     setOperatorCommentDraft(nextComment)
+                },
+            }
+        )
+    }
+
+    const handleStartCall = () => {
+        if (!lead.phone) {
+            setCallFeedback('У лида не указан номер телефона.')
+            return
+        }
+
+        setCallFeedback(null)
+        prepareLeadDial.mutate(
+            { id: lead.id },
+            {
+                onSuccess: (res) => {
+                    setCallFeedback(res.detail || 'Открываем софтфон...')
+                    window.location.href = res.dial_url
+                },
+                onError: (err: any) => {
+                    setCallFeedback(err?.response?.data?.detail || err?.message || 'Не удалось открыть софтфон.')
                 },
             }
         )
@@ -745,7 +769,15 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                 </span>
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {lead.phone || '—'}</span>
+                                <button
+                                    onClick={handleStartCall}
+                                    disabled={prepareLeadDial.isPending || !lead.phone}
+                                    className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                                    title="Открыть софтфон и набрать номер"
+                                >
+                                    <Phone className="h-3 w-3" />
+                                    <span className="underline decoration-dotted underline-offset-2">{lead.phone || '—'}</span>
+                                </button>
                                 <span
                                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getTelegramLookupBadgeClass(lead.telegram_lookup_status || 'not_checked')}`}
                                     title={lead.telegram_lookup_error || ''}
@@ -764,13 +796,18 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                 )}
                                 {lead.username && <span>• @{lead.username}</span>}
                                 {lead.source && <span className="flex items-center gap-1">• <MessageSquare className="h-3 w-3" /> {lead.source}</span>}
+                                {callFeedback && <span className="text-[11px] text-primary">• {callFeedback}</span>}
                             </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button className="flex h-10 items-center gap-2 rounded-lg border bg-background px-4 text-sm font-medium transition-colors hover:bg-accent ring-1 ring-slate-200">
-                            <Calendar className="h-4 w-4" />
-                            Замер
+                        <button
+                            onClick={handleStartCall}
+                            disabled={prepareLeadDial.isPending || !lead.phone}
+                            className="flex h-10 items-center gap-2 rounded-lg border bg-background px-4 text-sm font-medium transition-colors hover:bg-accent ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <Phone className="h-4 w-4" />
+                            {prepareLeadDial.isPending ? 'Открываем...' : 'Позвонить'}
                         </button>
                         {lead.converted_to_project_id ? (
                             <a

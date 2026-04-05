@@ -15,6 +15,10 @@ from src.schemas.lead import (
     LeadImportError,
     LeadBulkDeleteRequest,
     LeadBulkDeleteResponse,
+    LeadCallStartRequest,
+    LeadCallStartResponse,
+    LeadDialPrepareRequest,
+    LeadDialPrepareResponse,
 )
 
 __all__ = [
@@ -39,4 +43,8 @@ __all__ = [
     "LeadImportError",
     "LeadBulkDeleteRequest",
     "LeadBulkDeleteResponse",
+    "LeadCallStartRequest",
+    "LeadCallStartResponse",
+    "LeadDialPrepareRequest",
+    "LeadDialPrepareResponse",
 ]

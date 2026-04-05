@@ -6,6 +6,7 @@ import re
 import time
 from collections import defaultdict, deque
 from typing import Dict, Optional, List
+from urllib.parse import urlparse
 import httpx
 
 from telethon import TelegramClient, events, sessions
@@ -617,7 +618,22 @@ class UserBotService:
             return None
 
         headers = {"Accept": "application/json"}
-        if settings.whatsapp_lookup_token:
+        normalized_digits = normalized_phone.lstrip("+")
+        is_rapidapi = "rapidapi.com" in lookup_url.lower()
+        if is_rapidapi:
+            rapidapi_key = (settings.whatsapp_lookup_rapidapi_key or settings.whatsapp_lookup_token or "").strip()
+            rapidapi_host = (
+                settings.whatsapp_lookup_rapidapi_host.strip()
+                if settings.whatsapp_lookup_rapidapi_host
+                else urlparse(lookup_url).netloc
+            )
+            if not rapidapi_key:
+                logger.warning("[USERBOT] RapidAPI key is empty for WhatsApp lookup")
+                return None
+            headers["Content-Type"] = "application/json"
+            headers["x-rapidapi-host"] = rapidapi_host
+            headers["x-rapidapi-key"] = rapidapi_key
+        elif settings.whatsapp_lookup_token:
             headers["Authorization"] = f"Bearer {settings.whatsapp_lookup_token}"
 
         try:
@@ -627,16 +643,32 @@ class UserBotService:
                     if "{phone}" in lookup_url:
                         response = await client.get(lookup_url.format(phone=normalized_phone), headers=headers)
                     else:
-                        response = await client.get(lookup_url, headers=headers, params={"phone": normalized_phone})
+                        response = await client.get(
+                            lookup_url,
+                            headers=headers,
+                            params={
+                                "phone_number": normalized_digits,
+                                "phone": normalized_phone,
+                                "number": normalized_digits,
+                            },
+                        )
                 else:
                     if "{phone}" in lookup_url:
                         response = await client.post(lookup_url.format(phone=normalized_phone), headers=headers)
                     else:
-                        response = await client.post(lookup_url, headers=headers, json={"phone": normalized_phone})
+                        response = await client.post(
+                            lookup_url,
+                            headers=headers,
+                            json={
+                                "phone_number": normalized_digits,
+                                "phone": normalized_phone,
+                            },
+                        )
 
             response.raise_for_status()
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
+                logger.warning("[USERBOT] WhatsApp lookup payload is not a dict: %s", type(payload).__name__)
                 return None
 
             active = payload.get("active")
@@ -647,14 +679,40 @@ class UserBotService:
             if active is None:
                 active = payload.get("registered")
             if active is None:
+                active = payload.get("has_whatsapp")
+            if active is None:
+                active = payload.get("valid")
+            if active is None:
+                active = payload.get("status")
+            if active is None and isinstance(payload.get("data"), dict):
+                data_payload = payload.get("data") or {}
+                for key in ("active", "exists", "is_whatsapp", "registered", "has_whatsapp", "valid", "status"):
+                    if data_payload.get(key) is not None:
+                        active = data_payload.get(key)
+                        break
+            if active is None:
+                logger.warning("[USERBOT] WhatsApp lookup could not determine active flag. payload=%s", payload)
                 return None
 
-            wa_id = payload.get("wa_id") or payload.get("id")
+            if isinstance(active, str):
+                normalized_active = active.strip().lower()
+                if normalized_active in {"1", "true", "yes", "y", "ok", "valid"}:
+                    active = True
+                elif normalized_active in {"0", "false", "no", "n", "invalid"}:
+                    active = False
+
+            wa_id = payload.get("wa_id") or payload.get("id") or payload.get("whatsapp_id")
+            if wa_id is None and isinstance(payload.get("data"), dict):
+                wa_id = (payload.get("data") or {}).get("wa_id") or (payload.get("data") or {}).get("id")
             result = {
                 "active": bool(active),
                 "wa_id": str(wa_id) if wa_id is not None else None,
             }
-            self._set_cached_lookup(cache_key, result)
+            self._set_cached_lookup(
+                cache_key,
+                result,
+                ttl_seconds=max(1, int(settings.whatsapp_lookup_cache_ttl_seconds)),
+            )
             return result
         except Exception as e:
             logger.error(f"[USERBOT] Failed to resolve WhatsApp for phone '{normalized_phone}': {e}")
@@ -681,8 +739,8 @@ class UserBotService:
             return None
         return payload
 
-    def _set_cached_lookup(self, key: str, payload: dict):
-        ttl = max(1, int(settings.telegram_phone_lookup_cache_ttl_seconds))
+    def _set_cached_lookup(self, key: str, payload: dict, ttl_seconds: Optional[int] = None):
+        ttl = max(1, int(ttl_seconds if ttl_seconds is not None else settings.telegram_phone_lookup_cache_ttl_seconds))
         self.lookup_cache[key] = (time.time() + ttl, payload)
 
     async def _get_or_restore_client(self, db: AsyncSession, org_id: uuid.UUID) -> Optional[TelegramClient]:
