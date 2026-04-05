@@ -1,12 +1,19 @@
 from fastapi import APIRouter, Request, HTTPException
 from aiogram.types import Update
 import logging
+import asyncio
 
 from src.config import settings
 from src.bot import bot, dp
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+async def _process_update(update: Update) -> None:
+    try:
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        logger.error("Error processing update async: %s", e, exc_info=True)
 
 @router.post("/telegram")
 async def telegram_webhook(request: Request):
@@ -19,7 +26,8 @@ async def telegram_webhook(request: Request):
     try:
         data = await request.json()
         update = Update.model_validate(data, context={"bot": bot})
-        await dp.feed_update(bot, update)
+        # Acknowledge quickly to avoid Telegram webhook timeouts.
+        asyncio.create_task(_process_update(update))
         return {"status": "ok"}
     except Exception as e:
         logger.error("Error processing webhook: %s", e)
