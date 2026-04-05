@@ -25,6 +25,8 @@ services:
     build: .
     restart: always
     env_file: .env
+    expose:
+      - "8000"
     networks:
       - default
     depends_on:
@@ -53,6 +55,8 @@ services:
     build:
       context: ./frontend
     restart: always
+    expose:
+      - "80"
     depends_on:
       - app
     networks:
