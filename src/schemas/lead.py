@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 import uuid
 
@@ -57,3 +57,17 @@ class LeadListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class LeadImportError(BaseModel):
+    row: int
+    reason: str
+
+
+class LeadImportResponse(BaseModel):
+    total_rows: int
+    imported: int
+    updated: int
+    skipped: int
+    detected_columns: Dict[str, str] = Field(default_factory=dict)
+    errors: List[LeadImportError] = Field(default_factory=list)

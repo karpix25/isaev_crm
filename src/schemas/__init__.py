@@ -6,7 +6,7 @@ from src.schemas.auth import TokenResponse, LoginRequest, TelegramAuthData
 from src.schemas.user import UserCreate, UserUpdate, UserResponse
 from src.schemas.organization import OrganizationCreate, OrganizationUpdate, OrganizationResponse
 from src.schemas.chat import ChatMessageCreate, ChatMessageResponse, ChatHistoryResponse, SendMessageRequest
-from src.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadListResponse
+from src.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadListResponse, LeadImportResponse, LeadImportError
 
 __all__ = [
     "TokenResponse",
@@ -26,4 +26,6 @@ __all__ = [
     "LeadUpdate",
     "LeadResponse",
     "LeadListResponse",
+    "LeadImportResponse",
+    "LeadImportError",
 ]

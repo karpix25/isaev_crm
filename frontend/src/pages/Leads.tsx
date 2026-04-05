@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useLeads, useUpdateLead, useDeleteLead, useCreateLead } from '@/hooks/useLeads'
+import { useLeads, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus
+    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -34,11 +34,13 @@ export function Leads() {
     const { data: customFields } = useCustomFields(true)
     const updateLead = useUpdateLead()
     const createLead = useCreateLead()
+    const importLeads = useImportLeads()
     const convertLead = useConvertLeadToProject()
     const [draggedLead, setDraggedLead] = useState<Lead | null>(null)
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
     const [showStageFilters, setShowStageFilters] = useState(false)
     const [showCreateModal, setShowCreateModal] = useState(false)
+    const [showImportModal, setShowImportModal] = useState(false)
     const [draggedOverColumn, setDraggedOverColumn] = useState<LeadStatus | null>(null)
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
@@ -120,6 +122,14 @@ export function Leads() {
                     >
                         <Plus className="h-4 w-4" />
                         Добавить лида
+                    </button>
+
+                    <button
+                        onClick={() => setShowImportModal(true)}
+                        className="flex h-10 items-center gap-2 rounded-lg border bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+                    >
+                        <Upload className="h-4 w-4" />
+                        Массовый импорт
                     </button>
 
                     {/* Stage visibility toggle */}
@@ -302,6 +312,38 @@ export function Leads() {
                         })
                     }}
                     isLoading={createLead.isPending}
+                />
+            )}
+
+            {showImportModal && (
+                <ImportLeadsModal
+                    onClose={() => setShowImportModal(false)}
+                    onSubmit={(file, sourceValue) => {
+                        importLeads.mutate(
+                            { file, source: sourceValue },
+                            {
+                                onSuccess: (result) => {
+                                    const hasChanges = result.imported > 0 || result.updated > 0
+                                    const baseMessage = `Импорт завершен: новых ${result.imported}, обновлено ${result.updated}, пропущено ${result.skipped}`
+                                    const extra = result.errors.length > 0 ? `, ошибок строк: ${result.errors.length}` : ''
+                                    setNotification({
+                                        message: `${baseMessage}${extra}`,
+                                        type: hasChanges ? 'success' : 'error',
+                                    })
+                                    setTimeout(() => setNotification(null), 7000)
+                                    setShowImportModal(false)
+                                },
+                                onError: (err: any) => {
+                                    setNotification({
+                                        message: 'Ошибка импорта: ' + (err.response?.data?.detail || err.message),
+                                        type: 'error',
+                                    })
+                                    setTimeout(() => setNotification(null), 7000)
+                                },
+                            }
+                        )
+                    }}
+                    isLoading={importLeads.isPending}
                 />
             )}
         </div>
@@ -744,6 +786,82 @@ export function CreateLeadModal({ onClose, onSubmit, isLoading }: { onClose: () 
                             className="px-5 py-2.5 rounded-xl font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-95"
                         >
                             {isLoading ? 'Сохранение...' : 'Создать'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    )
+}
+
+function ImportLeadsModal({
+    onClose,
+    onSubmit,
+    isLoading,
+}: {
+    onClose: () => void
+    onSubmit: (file: File, source: string) => void
+    isLoading: boolean
+}) {
+    const [file, setFile] = useState<File | null>(null)
+    const [source, setSource] = useState('IMPORT')
+
+    const handleSubmit = (event: React.FormEvent) => {
+        event.preventDefault()
+        if (!file) return
+        onSubmit(file, source.trim() || 'IMPORT')
+    }
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="w-full max-w-md bg-card border rounded-2xl shadow-2xl p-6 scale-in-center">
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold">Массовый импорт лидов</h3>
+                    <button type="button" onClick={onClose} className="p-2 hover:bg-accent rounded-full transition-colors">
+                        <X className="h-5 w-5 text-muted-foreground" />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="text-sm font-medium mb-1.5 block text-foreground/90">Файл (.xlsx или .csv)</label>
+                        <input
+                            type="file"
+                            accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            onChange={(event) => setFile(event.target.files?.[0] || null)}
+                            className="w-full h-11 px-3 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm file:mr-3 file:border-0 file:bg-transparent file:text-sm file:font-medium"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium mb-1.5 block text-foreground/90">Источник для лидов</label>
+                        <input
+                            type="text"
+                            value={source}
+                            onChange={(event) => setSource(event.target.value)}
+                            className="w-full h-11 px-4 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm"
+                            placeholder="IMPORT"
+                        />
+                    </div>
+
+                    <div className="rounded-xl border bg-muted/50 px-3 py-2 text-xs text-muted-foreground leading-relaxed">
+                        Колонки определяются автоматически по названиям (например: ФИО, Телефон, ЖК, Площадь, Email).
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-5 py-2.5 rounded-xl font-medium border hover:bg-accent transition-colors"
+                        >
+                            Отмена
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isLoading || !file}
+                            className="px-5 py-2.5 rounded-xl font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-95"
+                        >
+                            {isLoading ? 'Импорт...' : 'Загрузить'}
                         </button>
                     </div>
                 </form>

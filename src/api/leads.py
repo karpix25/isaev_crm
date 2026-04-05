@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import uuid
 
 from src.database import get_db
 from src.models import User, UserRole, LeadStatus
-from src.schemas.lead import LeadCreate, LeadResponse, LeadListResponse, LeadUpdate
+from src.schemas.lead import LeadCreate, LeadResponse, LeadListResponse, LeadUpdate, LeadImportResponse
 from src.services.lead_service import lead_service
+from src.services.lead_import_service import lead_import_service
 from src.dependencies.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -75,6 +76,41 @@ async def create_lead(
         )
     
     return LeadResponse.model_validate(lead)
+
+
+@router.post("/import", response_model=LeadImportResponse)
+async def import_leads(
+    file: UploadFile = File(...),
+    source: str = Form("IMPORT"),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Bulk import leads from .xlsx or .csv with automatic column detection.
+    Requires ADMIN or MANAGER role.
+    """
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Файл не выбран."
+        )
+
+    content = await file.read()
+
+    try:
+        result = await lead_import_service.import_leads_from_file(
+            db=db,
+            org_id=current_user.org_id,
+            filename=file.filename,
+            file_bytes=content,
+            source=source or "IMPORT"
+        )
+        return LeadImportResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        )
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)

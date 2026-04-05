@@ -98,6 +98,20 @@ export interface TokenResponse {
     token_type: string
 }
 
+export interface LeadImportError {
+    row: number
+    reason: string
+}
+
+export interface LeadImportResult {
+    total_rows: number
+    imported: number
+    updated: number
+    skipped: number
+    detected_columns: Record<string, string>
+    errors: LeadImportError[]
+}
+
 // AI Configuration
 export interface PromptConfigBase {
     name: string

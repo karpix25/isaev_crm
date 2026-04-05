@@ -33,6 +33,7 @@ aiohttp==3.9.1
 
 # Utilities
 python-dotenv==1.0.0
+openpyxl>=3.1.5
 # AI and PDF processing
 PyMuPDF==1.23.22
 langfuse>=3.14.0

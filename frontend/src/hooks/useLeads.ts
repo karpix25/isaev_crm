@@ -51,3 +51,15 @@ export function useDeleteLead() {
         },
     })
 }
+
+export function useImportLeads() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ file, source }: { file: File; source?: string }) =>
+            leadsAPI.importBulk(file, source),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] })
+        },
+    })
+}
