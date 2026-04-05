@@ -142,6 +142,18 @@ export function Login() {
                             </div>
                         )}
 
+                        {started && status === 'pending' && session && (
+                            <div className="w-full rounded-lg bg-muted/50 p-4 text-xs text-muted-foreground">
+                                <p>
+                                    Если бот уже был запущен и команда не отправляется автоматически, просто отправьте
+                                    боту этот код:
+                                </p>
+                                <div className="mt-2 rounded-md bg-background px-3 py-2 font-mono text-[11px] text-foreground break-all border">
+                                    {session.state}
+                                </div>
+                            </div>
+                        )}
+
                         {status === 'expired' && (
                             <div className="flex flex-col items-center gap-3 text-center">
                                 <p className="text-xs text-muted-foreground">

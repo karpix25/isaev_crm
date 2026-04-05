@@ -5,6 +5,7 @@ Integrates AI-powered lead qualification using OpenRouter API.
 import asyncio
 import json
 import logging
+import re
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
@@ -131,6 +132,24 @@ async def handle_lead_message(message: Message):
     Handle text messages from leads with debouncing.
     Groups messages sent within 5 seconds into a single AI request.
     """
+    # CRM web login fallback: user can send the state token directly (works even if bot was started before)
+    try:
+        text = (message.text or "").strip()
+        if text and re.fullmatch(r"[A-Za-z0-9_-]{16,64}", text):
+            from src.services.telegram_bot_login_service import telegram_bot_login_service
+
+            ok = await telegram_bot_login_service.approve_session(
+                state=text,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+            )
+            if ok:
+                await message.answer("✅ Авторизация подтверждена. Вернитесь на сайт — вход выполнится автоматически.")
+                return
+    except Exception as e:
+        logger.error("Failed to process crm_login token message: %s", e, exc_info=True)
+
     user_id = message.from_user.id
     is_voice = getattr(message, "is_voice", False)
     
