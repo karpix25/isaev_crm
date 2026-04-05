@@ -7,6 +7,7 @@ import bcrypt
 from jose import JWTError, jwt
 
 from src.config import settings
+import time
 
 
 class AuthService:
@@ -114,6 +115,19 @@ class AuthService:
         """
         received_hash = auth_data.pop("hash", None)
         if not received_hash:
+            return False
+
+        # Reject very old auth data (basic replay protection)
+        try:
+            auth_date = int(auth_data.get("auth_date") or 0)
+        except Exception:
+            return False
+        now = int(time.time())
+        # allow small clock skew, but do not accept future timestamps
+        if auth_date <= 0 or auth_date > now + 60:
+            return False
+        # 24 hours max age
+        if now - auth_date > 60 * 60 * 24:
             return False
         
         # Create data check string
