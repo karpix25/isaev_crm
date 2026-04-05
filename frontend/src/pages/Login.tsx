@@ -5,7 +5,9 @@ export function Login() {
     const telegramBotName = String(
         (import.meta as any).env.VITE_TELEGRAM_BOT_NAME || 'isaev_karpix_bot'
     ).replace(/^@/, '')
-    const telegramBotUrl = `https://t.me/${telegramBotName}`
+    // Use deep-linking with a start payload so Telegram can re-run /start flow from the link
+    // (the user may still need to tap "Start/Restart" depending on Telegram client behavior).
+    const telegramBotUrl = `https://t.me/${telegramBotName}?start=crm`
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background px-4">
