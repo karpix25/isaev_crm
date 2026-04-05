@@ -26,11 +26,32 @@ const columns = [
     { id: LeadStatus.SPAM, title: 'Спам', color: 'bg-slate-800' },
 ]
 
+const statusLabels: { [key in LeadStatus]: string } = {
+    [LeadStatus.NEW]: 'Новый',
+    [LeadStatus.CONSULTING]: 'Консультация',
+    [LeadStatus.FOLLOW_UP]: 'Догрев',
+    [LeadStatus.QUALIFIED]: 'Квалифицирован',
+    [LeadStatus.MEASUREMENT]: 'Замер',
+    [LeadStatus.ESTIMATE]: 'Смета',
+    [LeadStatus.CONTRACT]: 'Контракт',
+    [LeadStatus.WON]: 'Выигран',
+    [LeadStatus.LOST]: 'Проигран',
+    [LeadStatus.SPAM]: 'Спам',
+}
+
+const LEADS_PAGE_SIZE = 100
+
 export function Leads() {
     const [search, setSearch] = useState('')
     const [source, setSource] = useState<string>('')
+    const [page, setPage] = useState(1)
     const [visibleStages, setVisibleStages] = useState<LeadStatus[]>(columns.map(c => c.id))
-    const { data } = useLeads({ search: search || undefined, source: source || undefined })
+    const { data } = useLeads({
+        search: search || undefined,
+        source: source || undefined,
+        page,
+        page_size: LEADS_PAGE_SIZE,
+    })
     const { data: customFields } = useCustomFields(true)
     const updateLead = useUpdateLead()
     const createLead = useCreateLead()
@@ -45,6 +66,20 @@ export function Leads() {
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
     const leads = data?.leads || []
+    const totalLeads = data?.total || 0
+    const totalPages = Math.max(1, Math.ceil(totalLeads / LEADS_PAGE_SIZE))
+    const shownFrom = totalLeads === 0 ? 0 : (page - 1) * LEADS_PAGE_SIZE + 1
+    const shownTo = Math.min(page * LEADS_PAGE_SIZE, totalLeads)
+
+    useEffect(() => {
+        setPage(1)
+    }, [search, source])
+
+    useEffect(() => {
+        if (page > totalPages) {
+            setPage(totalPages)
+        }
+    }, [page, totalPages])
 
     const getLeadsByStatus = (status: LeadStatus) => {
         return leads.filter((lead) => lead.status === status)
@@ -266,6 +301,31 @@ export function Leads() {
                         </div>
                     )
                 })}
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
+                <div className="text-sm text-muted-foreground">
+                    Показано <span className="font-semibold text-foreground">{shownFrom}-{shownTo}</span> из <span className="font-semibold text-foreground">{totalLeads}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                        disabled={page <= 1}
+                        className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                    >
+                        Назад
+                    </button>
+                    <span className="min-w-[92px] text-center text-sm font-medium">
+                        Стр. {page} из {totalPages}
+                    </span>
+                    <button
+                        onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={page >= totalPages}
+                        className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                    >
+                        Вперёд
+                    </button>
+                </div>
             </div>
 
             {/* Lead Workspace Overlay */}
@@ -497,7 +557,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                                 }`}
                                         >
                                             <div className={`h-1.5 w-1.5 rounded-full ${lead.status === status ? 'bg-white' : 'bg-slate-300'}`} />
-                                            {status}
+                                            {statusLabels[status]}
                                         </button>
                                     ))}
                                 </div>

@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { leadsAPI } from '@/lib/api'
 import type { Lead, LeadStatus } from '@/types'
 
-export function useLeads(params?: { status?: LeadStatus; source?: string; search?: string }) {
+export function useLeads(params?: { status?: LeadStatus; source?: string; search?: string; page?: number; page_size?: number }) {
     return useQuery({
         queryKey: ['leads', params],
         queryFn: () => leadsAPI.getAll(params),
