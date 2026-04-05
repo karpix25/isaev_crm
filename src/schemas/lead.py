@@ -23,8 +23,10 @@ class LeadUpdate(BaseModel):
     phone: Optional[str] = None
     status: Optional[LeadStatus] = None
     ai_summary: Optional[str] = None
+    operator_comment: Optional[str] = None
     avatar_url: Optional[str] = None
     readiness_score: Optional[str] = None
+    extracted_data: Optional[str] = None
 
 
 class LeadResponse(BaseModel):
@@ -39,6 +41,7 @@ class LeadResponse(BaseModel):
     username: Optional[str] = None
     status: LeadStatus
     ai_summary: Optional[str] = None
+    operator_comment: Optional[str] = None
     ai_qualification_status: Optional[str] = "pending"
     readiness_score: Optional[str] = None
     extracted_data: Optional[str] = None

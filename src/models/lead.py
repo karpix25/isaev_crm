@@ -65,6 +65,9 @@ class Lead(BaseModel):
     # AI-generated summary of the conversation
     ai_summary = Column(Text, nullable=True)
     
+    # Manual operator comment (CRM-side notes)
+    operator_comment = Column(Text, nullable=True)
+    
     # AI qualification status
     ai_qualification_status = Column(
         String(50),

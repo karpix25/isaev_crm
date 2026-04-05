@@ -57,6 +57,7 @@ export function useUpdateLead() {
             leadsAPI.update(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['leads'] })
+            queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
         },
     })
 }

@@ -197,15 +197,19 @@ async def update_lead(
             detail="Access denied"
         )
     
-    # Update fields
-    if lead_data.full_name is not None:
-        lead.full_name = lead_data.full_name
-    if lead_data.phone is not None:
-        lead.phone = lead_data.phone
-    if lead_data.status is not None:
-        lead.status = lead_data.status
-    if lead_data.ai_summary is not None:
-        lead.ai_summary = lead_data.ai_summary
+    payload = lead_data.model_dump(exclude_unset=True)
+    for field_name in (
+        "full_name",
+        "phone",
+        "status",
+        "ai_summary",
+        "operator_comment",
+        "avatar_url",
+        "readiness_score",
+        "extracted_data",
+    ):
+        if field_name in payload:
+            setattr(lead, field_name, payload[field_name])
     
     await db.commit()
     await db.refresh(lead)

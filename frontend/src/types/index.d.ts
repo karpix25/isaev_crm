@@ -23,6 +23,7 @@ export interface Lead {
     username: string | null;
     status: LeadStatus;
     ai_summary: string | null;
+    operator_comment?: string | null;
     ai_qualification_status?: string;
     source: string | null;
     avatar_url?: string;

@@ -526,14 +526,62 @@ interface LeadWorkspaceProps {
     onUpdateStatus: (status: LeadStatus) => void
 }
 
+type ExtractedFieldDescriptor = {
+    key: string
+    label: string
+    icon?: React.ReactNode
+}
+
+const BASE_EXTRACTED_FIELDS: ExtractedFieldDescriptor[] = [
+    { key: 'property_type', label: 'Объект', icon: <Home className="h-3 w-3" /> },
+    { key: 'area_sqm', label: 'Площадь', icon: <Ruler className="h-3 w-3" /> },
+    { key: 'address', label: 'ЖК / Адрес', icon: <MapPin className="h-3 w-3" /> },
+    { key: 'renovation_type', label: 'Тип ремонта' },
+    { key: 'budget', label: 'Бюджет', icon: <Wallet className="h-3 w-3" /> },
+    { key: 'deadline', label: 'Сроки', icon: <Clock className="h-3 w-3" /> },
+]
+
+function parseExtractedData(raw: Lead['extracted_data']): Record<string, any> {
+    try {
+        return typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {})
+    } catch {
+        return {}
+    }
+}
+
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
     const [message, setMessage] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const { data: chatData } = useChatHistory(lead.id, 1)
     const sendMessage = useSendMessage()
     const deleteLead = useDeleteLead()
+    const updateLead = useUpdateLead()
+    const [isEditingExtracted, setIsEditingExtracted] = useState(false)
+    const [savedExtractedData, setSavedExtractedData] = useState<Record<string, any>>(parseExtractedData(lead.extracted_data))
+    const [extractedDraft, setExtractedDraft] = useState<Record<string, string>>({})
+    const [savedOperatorComment, setSavedOperatorComment] = useState(lead.operator_comment || '')
+    const [operatorCommentDraft, setOperatorCommentDraft] = useState(lead.operator_comment || '')
 
     const messages = chatData?.messages || []
+    const editableFields = useMemo<ExtractedFieldDescriptor[]>(() => {
+        const baseKeys = new Set(BASE_EXTRACTED_FIELDS.map((field) => field.key))
+        const customDescriptors = customFields
+            .filter((field) => field?.field_name && !baseKeys.has(field.field_name))
+            .map((field) => ({
+                key: field.field_name as string,
+                label: (field.field_label || field.field_name) as string,
+            }))
+        return [...BASE_EXTRACTED_FIELDS, ...customDescriptors]
+    }, [customFields])
+
+    const buildExtractedDraft = (data: Record<string, any>) => {
+        const draft: Record<string, string> = {}
+        for (const field of editableFields) {
+            const value = data[field.key]
+            draft[field.key] = value === undefined || value === null ? '' : String(value)
+        }
+        return draft
+    }
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -543,11 +591,70 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         scrollToBottom()
     }, [messages])
 
+    useEffect(() => {
+        const parsed = parseExtractedData(lead.extracted_data)
+        setSavedExtractedData(parsed)
+        setExtractedDraft(buildExtractedDraft(parsed))
+        setSavedOperatorComment(lead.operator_comment || '')
+        setOperatorCommentDraft(lead.operator_comment || '')
+        setIsEditingExtracted(false)
+    }, [lead.id, lead.extracted_data, lead.operator_comment, editableFields])
+
     const handleSendMessage = () => {
         if (!message.trim()) return
         sendMessage.mutate(
             { leadId: lead.id, content: message },
             { onSuccess: () => setMessage('') }
+        )
+    }
+
+    const handleExtractedFieldChange = (key: string, value: string) => {
+        setExtractedDraft((prev) => ({
+            ...prev,
+            [key]: value,
+        }))
+    }
+
+    const handleSaveExtractedData = () => {
+        const nextExtractedData: Record<string, any> = { ...savedExtractedData }
+
+        for (const field of editableFields) {
+            const value = extractedDraft[field.key]?.trim() || ''
+            if (value) {
+                nextExtractedData[field.key] = value
+            } else {
+                delete nextExtractedData[field.key]
+            }
+        }
+
+        updateLead.mutate(
+            {
+                id: lead.id,
+                data: { extracted_data: JSON.stringify(nextExtractedData) },
+            },
+            {
+                onSuccess: () => {
+                    setSavedExtractedData(nextExtractedData)
+                    setExtractedDraft(buildExtractedDraft(nextExtractedData))
+                    setIsEditingExtracted(false)
+                },
+            }
+        )
+    }
+
+    const handleSaveOperatorComment = () => {
+        const nextComment = operatorCommentDraft.trim()
+        updateLead.mutate(
+            {
+                id: lead.id,
+                data: { operator_comment: nextComment || null },
+            },
+            {
+                onSuccess: () => {
+                    setSavedOperatorComment(nextComment)
+                    setOperatorCommentDraft(nextComment)
+                },
+            }
         )
     }
 
@@ -557,9 +664,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         return 'Вы'
     }
 
-    const extractedData = typeof lead.extracted_data === 'string'
-        ? JSON.parse(lead.extracted_data)
-        : lead.extracted_data || {}
     const messengerPresence = getMessengerPresence(lead)
 
     return (
@@ -685,29 +789,82 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 
                             {/* Client Data Section */}
                             <section className="rounded-2xl border bg-white p-5 shadow-sm">
-                                <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground border-b pb-3">
-                                    <ClipboardList className="h-3.5 w-3.5" /> Извлеченные данные
-                                </h3>
-                                <div className="grid grid-cols-2 gap-y-5 gap-x-4">
-                                    <DataField label="Объект" value={extractedData.property_type} icon={<Home className="h-3 w-3" />} />
-                                    <DataField label="Площадь" value={extractedData.area_sqm ? `${extractedData.area_sqm} м²` : null} icon={<Ruler className="h-3 w-3" />} />
-                                    <DataField label="ЖК / Адрес" value={extractedData.address} icon={<MapPin className="h-3 w-3" />} />
-                                    <DataField label="Тип ремонта" value={extractedData.renovation_type} />
-                                    <DataField label="Бюджет" value={extractedData.budget} icon={<Wallet className="h-3 w-3" />} />
-                                    <DataField label="Сроки" value={extractedData.deadline} icon={<Clock className="h-3 w-3" />} />
-
-                                    {/* Dynamic Custom Fields */}
-                                    {customFields.map((field) => {
-                                        const value = extractedData[field.field_name];
-                                        return (
-                                            <DataField
-                                                key={field.id}
-                                                label={field.field_label}
-                                                value={value ? String(value) : null}
-                                            />
-                                        );
-                                    })}
+                                <div className="mb-4 flex items-center justify-between border-b pb-3">
+                                    <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                                        <ClipboardList className="h-3.5 w-3.5" /> Извлеченные данные
+                                    </h3>
+                                    <div className="flex items-center gap-2">
+                                        {isEditingExtracted ? (
+                                            <>
+                                                <button
+                                                    onClick={() => {
+                                                        setExtractedDraft(buildExtractedDraft(savedExtractedData))
+                                                        setIsEditingExtracted(false)
+                                                    }}
+                                                    disabled={updateLead.isPending}
+                                                    className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-accent disabled:opacity-50"
+                                                >
+                                                    Отмена
+                                                </button>
+                                                <button
+                                                    onClick={handleSaveExtractedData}
+                                                    disabled={updateLead.isPending}
+                                                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                                                >
+                                                    {updateLead.isPending ? 'Сохраняем...' : 'Сохранить'}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                onClick={() => {
+                                                    setExtractedDraft(buildExtractedDraft(savedExtractedData))
+                                                    setIsEditingExtracted(true)
+                                                }}
+                                                className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-accent"
+                                            >
+                                                Изменить
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
+
+                                {isEditingExtracted ? (
+                                    <div className="grid grid-cols-2 gap-y-4 gap-x-4">
+                                        {editableFields.map((field) => (
+                                            <div key={field.key} className="space-y-1.5">
+                                                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-80">
+                                                    {field.icon}
+                                                    {field.label}
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={extractedDraft[field.key] || ''}
+                                                    onChange={(event) => handleExtractedFieldChange(field.key, event.target.value)}
+                                                    className="h-9 w-full rounded-lg border bg-background px-3 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-y-5 gap-x-4">
+                                        <DataField label="Объект" value={savedExtractedData.property_type ? String(savedExtractedData.property_type) : null} icon={<Home className="h-3 w-3" />} />
+                                        <DataField label="Площадь" value={savedExtractedData.area_sqm ? `${savedExtractedData.area_sqm} м²` : null} icon={<Ruler className="h-3 w-3" />} />
+                                        <DataField label="ЖК / Адрес" value={savedExtractedData.address ? String(savedExtractedData.address) : null} icon={<MapPin className="h-3 w-3" />} />
+                                        <DataField label="Тип ремонта" value={savedExtractedData.renovation_type ? String(savedExtractedData.renovation_type) : null} />
+                                        <DataField label="Бюджет" value={savedExtractedData.budget ? String(savedExtractedData.budget) : null} icon={<Wallet className="h-3 w-3" />} />
+                                        <DataField label="Сроки" value={savedExtractedData.deadline ? String(savedExtractedData.deadline) : null} icon={<Clock className="h-3 w-3" />} />
+                                        {customFields.map((field) => {
+                                            const value = savedExtractedData[field.field_name]
+                                            return (
+                                                <DataField
+                                                    key={field.id}
+                                                    label={field.field_label}
+                                                    value={value ? String(value) : null}
+                                                />
+                                            )
+                                        })}
+                                    </div>
+                                )}
 
                                 {lead.ai_summary && (
                                     <div className="mt-6 pt-5 border-t">
@@ -717,6 +874,35 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                         </p>
                                     </div>
                                 )}
+                            </section>
+
+                            <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                                <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                                    <MessageSquare className="h-3.5 w-3.5" /> Комментарий оператора
+                                </h3>
+                                <textarea
+                                    value={operatorCommentDraft}
+                                    onChange={(event) => setOperatorCommentDraft(event.target.value)}
+                                    rows={4}
+                                    placeholder="Добавьте комментарий для команды по этому лиду..."
+                                    className="w-full rounded-xl border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                                <div className="mt-3 flex items-center justify-end gap-2">
+                                    <button
+                                        onClick={() => setOperatorCommentDraft(savedOperatorComment)}
+                                        disabled={updateLead.isPending || operatorCommentDraft === savedOperatorComment}
+                                        className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-accent disabled:opacity-50"
+                                    >
+                                        Отмена
+                                    </button>
+                                    <button
+                                        onClick={handleSaveOperatorComment}
+                                        disabled={updateLead.isPending || operatorCommentDraft.trim() === savedOperatorComment}
+                                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                                    >
+                                        {updateLead.isPending ? 'Сохраняем...' : 'Сохранить'}
+                                    </button>
+                                </div>
                             </section>
                         </div>
                     </div>
