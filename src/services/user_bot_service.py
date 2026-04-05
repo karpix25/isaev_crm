@@ -3,6 +3,8 @@ import os
 import random
 import uuid
 import re
+import time
+from collections import defaultdict, deque
 from typing import Dict, Optional, List
 import httpx
 
@@ -30,6 +32,9 @@ class UserBotService:
     def __init__(self):
         self.clients: Dict[uuid.UUID, TelegramClient] = {}
         self.auth_states: Dict[uuid.UUID, Dict] = {} # Temporary storage for auth flow
+        self.telegram_phone_lookup_history: Dict[uuid.UUID, deque[float]] = defaultdict(deque)
+        self.whatsapp_lookup_history: Dict[uuid.UUID, deque[float]] = defaultdict(deque)
+        self.lookup_cache: Dict[str, tuple[float, dict]] = {}
 
     async def get_client(self, org_id: uuid.UUID, phone: str = None) -> TelegramClient:
         """Get or create Telethon client for an organization"""
@@ -521,6 +526,22 @@ class UserBotService:
         if not normalized_phone:
             return None
 
+        cache_key = f"tg:{org_id}:{normalized_phone}"
+        cached = self._get_cached_lookup(cache_key)
+        if cached is not None:
+            return cached
+
+        if not self._consume_rate_limit(
+            history=self.telegram_phone_lookup_history[org_id],
+            limit_per_minute=max(1, int(settings.telegram_phone_lookup_max_per_minute)),
+        ):
+            logger.warning(
+                "[USERBOT] Telegram phone lookup rate limited for org %s (phone=%s)",
+                org_id,
+                normalized_phone,
+            )
+            return None
+
         client = await self._get_or_restore_client(db, org_id)
         if not client:
             logger.warning(f"[USERBOT] User Bot not connected or not authorized for org {org_id}. Cannot resolve phone {phone}.")
@@ -536,19 +557,23 @@ class UserBotService:
             )
             result = await client(functions.contacts.ImportContactsRequest([contact]))
             if not result.users:
-                return {"active": False}
+                payload = {"active": False}
+                self._set_cached_lookup(cache_key, payload)
+                return payload
 
             imported_user = result.users[0]
             first_name = (getattr(imported_user, "first_name", "") or "").strip()
             last_name = (getattr(imported_user, "last_name", "") or "").strip()
             full_name = f"{first_name} {last_name}".strip() or None
 
-            return {
+            payload = {
                 "active": True,
                 "telegram_id": imported_user.id,
                 "username": getattr(imported_user, "username", None),
                 "full_name": full_name,
             }
+            self._set_cached_lookup(cache_key, payload)
+            return payload
         except Exception as e:
             logger.error(f"[USERBOT] Failed to resolve phone '{normalized_phone}': {e}")
             return None
@@ -560,7 +585,7 @@ class UserBotService:
                 except Exception as cleanup_err:
                     logger.warning(f"[USERBOT] Failed to cleanup imported contact for {normalized_phone}: {cleanup_err}")
 
-    async def resolve_whatsapp(self, phone: str) -> Optional[dict]:
+    async def resolve_whatsapp(self, org_id: uuid.UUID, phone: str) -> Optional[dict]:
         """
         Resolve WhatsApp presence via external lookup endpoint.
         Returns dict:
@@ -573,6 +598,21 @@ class UserBotService:
 
         normalized_phone = self._normalize_phone(phone)
         if not normalized_phone:
+            return None
+
+        cache_key = f"wa:{org_id}:{normalized_phone}"
+        cached = self._get_cached_lookup(cache_key)
+        if cached is not None:
+            return cached
+
+        if not self._consume_rate_limit(
+            history=self.whatsapp_lookup_history[org_id],
+            limit_per_minute=max(1, int(settings.whatsapp_lookup_max_per_minute)),
+        ):
+            logger.warning(
+                "[USERBOT] WhatsApp lookup rate limited (phone=%s)",
+                normalized_phone,
+            )
             return None
 
         headers = {"Accept": "application/json"}
@@ -609,13 +649,40 @@ class UserBotService:
                 return None
 
             wa_id = payload.get("wa_id") or payload.get("id")
-            return {
+            result = {
                 "active": bool(active),
                 "wa_id": str(wa_id) if wa_id is not None else None,
             }
+            self._set_cached_lookup(cache_key, result)
+            return result
         except Exception as e:
             logger.error(f"[USERBOT] Failed to resolve WhatsApp for phone '{normalized_phone}': {e}")
             return None
+
+    @staticmethod
+    def _consume_rate_limit(history: deque[float], limit_per_minute: int) -> bool:
+        now = time.time()
+        while history and (now - history[0]) > 60:
+            history.popleft()
+        if len(history) >= limit_per_minute:
+            return False
+        history.append(now)
+        return True
+
+    def _get_cached_lookup(self, key: str) -> Optional[dict]:
+        now = time.time()
+        cached = self.lookup_cache.get(key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if now >= expires_at:
+            self.lookup_cache.pop(key, None)
+            return None
+        return payload
+
+    def _set_cached_lookup(self, key: str, payload: dict):
+        ttl = max(1, int(settings.telegram_phone_lookup_cache_ttl_seconds))
+        self.lookup_cache[key] = (time.time() + ttl, payload)
 
     async def _get_or_restore_client(self, db: AsyncSession, org_id: uuid.UUID) -> Optional[TelegramClient]:
         client = self.clients.get(org_id)

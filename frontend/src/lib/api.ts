@@ -1,6 +1,6 @@
 import axios from 'axios'
 import axiosRetry from 'axios-retry'
-import type { Lead, ChatMessage, DashboardMetrics, LoginRequest, TokenResponse, LeadImportResult } from '@/types'
+import type { Lead, ChatMessage, DashboardMetrics, LoginRequest, TokenResponse, LeadImportResult, LeadBulkDeleteResult } from '@/types'
 
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -87,6 +87,11 @@ export const leadsAPI = {
 
     delete: async (id: string): Promise<void> => {
         await api.delete(`/leads/${id}`)
+    },
+
+    bulkDelete: async (leadIds: string[]): Promise<LeadBulkDeleteResult> => {
+        const response = await api.post<LeadBulkDeleteResult>('/leads/bulk-delete', { lead_ids: leadIds })
+        return response.data
     },
 
     importBulk: async (file: File, source = 'IMPORT'): Promise<LeadImportResult> => {

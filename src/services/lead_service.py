@@ -89,9 +89,11 @@ class LeadService:
         from src.services.user_bot_service import user_bot_service
         import logging
         logger = logging.getLogger(__name__)
+        source_upper = (source or "").strip().upper()
+        allow_messenger_lookup = "IMPORT" not in source_upper and "BULK" not in source_upper
 
         # 1) Resolve by username first (explicit user input has priority)
-        if username:
+        if username and allow_messenger_lookup:
             clean_username = username.strip()
             if clean_username.startswith('@'):
                 clean_username = clean_username[1:]
@@ -103,7 +105,7 @@ class LeadService:
 
         # 2) Resolve by phone (requested behavior for manual lead creation)
         #    Fill missing telegram_id/username/full_name if found.
-        if phone:
+        if phone and allow_messenger_lookup:
             try:
                 phone_lookup = await user_bot_service.resolve_phone(db, org_id, phone)
                 if phone_lookup:
@@ -131,7 +133,7 @@ class LeadService:
                 logger.error(f"Failed to resolve phone {phone} during manual creation: {e}")
 
             try:
-                whatsapp_lookup = await user_bot_service.resolve_whatsapp(phone)
+                whatsapp_lookup = await user_bot_service.resolve_whatsapp(org_id, phone)
                 if whatsapp_lookup and whatsapp_lookup.get("active") is not None:
                     messenger_presence["whatsapp"] = bool(whatsapp_lookup.get("active"))
                     whatsapp_wa_id = whatsapp_lookup.get("wa_id")
@@ -280,6 +282,35 @@ class LeadService:
         await db.commit()
         
         return True
+
+    @staticmethod
+    async def bulk_delete_leads(
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        lead_ids: List[uuid.UUID]
+    ) -> int:
+        """
+        Bulk delete leads by IDs within an organization.
+        Returns number of deleted leads.
+        """
+        if not lead_ids:
+            return 0
+
+        unique_ids = list(dict.fromkeys(lead_ids))
+        result = await db.execute(
+            select(Lead).where(
+                Lead.org_id == org_id,
+                Lead.id.in_(unique_ids)
+            )
+        )
+        leads_to_delete = result.scalars().all()
+        deleted = 0
+        for lead in leads_to_delete:
+            await db.delete(lead)
+            deleted += 1
+
+        await db.commit()
+        return deleted
 
 
 # Global instance

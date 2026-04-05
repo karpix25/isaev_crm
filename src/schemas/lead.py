@@ -71,3 +71,12 @@ class LeadImportResponse(BaseModel):
     skipped: int
     detected_columns: Dict[str, str] = Field(default_factory=dict)
     errors: List[LeadImportError] = Field(default_factory=list)
+
+
+class LeadBulkDeleteRequest(BaseModel):
+    lead_ids: List[uuid.UUID] = Field(default_factory=list)
+
+
+class LeadBulkDeleteResponse(BaseModel):
+    requested: int
+    deleted: int

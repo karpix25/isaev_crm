@@ -5,7 +5,15 @@ import uuid
 
 from src.database import get_db
 from src.models import User, UserRole, LeadStatus
-from src.schemas.lead import LeadCreate, LeadResponse, LeadListResponse, LeadUpdate, LeadImportResponse
+from src.schemas.lead import (
+    LeadCreate,
+    LeadResponse,
+    LeadListResponse,
+    LeadUpdate,
+    LeadImportResponse,
+    LeadBulkDeleteRequest,
+    LeadBulkDeleteResponse,
+)
 from src.services.lead_service import lead_service
 from src.services.lead_import_service import lead_import_service
 from src.dependencies.auth import get_current_user, require_role
@@ -111,6 +119,30 @@ async def import_leads(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc)
         )
+
+
+@router.post("/bulk-delete", response_model=LeadBulkDeleteResponse)
+async def bulk_delete_leads(
+    payload: LeadBulkDeleteRequest,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Bulk delete leads and their chat messages by IDs.
+    Requires ADMIN role.
+    """
+    if not payload.lead_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Список lead_ids пуст."
+        )
+
+    deleted = await lead_service.bulk_delete_leads(
+        db=db,
+        org_id=current_user.org_id,
+        lead_ids=payload.lead_ids
+    )
+    return LeadBulkDeleteResponse(requested=len(payload.lead_ids), deleted=deleted)
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)

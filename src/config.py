@@ -104,10 +104,13 @@ class Settings(BaseSettings):
     telegram_webhook_url: str = ""
     telegram_update_mode: str = "polling"  # polling | webhook | auto
     manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
+    telegram_phone_lookup_max_per_minute: int = 20
+    telegram_phone_lookup_cache_ttl_seconds: int = 3600
     whatsapp_lookup_url: str = ""
     whatsapp_lookup_token: str = ""
     whatsapp_lookup_method: str = "post"  # post | get
     whatsapp_lookup_timeout_seconds: int = 10
+    whatsapp_lookup_max_per_minute: int = 20
 
     @field_validator("telegram_update_mode")
     @classmethod

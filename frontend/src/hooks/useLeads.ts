@@ -72,6 +72,18 @@ export function useDeleteLead() {
     })
 }
 
+export function useBulkDeleteLeads() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (leadIds: string[]) => leadsAPI.bulkDelete(leadIds),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] })
+            queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
+        },
+    })
+}
+
 export function useImportLeads() {
     const queryClient = useQueryClient()
 

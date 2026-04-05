@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { useLeadsInfinite, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads } from '@/hooks/useLeads'
+import { useLeadsInfinite, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -8,7 +8,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle
+    Calendar, ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -59,12 +59,15 @@ export function Leads() {
     const updateLead = useUpdateLead()
     const createLead = useCreateLead()
     const importLeads = useImportLeads()
+    const bulkDeleteLeads = useBulkDeleteLeads()
     const convertLead = useConvertLeadToProject()
     const [draggedLead, setDraggedLead] = useState<Lead | null>(null)
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
     const [showStageFilters, setShowStageFilters] = useState(false)
     const [showCreateModal, setShowCreateModal] = useState(false)
     const [showImportModal, setShowImportModal] = useState(false)
+    const [selectionMode, setSelectionMode] = useState(false)
+    const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([])
     const [draggedOverColumn, setDraggedOverColumn] = useState<LeadStatus | null>(null)
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
@@ -81,6 +84,8 @@ export function Leads() {
 
     const totalLeads = data?.pages?.[0]?.total || 0
     const loadedLeadsCount = leads.length
+    const selectedCount = selectedLeadIds.length
+    const isAllLoadedSelected = loadedLeadsCount > 0 && leads.every((lead) => selectedLeadIds.includes(lead.id))
 
     const getLeadsByStatus = (status: LeadStatus) => {
         return leads.filter((lead) => lead.status === status)
@@ -108,6 +113,7 @@ export function Leads() {
     }
 
     const handleDragStart = (e: React.DragEvent, lead: Lead) => {
+        if (selectionMode) return
         e.dataTransfer.setData('leadId', lead.id)
         e.dataTransfer.setData('leadStatus', lead.status)
         setDraggedLead(lead)
@@ -130,6 +136,7 @@ export function Leads() {
     }
 
     const handleDrop = (e: React.DragEvent, status: LeadStatus) => {
+        if (selectionMode) return
         e.preventDefault()
         const leadId = e.dataTransfer.getData('leadId')
         const oldStatus = e.dataTransfer.getData('leadStatus') as LeadStatus
@@ -159,6 +166,54 @@ export function Leads() {
 
     const filteredColumns = columns.filter(col => visibleStages.includes(col.id))
 
+    const toggleLeadSelection = (leadId: string) => {
+        setSelectedLeadIds(prev =>
+            prev.includes(leadId)
+                ? prev.filter(id => id !== leadId)
+                : [...prev, leadId]
+        )
+    }
+
+    const toggleSelectAllLoaded = () => {
+        if (isAllLoadedSelected) {
+            const loadedIds = new Set(leads.map((lead) => lead.id))
+            setSelectedLeadIds(prev => prev.filter(id => !loadedIds.has(id)))
+            return
+        }
+        const merged = new Set(selectedLeadIds)
+        for (const lead of leads) {
+            merged.add(lead.id)
+        }
+        setSelectedLeadIds(Array.from(merged))
+    }
+
+    const handleBulkDelete = () => {
+        if (selectedLeadIds.length === 0) return
+        if (!window.confirm(`Удалить выбранные лиды (${selectedLeadIds.length})? Это действие необратимо.`)) return
+
+        bulkDeleteLeads.mutate(selectedLeadIds, {
+            onSuccess: (result) => {
+                if (selectedLead && selectedLeadIds.includes(selectedLead.id)) {
+                    setSelectedLead(null)
+                }
+                setSelectedLeadIds([])
+                setSelectionMode(false)
+                setNotification({
+                    message: `Удалено лидов: ${result.deleted} из ${result.requested}`,
+                    type: 'success',
+                })
+                setTimeout(() => setNotification(null), 7000)
+            },
+            onError: (err: any) => {
+                setNotification({
+                    message: 'Ошибка массового удаления: ' + (err.response?.data?.detail || err.message),
+                    type: 'error',
+                })
+                setTimeout(() => setNotification(null), 7000)
+            },
+        })
+    }
+
     return (
         <div className="h-full relative flex flex-col gap-6">
             <div className="flex items-center justify-between">
@@ -185,6 +240,40 @@ export function Leads() {
                         <Upload className="h-4 w-4" />
                         Массовый импорт
                     </button>
+
+                    <button
+                        onClick={() => {
+                            if (selectionMode) {
+                                setSelectionMode(false)
+                                setSelectedLeadIds([])
+                                return
+                            }
+                            setSelectionMode(true)
+                        }}
+                        className={`flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium shadow-sm transition-colors ${selectionMode ? 'bg-accent border-primary' : 'bg-background hover:bg-accent'}`}
+                    >
+                        {selectionMode ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                        Массовое удаление
+                    </button>
+
+                    {selectionMode && (
+                        <>
+                            <button
+                                onClick={toggleSelectAllLoaded}
+                                className="flex h-10 items-center gap-2 rounded-lg border bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+                            >
+                                {isAllLoadedSelected ? 'Снять все' : 'Выбрать загруженные'}
+                            </button>
+                            <button
+                                onClick={handleBulkDelete}
+                                disabled={selectedCount === 0 || bulkDeleteLeads.isPending}
+                                className="flex h-10 items-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                                {bulkDeleteLeads.isPending ? 'Удаляем...' : `Удалить (${selectedCount})`}
+                            </button>
+                        </>
+                    )}
 
                     {/* Stage visibility toggle */}
                     <div className="relative">
@@ -313,7 +402,15 @@ export function Leads() {
                                         key={lead.id}
                                         lead={lead}
                                         onDragStart={(e) => handleDragStart(e, lead)}
-                                        onClick={() => setSelectedLead(lead)}
+                                        onClick={() => {
+                                            if (selectionMode) {
+                                                toggleLeadSelection(lead.id)
+                                                return
+                                            }
+                                            setSelectedLead(lead)
+                                        }}
+                                        selectionMode={selectionMode}
+                                        selected={selectedLeadIds.includes(lead.id)}
                                     />
                                 ))}
                             </div>
@@ -325,6 +422,9 @@ export function Leads() {
             <div className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
                 <div className="text-sm text-muted-foreground">
                     Загружено <span className="font-semibold text-foreground">{loadedLeadsCount}</span> из <span className="font-semibold text-foreground">{totalLeads}</span>
+                    {selectionMode && (
+                        <span> • Выбрано: <span className="font-semibold text-foreground">{selectedCount}</span></span>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <button
@@ -708,15 +808,27 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     )
 }
 
-function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e: React.DragEvent) => void; onClick: () => void }) {
+function LeadCard({
+    lead,
+    onDragStart,
+    onClick,
+    selectionMode = false,
+    selected = false,
+}: {
+    lead: Lead
+    onDragStart: (e: React.DragEvent) => void
+    onClick: () => void
+    selectionMode?: boolean
+    selected?: boolean
+}) {
     const messengerPresence = getMessengerPresence(lead)
 
     return (
         <div
-            draggable
+            draggable={!selectionMode}
             onDragStart={onDragStart}
             onClick={onClick}
-            className="group cursor-pointer rounded-lg border bg-background p-3 shadow-sm transition-all hover:border-primary hover:shadow-md"
+            className={`group cursor-pointer rounded-lg border bg-background p-3 shadow-sm transition-all hover:border-primary hover:shadow-md ${selected ? 'ring-2 ring-primary border-primary' : ''}`}
         >
             <div className="mb-2 flex items-start justify-between">
                 <div className="flex items-center gap-2">
@@ -748,11 +860,18 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
                         )}
                     </div>
                 </div>
-                {lead.unread_count > 0 && (
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-pulse">
-                        {lead.unread_count}
-                    </div>
-                )}
+                <div className="flex items-center gap-2">
+                    {selectionMode && (
+                        <div className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? 'bg-primary border-primary text-primary-foreground' : 'bg-background border-slate-300 text-transparent'}`}>
+                            <CheckSquare className="h-3 w-3" />
+                        </div>
+                    )}
+                    {lead.unread_count > 0 && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-pulse">
+                            {lead.unread_count}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {lead.ai_summary && (

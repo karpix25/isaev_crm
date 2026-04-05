@@ -112,6 +112,11 @@ export interface LeadImportResult {
     errors: LeadImportError[]
 }
 
+export interface LeadBulkDeleteResult {
+    requested: number
+    deleted: number
+}
+
 // AI Configuration
 export interface PromptConfigBase {
     name: string
