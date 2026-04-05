@@ -72,15 +72,17 @@ async def cmd_start(message: Message):
         org = org_result.scalar_one_or_none()
         company_name = org.name if org else "наша компания"
 
+        welcome_text = config.welcome_message if config and config.welcome_message else get_initial_message(company_name)
         if not is_business_hours():
             logger.info(
-                "Outside business hours at %s, skipping /start welcome for lead %s",
+                "Outside business hours at %s, sending /start out-of-hours notice for lead %s",
                 get_business_now().isoformat(),
                 lead.id
             )
-            return
-        
-        welcome_text = config.welcome_message if config and config.welcome_message else get_initial_message(company_name)
+            welcome_text = (
+                f"{welcome_text}\n\n"
+                "Сейчас мы не на связи. Ответим в рабочее время."
+            )
         
         # Save AI response to database
         sent_message = await message.answer(welcome_text)
