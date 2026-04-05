@@ -19,6 +19,7 @@ export function useSendMessage() {
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ['chat', variables.leadId] })
             queryClient.invalidateQueries({ queryKey: ['leads'] })
+            queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
         },
     })
 }

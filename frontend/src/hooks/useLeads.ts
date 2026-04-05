@@ -4,6 +4,11 @@ import type { Lead, LeadStatus } from '@/types'
 
 type LeadsQueryParams = { status?: LeadStatus; source?: string; search?: string; page?: number; page_size?: number }
 
+function invalidateLeadQueries(queryClient: ReturnType<typeof useQueryClient>) {
+    queryClient.invalidateQueries({ queryKey: ['leads'] })
+    queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
+}
+
 export function useLeads(params?: LeadsQueryParams) {
     return useQuery({
         queryKey: ['leads', params],
@@ -21,6 +26,7 @@ export function useLeadsInfinite(params?: Omit<LeadsQueryParams, 'page'>) {
                 page: Number(pageParam),
                 page_size: params?.page_size,
             }),
+        refetchInterval: 5000, // Keep kanban in near real-time without manual refresh
         initialPageParam: 1,
         getNextPageParam: (lastPage) => {
             const loaded = lastPage.page * lastPage.page_size
@@ -52,7 +58,7 @@ export function useCreateLead() {
     return useMutation({
         mutationFn: (data: { full_name?: string; phone?: string; username?: string; source?: string; org_id: string }) => leadsAPI.create(data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['leads'] })
+            invalidateLeadQueries(queryClient)
         },
     })
 }
@@ -64,8 +70,7 @@ export function useUpdateLead() {
         mutationFn: ({ id, data }: { id: string; data: Partial<Lead> }) =>
             leadsAPI.update(id, data),
         onSuccess: (_data, variables) => {
-            queryClient.invalidateQueries({ queryKey: ['leads'] })
-            queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
+            invalidateLeadQueries(queryClient)
             queryClient.invalidateQueries({ queryKey: ['lead-history', variables.id] })
         },
     })
@@ -76,8 +81,9 @@ export function useDeleteLead() {
 
     return useMutation({
         mutationFn: (id: string) => leadsAPI.delete(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['leads'] })
+        onSuccess: (_data, deletedLeadId) => {
+            invalidateLeadQueries(queryClient)
+            queryClient.removeQueries({ queryKey: ['chat', deletedLeadId] })
         },
     })
 }
@@ -88,8 +94,7 @@ export function useBulkDeleteLeads() {
     return useMutation({
         mutationFn: (leadIds: string[]) => leadsAPI.bulkDelete(leadIds),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['leads'] })
-            queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
+            invalidateLeadQueries(queryClient)
         },
     })
 }
@@ -101,7 +106,7 @@ export function useImportLeads() {
         mutationFn: ({ file, source }: { file: File; source?: string }) =>
             leadsAPI.importBulk(file, source),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['leads'] })
+            invalidateLeadQueries(queryClient)
         },
     })
 }
