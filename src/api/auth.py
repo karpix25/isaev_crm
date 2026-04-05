@@ -71,11 +71,19 @@ AUTH_SESSION_TTL_SECONDS = 5 * 60
 
 
 class TelegramWebhookInfoResponse(BaseModel):
+    mode: str
     configured_url: str
     current_url: str
     pending_update_count: int | None = None
     last_error_message: str | None = None
     last_error_date: int | None = None
+
+
+def _telegram_mode() -> str:
+    mode = (settings.telegram_update_mode or "").strip().lower()
+    if mode not in {"polling", "webhook", "auto"}:
+        return "polling"
+    return mode
 
 
 async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
@@ -85,15 +93,24 @@ async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
     """
     if not telegram_bot:
         raise HTTPException(status_code=500, detail="Telegram bot not initialized")
-    if not settings.telegram_webhook_url:
-        raise HTTPException(
-            status_code=503,
-            detail="TELEGRAM_WEBHOOK_URL is empty. Bot updates are not configured.",
+    mode = _telegram_mode()
+    configured_url = settings.telegram_webhook_url
+
+    if mode == "polling":
+        info = await telegram_bot.get_webhook_info()
+        return TelegramWebhookInfoResponse(
+            mode=mode,
+            configured_url=configured_url,
+            current_url=getattr(info, "url", "") or "",
+            pending_update_count=getattr(info, "pending_update_count", None),
+            last_error_message=getattr(info, "last_error_message", None),
+            last_error_date=getattr(info, "last_error_date", None),
         )
+    if not configured_url:
+        raise HTTPException(status_code=503, detail="TELEGRAM_WEBHOOK_URL is empty for webhook mode.")
 
     info = await telegram_bot.get_webhook_info()
     current_url = getattr(info, "url", "") or ""
-    configured_url = settings.telegram_webhook_url
 
     if current_url != configured_url:
         logger.warning(
@@ -106,6 +123,7 @@ async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
         current_url = getattr(info, "url", "") or ""
 
     return TelegramWebhookInfoResponse(
+        mode=mode,
         configured_url=configured_url,
         current_url=current_url,
         pending_update_count=getattr(info, "pending_update_count", None),
@@ -125,11 +143,8 @@ async def telegram_bot_login_init(db: AsyncSession = Depends(get_db)):
     Creates a one-time auth session and returns bot deep-link parameters.
     """
     webhook_info = await _ensure_telegram_webhook()
-    if webhook_info.current_url != webhook_info.configured_url:
-        raise HTTPException(
-            status_code=503,
-            detail="Telegram webhook is not configured correctly. Please try again shortly.",
-        )
+    if webhook_info.mode == "webhook" and webhook_info.current_url != webhook_info.configured_url:
+        raise HTTPException(status_code=503, detail="Telegram webhook is not configured correctly. Please try again shortly.")
 
     info = await telegram_bot_info()
     if not info.username:

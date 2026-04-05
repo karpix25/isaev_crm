@@ -102,7 +102,16 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str
     telegram_webhook_url: str = ""
+    telegram_update_mode: str = "polling"  # polling | webhook | auto
     manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
+
+    @field_validator("telegram_update_mode")
+    @classmethod
+    def validate_telegram_update_mode(cls, v: str) -> str:
+        mode = (v or "").strip().lower()
+        if mode not in {"polling", "webhook", "auto"}:
+            return "polling"
+        return mode
     
     # OpenRouter
     openrouter_api_key: str = ""

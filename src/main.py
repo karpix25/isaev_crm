@@ -1,5 +1,8 @@
 import os
 import logging
+import asyncio
+import contextlib
+from urllib.parse import urlparse
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +13,7 @@ from src.api import api_router
 from src.bot import bot, dp
 
 logger = logging.getLogger(__name__)
+telegram_polling_task: asyncio.Task | None = None
 
 
 app = FastAPI(
@@ -42,34 +46,82 @@ app.add_middleware(
 )
 
 # Lifespan events
+async def _start_telegram_polling() -> None:
+    global telegram_polling_task
+    if not bot:
+        logger.warning("Telegram bot is not initialized. Polling is unavailable.")
+        return
+    if telegram_polling_task and not telegram_polling_task.done():
+        logger.info("Telegram polling already running")
+        return
+
+    await bot.delete_webhook(drop_pending_updates=False)
+    logger.info("Starting Telegram bot in polling mode")
+    telegram_polling_task = asyncio.create_task(
+        dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+            handle_signals=False,
+        )
+    )
+
+
 @app.on_event("startup")
 async def startup():
     await init_db()
     
-    # Set Telegram Webhook
-    if bot and settings.telegram_bot_token and settings.telegram_webhook_url:
+    mode = settings.telegram_update_mode
+    if bot and settings.telegram_bot_token:
         try:
-            logger.info("Setting webhook to: %s", settings.telegram_webhook_url)
-            await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=True)
-            logger.info("Telegram webhook set successfully")
-            try:
-                info = await bot.get_webhook_info()
-                logger.info(
-                    "Telegram webhook info: url=%s pending=%s last_error=%s",
-                    getattr(info, "url", None),
-                    getattr(info, "pending_update_count", None),
-                    getattr(info, "last_error_message", None),
-                )
-            except Exception as e:
-                logger.warning("Failed to fetch Telegram webhook info: %s", e)
+            if mode == "polling":
+                await _start_telegram_polling()
+            elif mode == "webhook":
+                if not settings.telegram_webhook_url:
+                    logger.warning("Mode=webhook but TELEGRAM_WEBHOOK_URL is empty. Falling back to polling.")
+                    await _start_telegram_polling()
+                else:
+                    logger.info("Setting webhook to: %s", settings.telegram_webhook_url)
+                    await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=False)
+                    info = await bot.get_webhook_info()
+                    logger.info(
+                        "Telegram webhook info: url=%s pending=%s last_error=%s",
+                        getattr(info, "url", None),
+                        getattr(info, "pending_update_count", None),
+                        getattr(info, "last_error_message", None),
+                    )
+            else:  # auto
+                webhook_url = settings.telegram_webhook_url
+                host = (urlparse(webhook_url).hostname or "") if webhook_url else ""
+                # Underscore hostnames are non-standard and often fail for Telegram webhook delivery.
+                if not webhook_url or "_" in host:
+                    logger.warning(
+                        "Auto mode picked polling (webhook_url missing or hostname is non-standard): %s",
+                        webhook_url or "<empty>",
+                    )
+                    await _start_telegram_polling()
+                else:
+                    try:
+                        logger.info("Auto mode: setting webhook to %s", webhook_url)
+                        await bot.set_webhook(webhook_url, drop_pending_updates=False)
+                        info = await bot.get_webhook_info()
+                        logger.info(
+                            "Telegram webhook info: url=%s pending=%s last_error=%s",
+                            getattr(info, "url", None),
+                            getattr(info, "pending_update_count", None),
+                            getattr(info, "last_error_message", None),
+                        )
+                    except Exception as e:
+                        logger.error("Auto mode webhook setup failed: %s. Falling back to polling.", e)
+                        await _start_telegram_polling()
         except Exception as e:
-            logger.error("Failed to set Telegram webhook: %s", e)
-            logger.warning("Application will continue without Telegram bot functionality. Please check TELEGRAM_BOT_TOKEN.")
+            logger.error("Failed to initialize Telegram updates mode (%s): %s", mode, e, exc_info=True)
+            logger.warning("Falling back to polling mode")
+            await _start_telegram_polling()
     else:
         if not bot:
             logger.warning("Telegram bot is not initialized. No bot updates will be processed.")
-        elif not settings.telegram_webhook_url:
-            logger.warning("TELEGRAM_WEBHOOK_URL is empty. Bot will not receive updates (unless polling is used).")
+        elif not settings.telegram_bot_token:
+            logger.warning("TELEGRAM_BOT_TOKEN is empty. Bot will not receive updates.")
     
     # Start follow-up background loop
     import asyncio
@@ -79,7 +131,13 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    await bot.session.close()
+    global telegram_polling_task
+    if telegram_polling_task and not telegram_polling_task.done():
+        telegram_polling_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await telegram_polling_task
+    if bot:
+        await bot.session.close()
     await close_db()
 
 # Include API routes
