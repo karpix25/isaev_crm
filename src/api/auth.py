@@ -14,6 +14,7 @@ from src.models.user import UserRole
 from src.schemas.auth import TokenResponse
 from src.services.auth import auth_service
 from src.bot import bot as telegram_bot
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +70,67 @@ class TelegramBotCheckResponse(BaseModel):
 AUTH_SESSION_TTL_SECONDS = 5 * 60
 
 
+class TelegramWebhookInfoResponse(BaseModel):
+    configured_url: str
+    current_url: str
+    pending_update_count: int | None = None
+    last_error_message: str | None = None
+    last_error_date: int | None = None
+
+
+async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
+    """
+    Ensure Telegram webhook is configured to TELEGRAM_WEBHOOK_URL.
+    If webhook is missing/mismatched, reset it before login flow starts.
+    """
+    if not telegram_bot:
+        raise HTTPException(status_code=500, detail="Telegram bot not initialized")
+    if not settings.telegram_webhook_url:
+        raise HTTPException(
+            status_code=503,
+            detail="TELEGRAM_WEBHOOK_URL is empty. Bot updates are not configured.",
+        )
+
+    info = await telegram_bot.get_webhook_info()
+    current_url = getattr(info, "url", "") or ""
+    configured_url = settings.telegram_webhook_url
+
+    if current_url != configured_url:
+        logger.warning(
+            "Webhook mismatch detected. current=%s configured=%s. Re-setting webhook.",
+            current_url,
+            configured_url,
+        )
+        await telegram_bot.set_webhook(configured_url, drop_pending_updates=False)
+        info = await telegram_bot.get_webhook_info()
+        current_url = getattr(info, "url", "") or ""
+
+    return TelegramWebhookInfoResponse(
+        configured_url=configured_url,
+        current_url=current_url,
+        pending_update_count=getattr(info, "pending_update_count", None),
+        last_error_message=getattr(info, "last_error_message", None),
+        last_error_date=getattr(info, "last_error_date", None),
+    )
+
+
+@router.get("/telegram/bot/webhook-info", response_model=TelegramWebhookInfoResponse)
+async def telegram_bot_webhook_info():
+    return await _ensure_telegram_webhook()
+
+
 @router.post("/telegram/bot/init", response_model=TelegramBotInitResponse)
 async def telegram_bot_login_init(db: AsyncSession = Depends(get_db)):
     """
     Creates a one-time auth session and returns bot deep-link parameters.
     """
+    webhook_info = await _ensure_telegram_webhook()
+    if webhook_info.current_url != webhook_info.configured_url:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram webhook is not configured correctly. Please try again shortly.",
+        )
+
     info = await telegram_bot_info()
     if not info.username:
         raise HTTPException(status_code=500, detail="Telegram bot has no username")
