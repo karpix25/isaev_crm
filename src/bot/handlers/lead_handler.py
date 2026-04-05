@@ -5,11 +5,12 @@ Integrates AI-powered lead qualification using OpenRouter API.
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
+from aiogram.filters.command import CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot import dp, bot
@@ -35,59 +36,69 @@ router = Router()
 pending_updates = {}
 
 
-@router.message(CommandStart())
-async def cmd_start(message: Message):
+async def _try_authorize_login_payload(message: Message, payload: str | None) -> bool:
     """
-    Handle /start command from potential leads.
-    Creates lead if new user and starts AI conversation.
+    Handle admin web login deep-link payload: login_<session_uuid>.
+    Returns True when payload was recognized and processed.
     """
-    # Admin web login via bot deep-link: /start login_<session_uuid>
     try:
-        payload = None
-        if message.text:
-            parts = message.text.split(maxsplit=1)
-            if len(parts) == 2:
-                payload = parts[1].strip()
+        if not payload or not payload.startswith("login_"):
+            return False
 
-        if payload and payload.startswith("login_"):
-            if message.chat and getattr(message.chat, "type", None) != "private":
-                await message.answer("Напишите боту в личные сообщения для входа в CRM.")
-                return
+        if message.chat and getattr(message.chat, "type", None) != "private":
+            await message.answer("Напишите боту в личные сообщения для входа в CRM.")
+            return True
 
-            session_id_str = payload.removeprefix("login_")
-            try:
-                session_uuid = uuid.UUID(session_id_str)
-            except Exception:
-                await message.answer("Ссылка для входа недействительна. Откройте страницу входа на сайте ещё раз.")
-                return
+        session_id_str = payload.removeprefix("login_")
+        try:
+            session_uuid = uuid.UUID(session_id_str)
+        except Exception:
+            await message.answer("Ссылка для входа недействительна. Откройте страницу входа на сайте ещё раз.")
+            return True
 
-            async with AsyncSessionLocal() as db:
-                from sqlalchemy import select
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select
 
-                res = await db.execute(select(AuthSession).where(AuthSession.id == session_uuid))
-                session = res.scalar_one_or_none()
-                if not session or session.status != "pending":
-                    await message.answer("Срок действия сессии истёк. Откройте страницу входа на сайте ещё раз.")
-                    return
+            res = await db.execute(select(AuthSession).where(AuthSession.id == session_uuid))
+            session = res.scalar_one_or_none()
+            if not session or session.status != "pending":
+                await message.answer("Срок действия сессии истёк. Откройте страницу входа на сайте ещё раз.")
+                return True
 
-                created_at = session.created_at or datetime.utcnow()
-                if datetime.utcnow() - created_at > timedelta(minutes=5):
-                    await db.delete(session)
-                    await db.commit()
-                    await message.answer("Срок действия сессии истёк. Откройте страницу входа на сайте ещё раз.")
-                    return
+            now = datetime.now(timezone.utc)
+            created_at = session.created_at or now
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            else:
+                created_at = created_at.astimezone(timezone.utc)
 
-                session.status = "authorized"
-                session.telegram_id = message.from_user.id
-                session.username = message.from_user.username
-                session.full_name = message.from_user.full_name
+            if now - created_at > timedelta(minutes=5):
+                await db.delete(session)
                 await db.commit()
+                await message.answer("Срок действия сессии истёк. Откройте страницу входа на сайте ещё раз.")
+                return True
 
-            await message.answer("✅ Вход подтверждён. Вернитесь на сайт — авторизация выполнится автоматически.")
-            return
+            session.status = "authorized"
+            session.telegram_id = message.from_user.id
+            session.username = message.from_user.username
+            session.full_name = message.from_user.full_name
+            await db.commit()
+
+        await message.answer("✅ Вход подтверждён. Вернитесь на сайт — авторизация выполнится автоматически.")
+        return True
     except Exception as e:
         logger.error("Failed to handle login_ payload: %s", e, exc_info=True)
+        await message.answer("Произошла ошибка при подтверждении входа. Попробуйте ещё раз.")
+        return True
 
+    return False
+
+
+async def _handle_regular_start(message: Message) -> None:
+    """
+    Handle regular /start command from potential leads.
+    Creates lead if new user and starts AI conversation.
+    """
     async with AsyncSessionLocal() as db:
         # Get default organization ID
         org_id = await get_default_org_id(db)
@@ -143,6 +154,34 @@ async def cmd_start(message: Message):
             telegram_message_id=sent_message.message_id,
             sender_name="AI"
         )
+
+
+@router.message(CommandStart(deep_link=True))
+async def cmd_start_deep_link(message: Message, command: CommandObject):
+    """
+    Handle deep-link /start payloads like /start login_<session_id>.
+    """
+    payload = (command.args or "").strip()
+    handled = await _try_authorize_login_payload(message, payload)
+    if handled:
+        return
+    await _handle_regular_start(message)
+
+
+@router.message(CommandStart())
+async def cmd_start(message: Message):
+    """
+    Handle plain /start.
+    """
+    await _handle_regular_start(message)
+
+# Fallback: user may send payload as plain message if Telegram doesn't re-trigger /start.
+@router.message(F.text.regexp(r"^login_[0-9a-fA-F-]{36}$"))
+async def login_payload_fallback(message: Message):
+    payload = (message.text or "").strip()
+    handled = await _try_authorize_login_payload(message, payload)
+    if handled:
+        return
 
 
 @router.message(F.text)
