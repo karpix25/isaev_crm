@@ -50,3 +50,19 @@ class KnowledgeSearchRequest(BaseModel):
     limit: int = 5
     category: Optional[str] = None
     lead_id: Optional[UUID] = None
+
+
+class NovofonSettingsBase(BaseModel):
+    dial_url_template: Optional[str] = None
+    default_operator_phone: Optional[str] = None
+    business_card_template: Optional[str] = None
+    business_card_site_url: Optional[str] = None
+    business_card_telegram: Optional[str] = None
+
+
+class NovofonSettingsResponse(NovofonSettingsBase):
+    pass
+
+
+class NovofonSettingsUpdate(NovofonSettingsBase):
+    pass

@@ -14,6 +14,11 @@ class Organization(BaseModel):
     __tablename__ = "organizations"
     
     name = Column(String(255), nullable=False, index=True)
+    novofon_dial_url_template = Column(String(255), nullable=True)
+    novofon_default_operator_phone = Column(String(32), nullable=True)
+    novofon_business_card_template = Column(String(5000), nullable=True)
+    novofon_business_card_site_url = Column(String(500), nullable=True)
+    novofon_business_card_telegram = Column(String(255), nullable=True)
     
     # Owner ID (stored as UUID, but no FK constraint to avoid circular dependency)
     # The owner_id references a User, but we don't enforce it at the database level

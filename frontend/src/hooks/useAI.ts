@@ -3,7 +3,8 @@ import api from '@/lib/api'
 import type {
     PromptConfigResponse, PromptConfigCreate,
     KnowledgeItemResponse, KnowledgeItemCreate,
-    KnowledgeSearchRequest
+    KnowledgeSearchRequest,
+    NovofonSettings
 } from '@/types'
 
 export function useAI() {
@@ -95,6 +96,24 @@ export function useAI() {
         }
     })
 
+    const novofonSettings = useQuery({
+        queryKey: ['ai', 'novofon-settings'],
+        queryFn: async () => {
+            const { data } = await api.get<NovofonSettings>('/ai/novofon-settings')
+            return data
+        }
+    })
+
+    const updateNovofonSettings = useMutation({
+        mutationFn: async (payload: NovofonSettings) => {
+            const { data } = await api.put<NovofonSettings>('/ai/novofon-settings', payload)
+            return data
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai', 'novofon-settings'] })
+        }
+    })
+
     return {
         prompts,
         activePrompt,
@@ -104,6 +123,8 @@ export function useAI() {
         clearKnowledge,
         uploadFile,
         deleteKnowledge,
-        knowledge
+        knowledge,
+        novofonSettings,
+        updateNovofonSettings,
     }
 }

@@ -15,6 +15,7 @@ from src.schemas.auth import TokenResponse
 from src.services.auth import auth_service
 from src.bot import bot as telegram_bot
 from src.config import settings
+from src.dependencies.auth import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,36 @@ class TelegramWebhookInfoResponse(BaseModel):
     pending_update_count: int | None = None
     last_error_message: str | None = None
     last_error_date: int | None = None
+
+
+class OperatorUserResponse(BaseModel):
+    id: uuid.UUID
+    telegram_id: int | None = None
+    full_name: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    role: UserRole
+
+    class Config:
+        from_attributes = True
+
+
+class OperatorCreateRequest(BaseModel):
+    telegram_id: int
+    full_name: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    role: UserRole = UserRole.MANAGER
+
+
+class OperatorUpdateRequest(BaseModel):
+    full_name: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    role: UserRole | None = None
 
 
 def _telegram_mode() -> str:
@@ -300,3 +331,114 @@ async def telegram_auth(
         access_token=access_token,
         refresh_token=refresh_token
     )
+
+
+@router.get("/operators", response_model=list[OperatorUserResponse])
+async def list_operators(
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User)
+        .where(
+            User.org_id == current_user.org_id,
+            User.role.in_([UserRole.MANAGER, UserRole.WORKER]),
+        )
+        .order_by(User.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.post("/operators", response_model=OperatorUserResponse, status_code=status.HTTP_201_CREATED)
+async def create_operator(
+    data: OperatorCreateRequest,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    if data.role not in {UserRole.MANAGER, UserRole.WORKER}:
+        raise HTTPException(status_code=400, detail="Для оператора доступны только роли MANAGER или WORKER.")
+    if data.telegram_id <= 0:
+        raise HTTPException(status_code=400, detail="Telegram ID должен быть положительным числом.")
+
+    existing = await db.execute(select(User).where(User.telegram_id == data.telegram_id))
+    existing_user = existing.scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Пользователь с таким Telegram ID уже существует.")
+
+    operator = User(
+        org_id=current_user.org_id,
+        telegram_id=data.telegram_id,
+        full_name=(data.full_name or "").strip() or None,
+        username=(data.username or "").replace("@", "").strip() or None,
+        phone=(data.phone or "").strip() or None,
+        email=(data.email or "").strip() or None,
+        role=data.role,
+    )
+    db.add(operator)
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=f"Не удалось создать оператора: {exc}")
+
+    await db.refresh(operator)
+    return operator
+
+
+@router.patch("/operators/{user_id}", response_model=OperatorUserResponse)
+async def update_operator(
+    user_id: uuid.UUID,
+    data: OperatorUpdateRequest,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    operator = result.scalar_one_or_none()
+    if not operator or str(operator.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=404, detail="Оператор не найден.")
+
+    if operator.role not in {UserRole.MANAGER, UserRole.WORKER}:
+        raise HTTPException(status_code=400, detail="Можно редактировать только MANAGER/WORKER.")
+
+    payload = data.model_dump(exclude_unset=True)
+    if "role" in payload and payload["role"] is not None and payload["role"] not in {UserRole.MANAGER, UserRole.WORKER}:
+        raise HTTPException(status_code=400, detail="Для оператора доступны только роли MANAGER или WORKER.")
+
+    for field_name in ("full_name", "phone", "email", "role"):
+        if field_name in payload:
+            value = payload[field_name]
+            if isinstance(value, str):
+                value = value.strip() or None
+            setattr(operator, field_name, value)
+    if "username" in payload:
+        operator.username = (payload["username"] or "").replace("@", "").strip() or None
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=f"Не удалось обновить оператора: {exc}")
+
+    await db.refresh(operator)
+    return operator
+
+
+@router.delete("/operators/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_operator(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    if str(user_id) == str(current_user.id):
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя.")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    operator = result.scalar_one_or_none()
+    if not operator or str(operator.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=404, detail="Оператор не найден.")
+    if operator.role not in {UserRole.MANAGER, UserRole.WORKER}:
+        raise HTTPException(status_code=400, detail="Можно удалить только MANAGER/WORKER.")
+
+    await db.delete(operator)
+    await db.commit()

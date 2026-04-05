@@ -1,8 +1,10 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
 import { useAI } from '@/hooks/useAI'
+import { useCreateOperator, useDeleteOperator, useOperators, useUpdateOperator } from '@/hooks/useOperators'
 import UserBotSettings from '@/components/UserBotSettings'
 import CustomFieldsManager from '@/components/CustomFieldsManager'
+import type { NovofonSettings, OperatorCreatePayload, OperatorUpdatePayload } from '@/types'
 import {
     Database,
     History,
@@ -16,12 +18,14 @@ import {
     Loader2,
     Trash2,
     Settings,
-    MessageSquare
+    MessageSquare,
+    PhoneCall,
+    UserCog
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function AISettings() {
-    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history' | 'userbot'>('config')
+    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history' | 'userbot' | 'novofon' | 'operators'>('config')
     const {
         activePrompt,
         prompts,
@@ -31,8 +35,14 @@ export function AISettings() {
         clearKnowledge,
         knowledge,
         uploadFile,
-        deleteKnowledge
+        deleteKnowledge,
+        novofonSettings,
+        updateNovofonSettings,
     } = useAI()
+    const operators = useOperators()
+    const createOperator = useCreateOperator()
+    const updateOperator = useUpdateOperator()
+    const deleteOperator = useDeleteOperator()
 
     return (
         <div className="flex h-full flex-col gap-6 p-6 overflow-y-auto">
@@ -66,6 +76,18 @@ export function AISettings() {
                     onClick={() => setActiveTab('userbot')}
                     icon={MessageSquare}
                     label="User Bot"
+                />
+                <TabButton
+                    active={activeTab === 'novofon'}
+                    onClick={() => setActiveTab('novofon')}
+                    icon={PhoneCall}
+                    label="Novofon"
+                />
+                <TabButton
+                    active={activeTab === 'operators'}
+                    onClick={() => setActiveTab('operators')}
+                    icon={UserCog}
+                    label="Операторы"
                 />
                 <TabButton
                     active={activeTab === 'knowledge'}
@@ -141,6 +163,56 @@ export function AISettings() {
                         <div className="bg-card border rounded-3xl p-8 shadow-xl">
                             <UserBotSettings />
                         </div>
+                    )}
+                    {activeTab === 'novofon' && (
+                        <NovofonSettingsPanel
+                            settings={novofonSettings.data}
+                            isLoading={novofonSettings.isLoading}
+                            isSaving={updateNovofonSettings.isPending}
+                            onSave={(payload) => {
+                                updateNovofonSettings.mutate(payload, {
+                                    onSuccess: () => toast.success('Настройки Novofon сохранены'),
+                                    onError: (error: any) => {
+                                        const detail = error?.response?.data?.detail || 'Ошибка сохранения настроек Novofon'
+                                        toast.error(String(detail))
+                                    },
+                                })
+                            }}
+                        />
+                    )}
+                    {activeTab === 'operators' && (
+                        <OperatorsPanel
+                            operators={operators.data || []}
+                            isLoading={operators.isLoading}
+                            isSaving={createOperator.isPending || updateOperator.isPending || deleteOperator.isPending}
+                            onCreate={(payload) => {
+                                createOperator.mutate(payload, {
+                                    onSuccess: () => toast.success('Оператор добавлен'),
+                                    onError: (error: any) => {
+                                        const detail = error?.response?.data?.detail || 'Ошибка создания оператора'
+                                        toast.error(String(detail))
+                                    },
+                                })
+                            }}
+                            onUpdate={(id, payload) => {
+                                updateOperator.mutate({ id, payload }, {
+                                    onSuccess: () => toast.success('Оператор обновлён'),
+                                    onError: (error: any) => {
+                                        const detail = error?.response?.data?.detail || 'Ошибка обновления оператора'
+                                        toast.error(String(detail))
+                                    },
+                                })
+                            }}
+                            onDelete={(id) => {
+                                deleteOperator.mutate(id, {
+                                    onSuccess: () => toast.success('Оператор удалён'),
+                                    onError: (error: any) => {
+                                        const detail = error?.response?.data?.detail || 'Ошибка удаления оператора'
+                                        toast.error(String(detail))
+                                    },
+                                })
+                            }}
+                        />
                     )}
                     {activeTab === 'history' && (
                         <PromptHistoryList prompts={prompts.data || []} />
@@ -428,6 +500,307 @@ function KnowledgeBasePanel({ items, isLoading, isAdding, onAdd, onUpload, onDel
                         )}
                     </div>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+function NovofonSettingsPanel({
+    settings,
+    isLoading,
+    isSaving,
+    onSave,
+}: {
+    settings?: NovofonSettings
+    isLoading: boolean
+    isSaving: boolean
+    onSave: (payload: NovofonSettings) => void
+}) {
+    const [form, setForm] = useState<NovofonSettings>({
+        dial_url_template: '',
+        default_operator_phone: '',
+        business_card_template: '',
+        business_card_site_url: '',
+        business_card_telegram: '',
+    })
+
+    React.useEffect(() => {
+        if (!settings) return
+        setForm({
+            dial_url_template: settings.dial_url_template || '',
+            default_operator_phone: settings.default_operator_phone || '',
+            business_card_template: settings.business_card_template || '',
+            business_card_site_url: settings.business_card_site_url || '',
+            business_card_telegram: settings.business_card_telegram || '',
+        })
+    }, [settings])
+
+    if (isLoading) {
+        return (
+            <div className="bg-card border rounded-3xl p-8 shadow-xl flex items-center gap-3 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span>Загрузка настроек Novofon...</span>
+            </div>
+        )
+    }
+
+    return (
+        <div className="bg-card border rounded-3xl p-8 shadow-xl space-y-6">
+            <div className="flex items-center justify-between">
+                <h3 className="text-xl font-black flex items-center gap-2">
+                    <PhoneCall className="h-6 w-6 text-primary" />
+                    НАСТРОЙКИ NOVOFON
+                </h3>
+                <button
+                    onClick={() => onSave(form)}
+                    disabled={isSaving}
+                    className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
+                >
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Сохранить
+                </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <FormField
+                    label="Шаблон ссылки звонка"
+                    value={form.dial_url_template || ''}
+                    onChange={(v) => setForm((prev) => ({ ...prev, dial_url_template: v }))}
+                    placeholder="tel:{phone} или novofon://call?number={digits}"
+                />
+                <FormField
+                    label="Номер оператора по умолчанию"
+                    value={form.default_operator_phone || ''}
+                    onChange={(v) => setForm((prev) => ({ ...prev, default_operator_phone: v }))}
+                    placeholder="+79991234567"
+                />
+                <FormField
+                    label="Сайт в визитке"
+                    value={form.business_card_site_url || ''}
+                    onChange={(v) => setForm((prev) => ({ ...prev, business_card_site_url: v }))}
+                    placeholder="https://your-company.com"
+                />
+                <FormField
+                    label="Telegram в визитке"
+                    value={form.business_card_telegram || ''}
+                    onChange={(v) => setForm((prev) => ({ ...prev, business_card_telegram: v }))}
+                    placeholder="@company_manager"
+                />
+            </div>
+
+            <TextAreaField
+                label="Шаблон сообщения-визитки"
+                value={form.business_card_template || ''}
+                onChange={(v) => setForm((prev) => ({ ...prev, business_card_template: v }))}
+                rows={8}
+                placeholder="Спасибо за звонок!\nМенеджер: {manager_name}\nТелефон: {manager_phone}\n{site_line}\n{telegram_line}"
+                helpers={[
+                    {
+                        label: 'ПЕРЕМЕННЫЕ',
+                        tags: ['company_name', 'manager_name', 'manager_phone', 'site_url', 'telegram', 'site_line', 'telegram_line'],
+                        color: 'text-emerald-600',
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+function OperatorsPanel({
+    operators,
+    isLoading,
+    isSaving,
+    onCreate,
+    onUpdate,
+    onDelete,
+}: {
+    operators: any[]
+    isLoading: boolean
+    isSaving: boolean
+    onCreate: (payload: OperatorCreatePayload) => void
+    onUpdate: (id: string, payload: OperatorUpdatePayload) => void
+    onDelete: (id: string) => void
+}) {
+    const [createForm, setCreateForm] = useState({
+        telegram_id: '',
+        full_name: '',
+        username: '',
+        phone: '',
+        email: '',
+        role: 'MANAGER' as 'MANAGER' | 'WORKER',
+    })
+    const [drafts, setDrafts] = useState<Record<string, any>>({})
+
+    React.useEffect(() => {
+        const nextDrafts: Record<string, any> = {}
+        for (const user of operators) {
+            nextDrafts[user.id] = {
+                full_name: user.full_name || '',
+                username: user.username || '',
+                phone: user.phone || '',
+                email: user.email || '',
+                role: user.role || 'MANAGER',
+            }
+        }
+        setDrafts(nextDrafts)
+    }, [operators])
+
+    const normalize = (value: string) => value.trim() || undefined
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-card border rounded-3xl p-6 shadow-xl space-y-4">
+                <h3 className="text-xl font-black flex items-center gap-2">
+                    <UserCog className="h-6 w-6 text-primary" />
+                    ДОБАВИТЬ ОПЕРАТОРА
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                        label="Telegram ID"
+                        value={createForm.telegram_id}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, telegram_id: v.replace(/[^\d]/g, '') }))}
+                        placeholder="123456789"
+                    />
+                    <FormField
+                        label="Роль"
+                        value={createForm.role}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, role: v as 'MANAGER' | 'WORKER' }))}
+                        isSelect
+                        options={['MANAGER', 'WORKER']}
+                    />
+                    <FormField
+                        label="ФИО"
+                        value={createForm.full_name}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, full_name: v }))}
+                        placeholder="Иванов Иван"
+                    />
+                    <FormField
+                        label="Username"
+                        value={createForm.username}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, username: v }))}
+                        placeholder="@username"
+                    />
+                    <FormField
+                        label="Телефон"
+                        value={createForm.phone}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, phone: v }))}
+                        placeholder="+79991234567"
+                    />
+                    <FormField
+                        label="Email"
+                        value={createForm.email}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, email: v }))}
+                        placeholder="operator@company.com"
+                    />
+                </div>
+                <button
+                    disabled={isSaving || !createForm.telegram_id}
+                    className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-bold disabled:opacity-50 flex items-center gap-2"
+                    onClick={() => {
+                        onCreate({
+                            telegram_id: Number(createForm.telegram_id),
+                            full_name: normalize(createForm.full_name),
+                            username: normalize(createForm.username),
+                            phone: normalize(createForm.phone),
+                            email: normalize(createForm.email),
+                            role: createForm.role,
+                        })
+                        setCreateForm({
+                            telegram_id: '',
+                            full_name: '',
+                            username: '',
+                            phone: '',
+                            email: '',
+                            role: 'MANAGER',
+                        })
+                    }}
+                >
+                    {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Добавить оператора
+                </button>
+            </div>
+
+            <div className="bg-card border rounded-3xl p-6 shadow-xl">
+                <h3 className="text-lg font-black mb-4">Список операторов ({operators.length})</h3>
+                {isLoading ? (
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <span>Загрузка операторов...</span>
+                    </div>
+                ) : operators.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">Операторы ещё не добавлены.</div>
+                ) : (
+                    <div className="space-y-4">
+                        {operators.map((user) => {
+                            const draft = drafts[user.id] || {}
+                            return (
+                                <div key={user.id} className="border rounded-2xl p-4 space-y-3">
+                                    <div className="text-xs text-muted-foreground">Telegram ID: {user.telegram_id || '—'}</div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input
+                                            className="w-full bg-muted border-none rounded-xl px-4 py-2.5 text-sm font-medium"
+                                            placeholder="ФИО"
+                                            value={draft.full_name || ''}
+                                            onChange={(e) => setDrafts((prev) => ({ ...prev, [user.id]: { ...prev[user.id], full_name: e.target.value } }))}
+                                        />
+                                        <input
+                                            className="w-full bg-muted border-none rounded-xl px-4 py-2.5 text-sm font-medium"
+                                            placeholder="Username"
+                                            value={draft.username || ''}
+                                            onChange={(e) => setDrafts((prev) => ({ ...prev, [user.id]: { ...prev[user.id], username: e.target.value } }))}
+                                        />
+                                        <input
+                                            className="w-full bg-muted border-none rounded-xl px-4 py-2.5 text-sm font-medium"
+                                            placeholder="Телефон"
+                                            value={draft.phone || ''}
+                                            onChange={(e) => setDrafts((prev) => ({ ...prev, [user.id]: { ...prev[user.id], phone: e.target.value } }))}
+                                        />
+                                        <input
+                                            className="w-full bg-muted border-none rounded-xl px-4 py-2.5 text-sm font-medium"
+                                            placeholder="Email"
+                                            value={draft.email || ''}
+                                            onChange={(e) => setDrafts((prev) => ({ ...prev, [user.id]: { ...prev[user.id], email: e.target.value } }))}
+                                        />
+                                        <select
+                                            className="w-full bg-muted border-none rounded-xl px-4 py-2.5 text-sm font-medium"
+                                            value={draft.role || 'MANAGER'}
+                                            onChange={(e) => setDrafts((prev) => ({ ...prev, [user.id]: { ...prev[user.id], role: e.target.value } }))}
+                                        >
+                                            <option value="MANAGER">MANAGER</option>
+                                            <option value="WORKER">WORKER</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            disabled={isSaving}
+                                            className="bg-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                                            onClick={() =>
+                                                onUpdate(user.id, {
+                                                    full_name: normalize(draft.full_name || ''),
+                                                    username: normalize(draft.username || ''),
+                                                    phone: normalize(draft.phone || ''),
+                                                    email: normalize(draft.email || ''),
+                                                    role: draft.role,
+                                                })
+                                            }
+                                        >
+                                            Сохранить
+                                        </button>
+                                        <button
+                                            disabled={isSaving}
+                                            className="bg-destructive/10 text-destructive px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                                            onClick={() => {
+                                                if (window.confirm('Удалить оператора?')) onDelete(user.id)
+                                            }}
+                                        >
+                                            Удалить
+                                        </button>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
             </div>
         </div>
     )

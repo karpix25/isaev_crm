@@ -1,8 +1,8 @@
 import json
+import logging
 import re
 import time
 import uuid
-import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -10,12 +10,12 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.bot import bot as telegram_bot
 from src.config import settings
-from src.models import Lead, LeadCallEvent, MessageStatus, User, Organization
+from src.models import Lead, LeadCallEvent, MessageStatus, Organization, User
 from src.services.chat_service import chat_service
 from src.services.lead_audit_service import lead_audit_service
 from src.services.user_bot_service import user_bot_service
-from src.bot import bot as telegram_bot
 
 logger = logging.getLogger(__name__)
 
@@ -47,25 +47,25 @@ class NovofonService:
         return f"+{digits}" if with_plus else digits
 
     @staticmethod
+    def _normalize_phone_digits(raw_phone: Optional[str]) -> str:
+        return re.sub(r"\D", "", raw_phone or "")
+
+    @staticmethod
     def _safe_json(payload: Any) -> str:
         try:
             return json.dumps(payload, ensure_ascii=False)
         except Exception:
             return "{}"
 
-    @staticmethod
-    def _normalize_phone_digits(raw_phone: Optional[str]) -> str:
-        return re.sub(r"\D", "", raw_phone or "")
-
-    def build_dial_url(self, phone: str) -> str:
-        normalized = self._normalize_phone(phone, with_plus=True) or phone
-        digits = self._normalize_phone_digits(normalized)
-        template = (settings.novofon_dial_url_template or "tel:{phone}").strip() or "tel:{phone}"
-        if "{phone}" not in template and "{digits}" not in template:
-            if template.endswith(":") or template.endswith("/"):
-                return f"{template}{normalized}"
-            return f"{template}{normalized}"
-        return template.replace("{phone}", normalized).replace("{digits}", digits)
+    def build_dial_url(self, phone: str, template: Optional[str] = None) -> str:
+        normalized_phone = self._normalize_phone(phone, with_plus=True) or phone
+        digits = self._normalize_phone_digits(normalized_phone)
+        dial_template = (template or settings.novofon_dial_url_template or "tel:{phone}").strip() or "tel:{phone}"
+        if "{phone}" not in dial_template and "{digits}" not in dial_template:
+            if dial_template.endswith(":") or dial_template.endswith("/"):
+                return f"{dial_template}{normalized_phone}"
+            return f"{dial_template}{normalized_phone}"
+        return dial_template.replace("{phone}", normalized_phone).replace("{digits}", digits)
 
     def render_business_card_message(
         self,
@@ -73,21 +73,27 @@ class NovofonService:
         company_name: Optional[str] = None,
         manager_name: Optional[str] = None,
         manager_phone: Optional[str] = None,
+        template: Optional[str] = None,
+        default_operator_phone: Optional[str] = None,
+        site_url: Optional[str] = None,
+        telegram_username: Optional[str] = None,
     ) -> str:
         company = (company_name or "").strip() or "Наша компания"
         manager = (manager_name or "").strip() or "Ваш менеджер"
         manager_phone_value = (
             self._normalize_phone(manager_phone, with_plus=True)
+            or self._normalize_phone(default_operator_phone, with_plus=True)
             or self._normalize_phone(settings.novofon_default_operator_phone, with_plus=True)
             or "—"
         )
-        site = (settings.novofon_business_card_site_url or "").strip()
-        telegram = (settings.novofon_business_card_telegram or "").strip().lstrip("@")
+        site = (site_url or settings.novofon_business_card_site_url or "").strip()
+        telegram = (telegram_username or settings.novofon_business_card_telegram or "").strip().lstrip("@")
         site_line = f"Сайт: {site}" if site else ""
         telegram_line = f"Telegram: @{telegram}" if telegram else ""
 
-        template = (
-            (settings.novofon_business_card_template or "").strip()
+        template_value = (
+            (template or "").strip()
+            or (settings.novofon_business_card_template or "").strip()
             or (settings.novofon_business_card_message or "").strip()
             or "Спасибо за звонок!"
         )
@@ -101,11 +107,24 @@ class NovofonService:
             "telegram_line": telegram_line,
         }
         try:
-            rendered = template.format(**values)
+            rendered = template_value.format(**values)
         except Exception:
-            rendered = template
+            rendered = template_value
+
         rendered_lines = [line.rstrip() for line in rendered.splitlines() if line.strip()]
         return "\n".join(rendered_lines).strip() or "Спасибо за звонок!"
+
+    async def get_org_settings(self, db: AsyncSession, org_id: uuid.UUID) -> dict[str, str]:
+        result = await db.execute(select(Organization).where(Organization.id == org_id))
+        organization = result.scalar_one_or_none()
+        return {
+            "dial_url_template": (getattr(organization, "novofon_dial_url_template", None) or settings.novofon_dial_url_template or "").strip(),
+            "default_operator_phone": (getattr(organization, "novofon_default_operator_phone", None) or settings.novofon_default_operator_phone or "").strip(),
+            "business_card_template": (getattr(organization, "novofon_business_card_template", None) or settings.novofon_business_card_template or "").strip(),
+            "business_card_site_url": (getattr(organization, "novofon_business_card_site_url", None) or settings.novofon_business_card_site_url or "").strip(),
+            "business_card_telegram": (getattr(organization, "novofon_business_card_telegram", None) or settings.novofon_business_card_telegram or "").strip(),
+            "organization_name": (getattr(organization, "name", None) or "").strip(),
+        }
 
     def validate_webhook_secret(self, provided_secret: Optional[str]) -> bool:
         expected = (settings.novofon_webhook_secret or "").strip()
@@ -139,7 +158,6 @@ class NovofonService:
             error_data = error_obj.get("data") if isinstance(error_obj.get("data"), dict) else {}
             mnemonic = error_data.get("error_code") or error_data.get("mnemonic")
             raise NovofonApiError(message=error_message, mnemonic=mnemonic, code=error_code)
-
         return data
 
     async def _get_access_token(self) -> str:
@@ -177,13 +195,14 @@ class NovofonService:
         operator_phone: str,
         contact_phone: str,
         external_id: str,
+        virtual_phone_number: Optional[str] = None,
     ) -> dict[str, Any]:
         if not self.is_configured():
             raise NovofonApiError("Novofon integration is not configured")
 
         normalized_operator = self._normalize_phone(operator_phone, with_plus=False)
         normalized_contact = self._normalize_phone(contact_phone, with_plus=False)
-        normalized_virtual = self._normalize_phone(settings.novofon_virtual_phone_number, with_plus=False)
+        normalized_virtual = self._normalize_phone(virtual_phone_number or settings.novofon_virtual_phone_number, with_plus=False)
         if not normalized_operator:
             raise NovofonApiError("Operator phone is invalid")
         if not normalized_contact:
@@ -202,7 +221,6 @@ class NovofonService:
             "contact": normalized_contact,
             "employee": {"phone_number": normalized_operator},
         }
-
         try:
             response = await self._call_jsonrpc("start.employee_call", params, request_id=external_id)
         except NovofonApiError as exc:
@@ -224,12 +242,7 @@ class NovofonService:
             "contact_phone": self._normalize_phone(contact_phone, with_plus=True),
         }
 
-    async def _send_business_card_message(
-        self,
-        db: AsyncSession,
-        lead: Lead,
-        message_text: str,
-    ) -> tuple[str, Optional[str]]:
+    async def _send_business_card_message(self, db: AsyncSession, lead: Lead, message_text: str) -> tuple[str, Optional[str]]:
         if not lead.telegram_id:
             return "failed", "lead_has_no_telegram_id"
 
@@ -269,7 +282,6 @@ class NovofonService:
             ai_metadata={"source": "novofon", "type": "business_card", "auto": True},
             status=msg_status,
         )
-
         return ("sent", None) if sent else ("failed", send_error)
 
     @staticmethod
@@ -282,14 +294,12 @@ class NovofonService:
         disposition_upper = (disposition or "").upper()
         if "ANSWER" in disposition_upper:
             return True
-
         billsec_raw = payload.get("billsec")
         try:
             if int(billsec_raw or 0) > 0:
                 return True
         except Exception:
             pass
-
         for key in ("is_answered", "answered", "success"):
             value = payload.get(key)
             if isinstance(value, bool) and value:
@@ -302,6 +312,7 @@ class NovofonService:
         normalized_operator = self._normalize_phone(operator_phone, with_plus=True)
         if not normalized_operator:
             return None
+
         result = await db.execute(select(User).where(User.phone.isnot(None)))
         users = result.scalars().all()
         matching_org_ids = []
@@ -322,9 +333,9 @@ class NovofonService:
         normalized_destination = self._normalize_phone(destination_phone, with_plus=True)
         if not normalized_destination:
             return None
+
         destination_digits = self._normalize_phone_digits(normalized_destination)
         destination_tail10 = destination_digits[-10:] if len(destination_digits) >= 10 else destination_digits
-
         query = select(Lead).where(Lead.phone.isnot(None))
         if org_id:
             query = query.where(Lead.org_id == org_id)
@@ -369,7 +380,7 @@ class NovofonService:
             event = result.scalars().first()
 
         if event is None and destination:
-            query = (
+            result = await db.execute(
                 select(LeadCallEvent)
                 .where(
                     LeadCallEvent.contact_phone == destination,
@@ -377,7 +388,6 @@ class NovofonService:
                 )
                 .order_by(LeadCallEvent.created_at.desc())
             )
-            result = await db.execute(query)
             candidates = result.scalars().all()
             if operator:
                 for candidate in candidates:
@@ -391,12 +401,7 @@ class NovofonService:
             resolved_org_id = await self._resolve_org_id_by_operator_phone(db, operator)
             lead = await self._find_lead_by_phone(db, destination, org_id=resolved_org_id)
             if lead:
-                org_name = None
-                org_result = await db.execute(select(Organization).where(Organization.id == lead.org_id))
-                organization = org_result.scalar_one_or_none()
-                if organization:
-                    org_name = organization.name
-
+                org_settings = await self.get_org_settings(db, lead.org_id)
                 event = LeadCallEvent(
                     org_id=lead.org_id,
                     lead_id=lead.id,
@@ -407,9 +412,13 @@ class NovofonService:
                     call_session_id=call_session_id,
                     call_status="webhook_received",
                     business_card_message=self.render_business_card_message(
-                        company_name=org_name,
+                        company_name=org_settings.get("organization_name"),
                         manager_name=None,
                         manager_phone=operator,
+                        template=org_settings.get("business_card_template"),
+                        default_operator_phone=org_settings.get("default_operator_phone"),
+                        site_url=org_settings.get("business_card_site_url"),
+                        telegram_username=org_settings.get("business_card_telegram"),
                     ),
                     business_card_status="pending",
                     webhook_payload_json=self._safe_json(payload),

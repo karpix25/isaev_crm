@@ -89,6 +89,9 @@ export interface User {
     full_name: string
     role: string
     org_id: string
+    telegram_id?: number | null
+    username?: string | null
+    phone?: string | null
 }
 
 export interface LoginRequest {
@@ -100,6 +103,33 @@ export interface TokenResponse {
     access_token: string
     refresh_token: string
     token_type: string
+}
+
+export interface OperatorUser {
+    id: string
+    telegram_id?: number | null
+    full_name?: string | null
+    username?: string | null
+    phone?: string | null
+    email?: string | null
+    role: 'MANAGER' | 'WORKER'
+}
+
+export interface OperatorCreatePayload {
+    telegram_id: number
+    full_name?: string
+    username?: string
+    phone?: string
+    email?: string
+    role?: 'MANAGER' | 'WORKER'
+}
+
+export interface OperatorUpdatePayload {
+    full_name?: string
+    username?: string
+    phone?: string
+    email?: string
+    role?: 'MANAGER' | 'WORKER'
 }
 
 export interface LeadImportError {
@@ -156,6 +186,14 @@ export interface LeadChangeLogItem {
 
 export interface LeadChangeLogResponse {
     items: LeadChangeLogItem[]
+}
+
+export interface NovofonSettings {
+    dial_url_template?: string | null
+    default_operator_phone?: string | null
+    business_card_template?: string | null
+    business_card_site_url?: string | null
+    business_card_telegram?: string | null
 }
 
 // AI Configuration

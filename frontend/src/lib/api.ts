@@ -4,7 +4,6 @@ import type {
     Lead,
     ChatMessage,
     DashboardMetrics,
-    LoginRequest,
     TokenResponse,
     LeadImportResult,
     LeadBulkDeleteResult,
@@ -13,6 +12,10 @@ import type {
     LeadDialPreparePayload,
     LeadDialPrepareResponse,
     LeadChangeLogResponse,
+    OperatorUser,
+    OperatorCreatePayload,
+    OperatorUpdatePayload,
+    NovofonSettings,
 } from '@/types'
 
 const api = axios.create({
@@ -74,6 +77,21 @@ export const authAPI = {
             `/auth/telegram/bot/check/${sessionId}`
         )
         return response.data
+    },
+    getOperators: async (): Promise<OperatorUser[]> => {
+        const response = await api.get<OperatorUser[]>('/auth/operators')
+        return response.data
+    },
+    createOperator: async (payload: OperatorCreatePayload): Promise<OperatorUser> => {
+        const response = await api.post<OperatorUser>('/auth/operators', payload)
+        return response.data
+    },
+    updateOperator: async (id: string, payload: OperatorUpdatePayload): Promise<OperatorUser> => {
+        const response = await api.patch<OperatorUser>(`/auth/operators/${id}`, payload)
+        return response.data
+    },
+    deleteOperator: async (id: string): Promise<void> => {
+        await api.delete(`/auth/operators/${id}`)
     },
 }
 
@@ -159,6 +177,17 @@ export const chatAPI = {
 export const dashboardAPI = {
     getMetrics: async (): Promise<DashboardMetrics> => {
         const response = await api.get<DashboardMetrics>('/dashboard/metrics')
+        return response.data
+    },
+}
+
+export const aiSettingsAPI = {
+    getNovofonSettings: async (): Promise<NovofonSettings> => {
+        const response = await api.get<NovofonSettings>('/ai/novofon-settings')
+        return response.data
+    },
+    updateNovofonSettings: async (payload: NovofonSettings): Promise<NovofonSettings> => {
+        const response = await api.put<NovofonSettings>('/ai/novofon-settings', payload)
         return response.data
     },
 }

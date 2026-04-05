@@ -7,7 +7,7 @@ import json
 
 from src.database import get_db
 from src.config import settings
-from src.models import User, UserRole, LeadStatus, LeadChangeLog, LeadCallEvent, Organization
+from src.models import User, UserRole, LeadStatus, LeadChangeLog, LeadCallEvent
 from src.schemas.lead import (
     LeadCreate,
     LeadResponse,
@@ -27,7 +27,7 @@ from src.services.lead_service import lead_service
 from src.services.lead_import_service import lead_import_service
 from src.services.lead_audit_service import lead_audit_service
 from src.services.novofon_service import novofon_service, NovofonApiError
-from src.dependencies.auth import get_current_user, require_role
+from src.dependencies.auth import require_role
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -41,16 +41,16 @@ async def _build_business_card_message(
     if custom_message and custom_message.strip():
         return custom_message.strip()
 
-    org_name = None
-    org_result = await db.execute(select(Organization).where(Organization.id == current_user.org_id))
-    organization = org_result.scalar_one_or_none()
-    if organization:
-        org_name = organization.name
+    org_settings = await novofon_service.get_org_settings(db, current_user.org_id)
 
     return novofon_service.render_business_card_message(
-        company_name=org_name,
+        company_name=org_settings.get("organization_name"),
         manager_name=current_user.full_name,
         manager_phone=operator_phone or current_user.phone,
+        template=org_settings.get("business_card_template"),
+        default_operator_phone=org_settings.get("default_operator_phone"),
+        site_url=org_settings.get("business_card_site_url"),
+        telegram_username=org_settings.get("business_card_telegram"),
     )
 
 
@@ -326,10 +326,12 @@ async def start_lead_call(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Novofon не настроен. Проверьте переменные окружения.",
         )
+    org_settings = await novofon_service.get_org_settings(db, current_user.org_id)
 
     operator_phone = (
         (payload.operator_phone or "").strip()
         or (current_user.phone or "").strip()
+        or (org_settings.get("default_operator_phone") or "").strip()
         or (settings.novofon_default_operator_phone or "").strip()
     )
     if not operator_phone:
@@ -365,6 +367,7 @@ async def start_lead_call(
             operator_phone=operator_phone,
             contact_phone=lead.phone,
             external_id=str(event_id),
+            virtual_phone_number=settings.novofon_virtual_phone_number,
         )
         call_event.call_status = "initiated"
         call_event.call_session_id = call_result.get("call_session_id")
@@ -458,10 +461,12 @@ async def prepare_lead_dial(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="У лида не указан номер телефона.",
         )
+    org_settings = await novofon_service.get_org_settings(db, current_user.org_id)
 
     operator_phone = (
         (payload.operator_phone or "").strip()
         or (current_user.phone or "").strip()
+        or (org_settings.get("default_operator_phone") or "").strip()
         or (settings.novofon_default_operator_phone or "").strip()
     )
     if not operator_phone:
@@ -503,7 +508,10 @@ async def prepare_lead_dial(
 
     return LeadDialPrepareResponse(
         event_id=event_id,
-        dial_url=novofon_service.build_dial_url(lead.phone),
+        dial_url=novofon_service.build_dial_url(
+            lead.phone,
+            template=(org_settings.get("dial_url_template") or settings.novofon_dial_url_template),
+        ),
         detail="Открываем софтфон и номер для набора.",
     )
 
