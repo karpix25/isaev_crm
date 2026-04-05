@@ -47,14 +47,29 @@ async def startup():
     await init_db()
     
     # Set Telegram Webhook
-    if settings.telegram_bot_token and settings.telegram_webhook_url:
+    if bot and settings.telegram_bot_token and settings.telegram_webhook_url:
         try:
             logger.info("Setting webhook to: %s", settings.telegram_webhook_url)
             await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=True)
             logger.info("Telegram webhook set successfully")
+            try:
+                info = await bot.get_webhook_info()
+                logger.info(
+                    "Telegram webhook info: url=%s pending=%s last_error=%s",
+                    getattr(info, "url", None),
+                    getattr(info, "pending_update_count", None),
+                    getattr(info, "last_error_message", None),
+                )
+            except Exception as e:
+                logger.warning("Failed to fetch Telegram webhook info: %s", e)
         except Exception as e:
             logger.error("Failed to set Telegram webhook: %s", e)
             logger.warning("Application will continue without Telegram bot functionality. Please check TELEGRAM_BOT_TOKEN.")
+    else:
+        if not bot:
+            logger.warning("Telegram bot is not initialized. No bot updates will be processed.")
+        elif not settings.telegram_webhook_url:
+            logger.warning("TELEGRAM_WEBHOOK_URL is empty. Bot will not receive updates (unless polling is used).")
     
     # Start follow-up background loop
     import asyncio
