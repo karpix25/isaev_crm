@@ -1,50 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Building2, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react'
-import { authAPI } from '@/lib/api'
+import React from 'react'
+import { Building2, Send, ShieldCheck } from 'lucide-react'
 
 export function Login() {
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const navigate = useNavigate()
-    const containerRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        // Expose callback to window for the Telegram script
-        ;(window as any).onTelegramAuth = async (user: any) => {
-            setLoading(true)
-            setError(null)
-            try {
-                const response = await authAPI.telegramLogin(user)
-                localStorage.setItem('access_token', response.access_token)
-                navigate('/')
-            } catch (err: any) {
-                setError(err.response?.data?.detail || 'Ошибка авторизации через Telegram')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        // Create script
-        const script = document.createElement('script')
-        script.src = 'https://telegram.org/js/telegram-widget.js?22'
-        script.setAttribute('data-telegram-login', import.meta.env.VITE_TELEGRAM_BOT_NAME || 'isaev_karpix_bot')
-        script.setAttribute('data-size', 'large')
-        script.setAttribute('data-radius', '10')
-        script.setAttribute('data-request-access', 'write')
-        script.setAttribute('data-onauth', 'onTelegramAuth(user)')
-        script.async = true
-
-        if (containerRef.current) {
-            containerRef.current.innerHTML = ''
-            containerRef.current.appendChild(script)
-        }
-
-        return () => {
-            // Cleanup
-            delete (window as any).onTelegramAuth
-        }
-    }, [navigate])
+    const telegramBotName = String(
+        (import.meta as any).env.VITE_TELEGRAM_BOT_NAME || 'isaev_karpix_bot'
+    ).replace(/^@/, '')
+    const telegramBotUrl = `https://t.me/${telegramBotName}`
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -59,34 +20,27 @@ export function Login() {
                     </p>
                 </div>
 
-                {error && (
-                    <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-4 text-sm font-medium text-destructive">
-                        <ShieldAlert className="h-5 w-5 shrink-0" />
-                        <p>{error}</p>
-                    </div>
-                )}
-
                 <div className="mt-8 flex flex-col items-center justify-center space-y-6">
-                    {loading ? (
-                        <div className="flex flex-col items-center gap-4 py-8">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground">Проверка доступов...</p>
+                    <div className="flex flex-col items-center gap-6">
+                        <div className="flex items-center gap-2 rounded-full bg-muted/50 px-4 py-2 text-sm text-muted-foreground">
+                            <ShieldCheck className="h-4 w-4 text-green-500" />
+                            <span>Вход через Telegram-бота</span>
                         </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-6">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 py-2 px-4 rounded-full">
-                                <ShieldCheck className="h-4 w-4 text-green-500" />
-                                <span>Безопасный вход без паролей</span>
-                            </div>
-                            
-                            {/* Container for Telegram Widget */}
-                            <div ref={containerRef} className="h-[40px] flex items-center justify-center"></div>
-                            
-                            <p className="text-center text-xs text-muted-foreground mt-4 leading-relaxed max-w-[280px]">
-                                Внимание: первый авторизовавшийся пользователь автоматически получит права Администратора.
-                            </p>
-                        </div>
-                    )}
+
+                        <a
+                            href={telegramBotUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="w-full rounded-xl bg-primary px-5 py-3 text-center text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 active:opacity-90 flex items-center justify-center gap-2"
+                        >
+                            <Send className="h-4 w-4" />
+                            <span>Открыть бота в Telegram</span>
+                        </a>
+
+                        <p className="text-center text-xs text-muted-foreground leading-relaxed max-w-[320px]">
+                            Если Telegram установлен, ссылка откроется в приложении и приведёт в чат с ботом.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
