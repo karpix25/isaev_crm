@@ -5,7 +5,7 @@ from typing import Optional, List
 from datetime import datetime
 import uuid
 
-from src.models import Lead, ChatMessage, MessageDirection, MessageStatus
+from src.models import Lead, ChatMessage, MessageDirection, MessageStatus, MessageTransport
 from src.schemas.chat import ChatMessageCreate
 
 
@@ -20,7 +20,8 @@ class ChatService:
         telegram_message_id: Optional[int] = None,
         media_url: Optional[str] = None,
         sender_name: Optional[str] = None,
-        ai_metadata: Optional[dict] = None
+        ai_metadata: Optional[dict] = None,
+        transport: MessageTransport = MessageTransport.TELEGRAM,
     ) -> ChatMessage:
         """
         Save incoming message from Telegram user (lead).
@@ -30,6 +31,7 @@ class ChatService:
         message = ChatMessage(
             lead_id=lead_id,
             direction=MessageDirection.INBOUND,
+            transport=transport,
             content=content,
             telegram_message_id=telegram_message_id,
             media_url=media_url,
@@ -65,7 +67,8 @@ class ChatService:
         telegram_message_id: Optional[int] = None,
         sender_name: str = "Admin",
         ai_metadata: Optional[dict] = None,
-        status: MessageStatus = MessageStatus.PENDING
+        status: MessageStatus = MessageStatus.PENDING,
+        transport: MessageTransport = MessageTransport.TELEGRAM,
     ) -> ChatMessage:
         """
         Save outbound message from admin or AI to lead.
@@ -75,6 +78,7 @@ class ChatService:
         message = ChatMessage(
             lead_id=lead_id,
             direction=MessageDirection.OUTBOUND,
+            transport=transport,
             content=content,
             media_url=media_url,
             telegram_message_id=telegram_message_id,
@@ -137,28 +141,32 @@ class ChatService:
         db: AsyncSession,
         lead_id: uuid.UUID,
         page: int = 1,
-        page_size: int = 50
+        page_size: int = 50,
+        transport: MessageTransport | None = None,
     ) -> tuple[List[ChatMessage], int]:
         """
         Get paginated chat history for a lead.
         Returns (messages, total_count).
         """
         # Get total count
-        count_result = await db.execute(
-            select(func.count(ChatMessage.id))
-            .where(ChatMessage.lead_id == lead_id)
-        )
+        count_query = select(func.count(ChatMessage.id)).where(ChatMessage.lead_id == lead_id)
+        if transport:
+            count_query = count_query.where(ChatMessage.transport == transport)
+        count_result = await db.execute(count_query)
         total = count_result.scalar_one()
         
         # Get messages (ordered by created_at DESC for latest first)
         offset = (page - 1) * page_size
-        result = await db.execute(
+        messages_query = (
             select(ChatMessage)
             .where(ChatMessage.lead_id == lead_id)
             .order_by(ChatMessage.created_at.desc())
             .offset(offset)
             .limit(page_size)
         )
+        if transport:
+            messages_query = messages_query.where(ChatMessage.transport == transport)
+        result = await db.execute(messages_query)
         messages = result.scalars().all()
         
         return list(messages), total

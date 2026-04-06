@@ -3,7 +3,7 @@ import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCrea
 import { useChatHistory, useSendBusinessCard, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
-import { LeadStatus, MessageDirection, type Lead } from '@/types'
+import { LeadStatus, MessageDirection, MessageTransport, type Lead } from '@/types'
 import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
@@ -567,10 +567,32 @@ function parseExtractedData(raw: Lead['extracted_data']): Record<string, any> {
     }
 }
 
+function getLeadAvailableTransports(lead: Lead): MessageTransport[] {
+    const transports: MessageTransport[] = []
+    const presence = getMessengerPresence(lead)
+    if (lead.telegram_id || presence.telegram) {
+        transports.push(MessageTransport.TELEGRAM)
+    }
+    if (presence.whatsapp) {
+        transports.push(MessageTransport.WHATSAPP)
+    }
+    if (transports.length === 0) {
+        transports.push(MessageTransport.TELEGRAM)
+    }
+    return transports
+}
+
+function getDefaultTransport(lead: Lead): MessageTransport {
+    const available = getLeadAvailableTransports(lead)
+    if (available.includes(MessageTransport.TELEGRAM)) return MessageTransport.TELEGRAM
+    return available[0]
+}
+
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
     const [message, setMessage] = useState('')
+    const [selectedTransport, setSelectedTransport] = useState<MessageTransport>(getDefaultTransport(lead))
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const { data: chatData } = useChatHistory(lead.id, 1)
+    const { data: chatData } = useChatHistory(lead.id, 1, selectedTransport)
     const { data: historyData, isLoading: isHistoryLoading } = useLeadHistory(lead.id, 100)
     const sendMessage = useSendMessage()
     const sendBusinessCard = useSendBusinessCard()
@@ -622,9 +644,9 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     }, [lead.id, lead.extracted_data, lead.operator_comment, editableFields])
 
     const handleSendMessage = () => {
-        if (!message.trim()) return
+        if (!message.trim() || !isSelectedTransportSendAvailable) return
         sendMessage.mutate(
-            { leadId: lead.id, content: message },
+            { leadId: lead.id, content: message, transport: selectedTransport },
             { onSuccess: () => setMessage('') }
         )
     }
@@ -723,8 +745,17 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     }
 
     const messengerPresence = getMessengerPresence(lead)
+    const availableTransports = getLeadAvailableTransports(lead)
+    const isWhatsappTransport = selectedTransport === MessageTransport.WHATSAPP
+    const isSelectedTransportSendAvailable = selectedTransport === MessageTransport.TELEGRAM
     const telegramChatUrl = getTelegramChatUrl(lead)
     const whatsappChatUrl = getWhatsAppChatUrl(lead)
+
+    useEffect(() => {
+        const nextAvailable = getLeadAvailableTransports(lead)
+        const nextDefault = getDefaultTransport(lead)
+        setSelectedTransport((prev) => (nextAvailable.includes(prev) ? prev : nextDefault))
+    }, [lead.id, lead.telegram_id, lead.extracted_data])
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -1077,7 +1108,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                                 </div>
                                             )}
                                             <span className="px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                                {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                {getMessageLabel(msg)} • {(msg.transport === MessageTransport.WHATSAPP ? 'WA' : 'TG')} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
                                     </div>
@@ -1089,6 +1120,23 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                         {/* Input Area */}
                         <div className="border-t p-4 bg-card">
                             <div className="mb-2 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Канал</span>
+                                    <div className="flex rounded-lg border bg-background p-0.5">
+                                        {availableTransports.map((transport) => (
+                                            <button
+                                                key={transport}
+                                                onClick={() => setSelectedTransport(transport)}
+                                                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${selectedTransport === transport
+                                                        ? 'bg-primary text-primary-foreground'
+                                                        : 'text-muted-foreground hover:bg-accent'
+                                                    }`}
+                                            >
+                                                {transport === MessageTransport.TELEGRAM ? 'Telegram' : 'WhatsApp'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                                 <button
                                     onClick={handleSendBusinessCard}
                                     disabled={!lead.telegram_id || sendBusinessCard.isPending}
@@ -1098,6 +1146,11 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                     {sendBusinessCard.isPending ? 'Отправляем визитку…' : 'Отправить визитку (TG)'}
                                 </button>
                             </div>
+                            {isWhatsappTransport && (
+                                <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                                    Канал WhatsApp выбран. Отправка из CRM будет доступна после подключения WA-интеграции.
+                                </div>
+                            )}
                             <div className="flex gap-2 bg-background rounded-xl border p-1 focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-inner">
                                 <input
                                     type="text"
@@ -1109,7 +1162,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                 />
                                 <button
                                     onClick={handleSendMessage}
-                                    disabled={!message.trim() || sendMessage.isPending}
+                                    disabled={!message.trim() || sendMessage.isPending || !isSelectedTransportSendAvailable}
                                     className="rounded-lg bg-primary p-2.5 text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
                                 >
                                     <Send className="h-4 w-4" />

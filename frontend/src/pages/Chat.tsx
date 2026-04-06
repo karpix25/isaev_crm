@@ -4,7 +4,7 @@ import { Virtuoso } from 'react-virtuoso'
 import { useLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
-import { MessageDirection, type Lead } from '@/types'
+import { MessageDirection, MessageTransport, type Lead } from '@/types'
 import { formatTimeAgo } from '@/lib/utils'
 import { Send, Phone, Settings2, CheckCircle2, Sparkles, Info, X, Mic, ShieldCheck } from 'lucide-react'
 
@@ -36,7 +36,7 @@ export function Chat() {
         if (!selectedLead || !message.trim()) return
 
         sendMessage.mutate(
-            { leadId: selectedLead.id, content: message },
+            { leadId: selectedLead.id, content: message, transport: MessageTransport.TELEGRAM },
             {
                 onSuccess: () => setMessage(''),
             }

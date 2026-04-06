@@ -16,6 +16,11 @@ export enum MessageDirection {
     OUTBOUND = 'outbound'
 }
 
+export enum MessageTransport {
+    TELEGRAM = 'telegram',
+    WHATSAPP = 'whatsapp',
+}
+
 export interface Lead {
     id: string
     org_id: string
@@ -45,6 +50,7 @@ export interface ChatMessage {
     id: string
     lead_id: string
     direction: MessageDirection
+    transport?: MessageTransport
     content: string
     media_url: string | null
     telegram_message_id: number | null

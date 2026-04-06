@@ -3,7 +3,7 @@ from typing import Optional, List
 from datetime import datetime
 import uuid
 
-from src.models.chat_message import MessageDirection
+from src.models.chat_message import MessageDirection, MessageTransport
 
 
 class ChatMessageCreate(BaseModel):
@@ -23,6 +23,7 @@ class ChatMessageResponse(BaseModel):
     id: uuid.UUID
     lead_id: uuid.UUID
     direction: MessageDirection
+    transport: MessageTransport
     content: str
     media_url: Optional[str] = None
     telegram_message_id: Optional[int] = None
@@ -44,3 +45,4 @@ class SendMessageRequest(BaseModel):
     """Admin sends message to lead"""
     content: str
     media_url: Optional[str] = None
+    transport: MessageTransport = MessageTransport.TELEGRAM

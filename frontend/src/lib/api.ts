@@ -14,6 +14,7 @@ import type {
     OperatorAccessRequest,
     OperatorAccessApprovePayload,
     OperatorAccessRejectPayload,
+    MessageTransport,
 } from '@/types'
 
 const api = axios.create({
@@ -168,16 +169,16 @@ export const leadsAPI = {
 }
 
 export const chatAPI = {
-    getHistory: async (leadId: string, page = 1, pageSize = 50) => {
+    getHistory: async (leadId: string, page = 1, pageSize = 50, transport?: MessageTransport) => {
         const response = await api.get<{ messages: ChatMessage[]; total: number; page: number; page_size: number }>(
             `/chat/${leadId}/history`,
-            { params: { page, page_size: pageSize } }
+            { params: { page, page_size: pageSize, transport } }
         )
         return response.data
     },
 
-    sendMessage: async (leadId: string, content: string): Promise<ChatMessage> => {
-        const response = await api.post<ChatMessage>(`/chat/${leadId}/send`, { content })
+    sendMessage: async (leadId: string, content: string, transport: MessageTransport): Promise<ChatMessage> => {
+        const response = await api.post<ChatMessage>(`/chat/${leadId}/send`, { content, transport })
         return response.data
     },
 

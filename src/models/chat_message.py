@@ -18,6 +18,12 @@ class MessageStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class MessageTransport(str, enum.Enum):
+    """Message transport/channel"""
+    TELEGRAM = "telegram"
+    WHATSAPP = "whatsapp"
+
+
 class ChatMessage(BaseModel):
     """
     Chat message model for storing conversation history.
@@ -47,6 +53,12 @@ class ChatMessage(BaseModel):
         SQLEnum(MessageStatus, name="message_status", values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         default=MessageStatus.SENT
+    )
+
+    transport = Column(
+        SQLEnum(MessageTransport, name="message_transport", values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=MessageTransport.TELEGRAM
     )
     
     content = Column(Text, nullable=False)

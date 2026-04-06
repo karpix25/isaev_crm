@@ -6,7 +6,7 @@ import uuid
 import re
 
 from src.database import get_db
-from src.models import Lead, MessageDirection, Organization, User, UserRole
+from src.models import Lead, MessageDirection, MessageTransport, Organization, User, UserRole
 from src.schemas.chat import ChatHistoryResponse, ChatMessageResponse, ChatMessageCreate, SendMessageRequest
 from src.services.chat_service import chat_service
 from src.services.lead_service import lead_service
@@ -48,6 +48,7 @@ async def get_chat_history(
     lead_id: uuid.UUID,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    transport: MessageTransport | None = Query(None),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db)
 ):
@@ -70,7 +71,7 @@ async def get_chat_history(
         )
     
     # Get chat history
-    messages, total = await chat_service.get_chat_history(db, lead_id, page, page_size)
+    messages, total = await chat_service.get_chat_history(db, lead_id, page, page_size, transport=transport)
     
     # Mark messages as read
     await chat_service.mark_messages_as_read(db, lead_id)
@@ -109,11 +110,18 @@ async def send_message_to_lead(
         )
     
     if not lead.telegram_id:
+        if message_data.transport == MessageTransport.TELEGRAM:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot send message: This lead has no associated Telegram account."
+            )
+
+    if message_data.transport == MessageTransport.WHATSAPP:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot send message: This lead has no associated Telegram account."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="WhatsApp transport is not connected yet. Select Telegram channel.",
         )
-    
+
     # Send message via Telegram
     telegram_message_id = None
     if lead.source != "userbot" and lead.source != "CRM":
@@ -143,7 +151,8 @@ async def send_message_to_lead(
         content=message_data.content,
         media_url=message_data.media_url,
         telegram_message_id=telegram_message_id,
-        ai_metadata={"source": "CRM"}
+        ai_metadata={"source": "CRM"},
+        transport=message_data.transport,
     )
 
     
@@ -245,6 +254,7 @@ async def send_business_card_to_lead(
             "type": "business_card",
             "skip_knowledge_index": True,
         },
+        transport=MessageTransport.TELEGRAM,
     )
     return ChatMessageResponse.model_validate(message)
 
