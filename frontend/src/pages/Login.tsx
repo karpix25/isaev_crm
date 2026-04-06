@@ -12,6 +12,7 @@ export function Login() {
     const [botUsername, setBotUsername] = useState<string | null>(null)
     const [isPolling, setIsPolling] = useState(false)
     const [waitingConfirm, setWaitingConfirm] = useState(false)
+    const [approvalPending, setApprovalPending] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -47,11 +48,25 @@ export function Login() {
                     localStorage.setItem('access_token', res.access_token)
                     if (res.refresh_token) localStorage.setItem('refresh_token', res.refresh_token)
                     setIsPolling(false)
+                    setApprovalPending(false)
                     navigate('/')
+                    return
+                }
+                if (res.status === 'pending_approval') {
+                    setApprovalPending(true)
+                    setWaitingConfirm(false)
+                    return
+                }
+                if (res.status === 'rejected') {
+                    setIsPolling(false)
+                    setApprovalPending(false)
+                    setWaitingConfirm(false)
+                    setError(res.detail || 'Заявка на доступ отклонена администратором.')
                     return
                 }
                 if (res.status === 'expired') {
                     setIsPolling(false)
+                    setApprovalPending(false)
                     setWaitingConfirm(false)
                     setError('Сессия входа истекла. Обновите страницу и попробуйте снова.')
                     return
@@ -128,6 +143,12 @@ export function Login() {
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                                 <span>Ждём подтверждения в Telegram…</span>
+                            </div>
+                        )}
+                        {approvalPending && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <span>Заявка отправлена администратору. Ожидаем одобрения…</span>
                             </div>
                         )}
 

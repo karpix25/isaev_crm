@@ -1,10 +1,22 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
 import { useAI } from '@/hooks/useAI'
-import { useCreateOperator, useDeleteOperator, useOperators, useUpdateOperator } from '@/hooks/useOperators'
+import {
+    useApproveOperatorAccessRequest,
+    useCreateOperator,
+    useDeleteOperator,
+    useOperatorAccessRequests,
+    useOperators,
+    useRejectOperatorAccessRequest,
+    useUpdateOperator,
+} from '@/hooks/useOperators'
 import UserBotSettings from '@/components/UserBotSettings'
 import CustomFieldsManager from '@/components/CustomFieldsManager'
-import type { NovofonSettings, OperatorCreatePayload, OperatorUpdatePayload } from '@/types'
+import type {
+    OperatorCreatePayload,
+    OperatorUpdatePayload,
+    OperatorAccessRequest,
+} from '@/types'
 import {
     Database,
     History,
@@ -19,13 +31,12 @@ import {
     Trash2,
     Settings,
     MessageSquare,
-    PhoneCall,
     UserCog
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function AISettings() {
-    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history' | 'userbot' | 'novofon' | 'operators'>('config')
+    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history' | 'userbot' | 'operators'>('config')
     const {
         activePrompt,
         prompts,
@@ -36,13 +47,14 @@ export function AISettings() {
         knowledge,
         uploadFile,
         deleteKnowledge,
-        novofonSettings,
-        updateNovofonSettings,
     } = useAI()
     const operators = useOperators()
     const createOperator = useCreateOperator()
     const updateOperator = useUpdateOperator()
     const deleteOperator = useDeleteOperator()
+    const operatorAccessRequests = useOperatorAccessRequests('pending')
+    const approveOperatorAccessRequest = useApproveOperatorAccessRequest()
+    const rejectOperatorAccessRequest = useRejectOperatorAccessRequest()
 
     return (
         <div className="flex h-full flex-col gap-6 p-6 overflow-y-auto">
@@ -76,12 +88,6 @@ export function AISettings() {
                     onClick={() => setActiveTab('userbot')}
                     icon={MessageSquare}
                     label="User Bot"
-                />
-                <TabButton
-                    active={activeTab === 'novofon'}
-                    onClick={() => setActiveTab('novofon')}
-                    icon={PhoneCall}
-                    label="Novofon"
                 />
                 <TabButton
                     active={activeTab === 'operators'}
@@ -164,27 +170,19 @@ export function AISettings() {
                             <UserBotSettings />
                         </div>
                     )}
-                    {activeTab === 'novofon' && (
-                        <NovofonSettingsPanel
-                            settings={novofonSettings.data}
-                            isLoading={novofonSettings.isLoading}
-                            isSaving={updateNovofonSettings.isPending}
-                            onSave={(payload) => {
-                                updateNovofonSettings.mutate(payload, {
-                                    onSuccess: () => toast.success('Настройки Novofon сохранены'),
-                                    onError: (error: any) => {
-                                        const detail = error?.response?.data?.detail || 'Ошибка сохранения настроек Novofon'
-                                        toast.error(String(detail))
-                                    },
-                                })
-                            }}
-                        />
-                    )}
                     {activeTab === 'operators' && (
                         <OperatorsPanel
                             operators={operators.data || []}
                             isLoading={operators.isLoading}
-                            isSaving={createOperator.isPending || updateOperator.isPending || deleteOperator.isPending}
+                            accessRequests={operatorAccessRequests.data || []}
+                            isRequestsLoading={operatorAccessRequests.isLoading}
+                            isSaving={
+                                createOperator.isPending
+                                || updateOperator.isPending
+                                || deleteOperator.isPending
+                                || approveOperatorAccessRequest.isPending
+                                || rejectOperatorAccessRequest.isPending
+                            }
                             onCreate={(payload) => {
                                 createOperator.mutate(payload, {
                                     onSuccess: () => toast.success('Оператор добавлен'),
@@ -211,6 +209,27 @@ export function AISettings() {
                                         toast.error(String(detail))
                                     },
                                 })
+                            }}
+                            onApproveRequest={(id, payload) => {
+                                approveOperatorAccessRequest.mutate({ id, payload }, {
+                                    onSuccess: () => toast.success('Заявка одобрена. Оператору отправлено уведомление в Telegram.'),
+                                    onError: (error: any) => {
+                                        const detail = error?.response?.data?.detail || 'Ошибка одобрения заявки'
+                                        toast.error(String(detail))
+                                    },
+                                })
+                            }}
+                            onRejectRequest={(id, reason) => {
+                                rejectOperatorAccessRequest.mutate(
+                                    { id, payload: { reason } },
+                                    {
+                                        onSuccess: () => toast.success('Заявка отклонена'),
+                                        onError: (error: any) => {
+                                            const detail = error?.response?.data?.detail || 'Ошибка отклонения заявки'
+                                            toast.error(String(detail))
+                                        },
+                                    }
+                                )
                             }}
                         />
                     )}
@@ -505,121 +524,28 @@ function KnowledgeBasePanel({ items, isLoading, isAdding, onAdd, onUpload, onDel
     )
 }
 
-function NovofonSettingsPanel({
-    settings,
-    isLoading,
-    isSaving,
-    onSave,
-}: {
-    settings?: NovofonSettings
-    isLoading: boolean
-    isSaving: boolean
-    onSave: (payload: NovofonSettings) => void
-}) {
-    const [form, setForm] = useState<NovofonSettings>({
-        dial_url_template: '',
-        default_operator_phone: '',
-        business_card_template: '',
-        business_card_site_url: '',
-        business_card_telegram: '',
-    })
-
-    React.useEffect(() => {
-        if (!settings) return
-        setForm({
-            dial_url_template: settings.dial_url_template || '',
-            default_operator_phone: settings.default_operator_phone || '',
-            business_card_template: settings.business_card_template || '',
-            business_card_site_url: settings.business_card_site_url || '',
-            business_card_telegram: settings.business_card_telegram || '',
-        })
-    }, [settings])
-
-    if (isLoading) {
-        return (
-            <div className="bg-card border rounded-3xl p-8 shadow-xl flex items-center gap-3 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span>Загрузка настроек Novofon...</span>
-            </div>
-        )
-    }
-
-    return (
-        <div className="bg-card border rounded-3xl p-8 shadow-xl space-y-6">
-            <div className="flex items-center justify-between">
-                <h3 className="text-xl font-black flex items-center gap-2">
-                    <PhoneCall className="h-6 w-6 text-primary" />
-                    НАСТРОЙКИ NOVOFON
-                </h3>
-                <button
-                    onClick={() => onSave(form)}
-                    disabled={isSaving}
-                    className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
-                >
-                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Сохранить
-                </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-                <FormField
-                    label="Шаблон ссылки звонка"
-                    value={form.dial_url_template || ''}
-                    onChange={(v) => setForm((prev) => ({ ...prev, dial_url_template: v }))}
-                    placeholder="tel:{phone} или novofon://call?number={digits}"
-                />
-                <FormField
-                    label="Номер оператора по умолчанию"
-                    value={form.default_operator_phone || ''}
-                    onChange={(v) => setForm((prev) => ({ ...prev, default_operator_phone: v }))}
-                    placeholder="+79991234567"
-                />
-                <FormField
-                    label="Сайт в визитке"
-                    value={form.business_card_site_url || ''}
-                    onChange={(v) => setForm((prev) => ({ ...prev, business_card_site_url: v }))}
-                    placeholder="https://your-company.com"
-                />
-                <FormField
-                    label="Telegram в визитке"
-                    value={form.business_card_telegram || ''}
-                    onChange={(v) => setForm((prev) => ({ ...prev, business_card_telegram: v }))}
-                    placeholder="@company_manager"
-                />
-            </div>
-
-            <TextAreaField
-                label="Шаблон сообщения-визитки"
-                value={form.business_card_template || ''}
-                onChange={(v) => setForm((prev) => ({ ...prev, business_card_template: v }))}
-                rows={8}
-                placeholder="Спасибо за звонок!\nМенеджер: {manager_name}\nТелефон: {manager_phone}\n{site_line}\n{telegram_line}"
-                helpers={[
-                    {
-                        label: 'ПЕРЕМЕННЫЕ',
-                        tags: ['company_name', 'manager_name', 'manager_phone', 'site_url', 'telegram', 'site_line', 'telegram_line'],
-                        color: 'text-emerald-600',
-                    },
-                ]}
-            />
-        </div>
-    )
-}
-
 function OperatorsPanel({
     operators,
+    accessRequests,
     isLoading,
+    isRequestsLoading,
     isSaving,
     onCreate,
     onUpdate,
     onDelete,
+    onApproveRequest,
+    onRejectRequest,
 }: {
     operators: any[]
+    accessRequests: OperatorAccessRequest[]
     isLoading: boolean
+    isRequestsLoading: boolean
     isSaving: boolean
     onCreate: (payload: OperatorCreatePayload) => void
     onUpdate: (id: string, payload: OperatorUpdatePayload) => void
     onDelete: (id: string) => void
+    onApproveRequest: (id: string, payload: { role: 'MANAGER' | 'WORKER' }) => void
+    onRejectRequest: (id: string, reason?: string) => void
 }) {
     const [createForm, setCreateForm] = useState({
         telegram_id: '',
@@ -630,6 +556,7 @@ function OperatorsPanel({
         role: 'MANAGER' as 'MANAGER' | 'WORKER',
     })
     const [drafts, setDrafts] = useState<Record<string, any>>({})
+    const [requestRoles, setRequestRoles] = useState<Record<string, 'MANAGER' | 'WORKER'>>({})
 
     React.useEffect(() => {
         const nextDrafts: Record<string, any> = {}
@@ -647,8 +574,81 @@ function OperatorsPanel({
 
     const normalize = (value: string) => value.trim() || undefined
 
+    React.useEffect(() => {
+        setRequestRoles((prev) => {
+            const next: Record<string, 'MANAGER' | 'WORKER'> = {}
+            for (const request of accessRequests) {
+                next[request.id] = prev[request.id] || 'MANAGER'
+            }
+            return next
+        })
+    }, [accessRequests])
+
     return (
         <div className="space-y-6">
+            <div className="bg-card border rounded-3xl p-6 shadow-xl">
+                <h3 className="text-lg font-black mb-4">Заявки на доступ ({accessRequests.length})</h3>
+                {isRequestsLoading ? (
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <span>Загрузка заявок...</span>
+                    </div>
+                ) : accessRequests.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">Новых заявок нет.</div>
+                ) : (
+                    <div className="space-y-3">
+                        {accessRequests.map((request) => (
+                            <div key={request.id} className="border rounded-2xl p-4 space-y-3">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <div className="font-bold text-sm">{request.full_name || `@${request.username || 'unknown'}`}</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            Telegram ID: {request.telegram_id}
+                                            {request.username ? ` • @${request.username}` : ''}
+                                            {` • ${new Date(request.created_at).toLocaleString('ru-RU')}`}
+                                        </div>
+                                    </div>
+                                    <select
+                                        className="bg-muted border-none rounded-xl px-3 py-2 text-sm font-medium"
+                                        value={requestRoles[request.id] || 'MANAGER'}
+                                        onChange={(e) =>
+                                            setRequestRoles((prev) => ({
+                                                ...prev,
+                                                [request.id]: e.target.value as 'MANAGER' | 'WORKER',
+                                            }))
+                                        }
+                                    >
+                                        <option value="MANAGER">MANAGER</option>
+                                        <option value="WORKER">WORKER</option>
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        disabled={isSaving}
+                                        className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                                        onClick={() =>
+                                            onApproveRequest(request.id, { role: requestRoles[request.id] || 'MANAGER' })
+                                        }
+                                    >
+                                        Одобрить
+                                    </button>
+                                    <button
+                                        disabled={isSaving}
+                                        className="bg-destructive/10 text-destructive px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                                        onClick={() => {
+                                            const reason = window.prompt('Причина отклонения (необязательно):') || undefined
+                                            onRejectRequest(request.id, reason)
+                                        }}
+                                    >
+                                        Отклонить
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             <div className="bg-card border rounded-3xl p-6 shadow-xl space-y-4">
                 <h3 className="text-xl font-black flex items-center gap-2">
                     <UserCog className="h-6 w-6 text-primary" />

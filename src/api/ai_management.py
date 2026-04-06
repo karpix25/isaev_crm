@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import List
 import uuid
 
@@ -10,12 +9,10 @@ from src.schemas.ai import (
     PromptConfigCreate, PromptConfigResponse,
     KnowledgeItemCreate, KnowledgeItemResponse,
     KnowledgeSearchRequest,
-    NovofonSettingsResponse,
-    NovofonSettingsUpdate,
 )
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
-from src.dependencies.auth import get_current_user, require_role
+from src.dependencies.auth import require_role
 
 router = APIRouter(prefix="/ai", tags=["AI Configuration"])
 
@@ -171,65 +168,3 @@ async def clear_knowledge(
     """Clear all items from the knowledge base"""
     count = await knowledge_service.clear_knowledge(db, current_user.org_id)
     return {"status": "success", "deleted_count": count}
-
-
-@router.get("/novofon-settings", response_model=NovofonSettingsResponse)
-async def get_novofon_settings(
-    current_user: User = Depends(require_role(UserRole.ADMIN)),
-    db: AsyncSession = Depends(get_db),
-):
-    from src.config import settings
-    from src.models import Organization
-
-    result = await db.execute(select(Organization).where(Organization.id == current_user.org_id))
-    organization = result.scalar_one_or_none()
-    if not organization:
-        raise HTTPException(status_code=404, detail="Organization not found")
-
-    return NovofonSettingsResponse(
-        dial_url_template=organization.novofon_dial_url_template or settings.novofon_dial_url_template,
-        default_operator_phone=organization.novofon_default_operator_phone or settings.novofon_default_operator_phone,
-        business_card_template=organization.novofon_business_card_template or settings.novofon_business_card_template,
-        business_card_site_url=organization.novofon_business_card_site_url or settings.novofon_business_card_site_url,
-        business_card_telegram=organization.novofon_business_card_telegram or settings.novofon_business_card_telegram,
-    )
-
-
-@router.put("/novofon-settings", response_model=NovofonSettingsResponse)
-async def update_novofon_settings(
-    data: NovofonSettingsUpdate,
-    current_user: User = Depends(require_role(UserRole.ADMIN)),
-    db: AsyncSession = Depends(get_db),
-):
-    from src.config import settings
-    from src.models import Organization
-
-    result = await db.execute(select(Organization).where(Organization.id == current_user.org_id))
-    organization = result.scalar_one_or_none()
-    if not organization:
-        raise HTTPException(status_code=404, detail="Organization not found")
-
-    payload = data.model_dump(exclude_unset=True)
-    for field_name, value in payload.items():
-        normalized = value.strip() if isinstance(value, str) else value
-        if field_name == "dial_url_template":
-            organization.novofon_dial_url_template = normalized
-        elif field_name == "default_operator_phone":
-            organization.novofon_default_operator_phone = normalized
-        elif field_name == "business_card_template":
-            organization.novofon_business_card_template = normalized
-        elif field_name == "business_card_site_url":
-            organization.novofon_business_card_site_url = normalized
-        elif field_name == "business_card_telegram":
-            organization.novofon_business_card_telegram = normalized
-
-    await db.commit()
-    await db.refresh(organization)
-
-    return NovofonSettingsResponse(
-        dial_url_template=organization.novofon_dial_url_template or settings.novofon_dial_url_template,
-        default_operator_phone=organization.novofon_default_operator_phone or settings.novofon_default_operator_phone,
-        business_card_template=organization.novofon_business_card_template or settings.novofon_business_card_template,
-        business_card_site_url=organization.novofon_business_card_site_url or settings.novofon_business_card_site_url,
-        business_card_telegram=organization.novofon_business_card_telegram or settings.novofon_business_card_telegram,
-    )

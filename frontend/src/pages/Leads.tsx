@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads, usePrepareLeadDial } from '@/hooks/useLeads'
+import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads } from '@/hooks/useLeads'
 import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -575,13 +575,11 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const sendMessage = useSendMessage()
     const deleteLead = useDeleteLead()
     const updateLead = useUpdateLead()
-    const prepareLeadDial = usePrepareLeadDial()
     const [isEditingExtracted, setIsEditingExtracted] = useState(false)
     const [savedExtractedData, setSavedExtractedData] = useState<Record<string, any>>(parseExtractedData(lead.extracted_data))
     const [extractedDraft, setExtractedDraft] = useState<Record<string, string>>({})
     const [savedOperatorComment, setSavedOperatorComment] = useState(lead.operator_comment || '')
     const [operatorCommentDraft, setOperatorCommentDraft] = useState(lead.operator_comment || '')
-    const [callFeedback, setCallFeedback] = useState<string | null>(null)
 
     const messages = chatData?.messages || []
     const historyItems = historyData?.items || []
@@ -620,7 +618,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         setSavedOperatorComment(lead.operator_comment || '')
         setOperatorCommentDraft(lead.operator_comment || '')
         setIsEditingExtracted(false)
-        setCallFeedback(null)
     }, [lead.id, lead.extracted_data, lead.operator_comment, editableFields])
 
     const handleSendMessage = () => {
@@ -681,27 +678,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         )
     }
 
-    const handleStartCall = () => {
-        if (!lead.phone) {
-            setCallFeedback('У лида не указан номер телефона.')
-            return
-        }
-
-        setCallFeedback(null)
-        prepareLeadDial.mutate(
-            { id: lead.id },
-            {
-                onSuccess: (res) => {
-                    setCallFeedback(res.detail || 'Открываем софтфон...')
-                    window.location.href = res.dial_url
-                },
-                onError: (err: any) => {
-                    setCallFeedback(err?.response?.data?.detail || err?.message || 'Не удалось открыть софтфон.')
-                },
-            }
-        )
-    }
-
     const getMessageLabel = (msg: any) => {
         if (msg.direction === MessageDirection.INBOUND) return 'Клиент'
         if (msg.sender_name === 'AI' || msg.sender_name === 'Bot') return 'ИИ Ассистент'
@@ -741,6 +717,8 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     }
 
     const messengerPresence = getMessengerPresence(lead)
+    const telegramChatUrl = getTelegramChatUrl(lead)
+    const whatsappChatUrl = getWhatsAppChatUrl(lead)
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -769,15 +747,10 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                 </span>
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                <button
-                                    onClick={handleStartCall}
-                                    disabled={prepareLeadDial.isPending || !lead.phone}
-                                    className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                                    title="Открыть софтфон и набрать номер"
-                                >
+                                <span className="flex items-center gap-1 rounded px-1.5 py-0.5">
                                     <Phone className="h-3 w-3" />
-                                    <span className="underline decoration-dotted underline-offset-2">{lead.phone || '—'}</span>
-                                </button>
+                                    <span>{lead.phone || '—'}</span>
+                                </span>
                                 <span
                                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getTelegramLookupBadgeClass(lead.telegram_lookup_status || 'not_checked')}`}
                                     title={lead.telegram_lookup_error || ''}
@@ -785,30 +758,47 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                     {telegramLookupStatusLabels[lead.telegram_lookup_status || 'not_checked'] || (lead.telegram_lookup_status || 'not_checked')}
                                 </span>
                                 {messengerPresence.telegram && (
-                                    <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-600" title="Telegram активен">
-                                        <Send className="h-3 w-3" /> TG
-                                    </span>
+                                    telegramChatUrl ? (
+                                        <a
+                                            href={telegramChatUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-600 transition-colors hover:bg-blue-500/20"
+                                            title="Открыть чат в Telegram"
+                                        >
+                                            <Send className="h-3 w-3" /> TG
+                                        </a>
+                                    ) : (
+                                        <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-600" title="Telegram активен">
+                                            <Send className="h-3 w-3" /> TG
+                                        </span>
+                                    )
                                 )}
                                 {messengerPresence.whatsapp && (
-                                    <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600" title="WhatsApp активен">
-                                        <MessageCircle className="h-3 w-3" /> WA
-                                    </span>
+                                    whatsappChatUrl ? (
+                                        <a
+                                            href={whatsappChatUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                                            title="Открыть чат в WhatsApp"
+                                        >
+                                            <MessageCircle className="h-3 w-3" /> WA
+                                        </a>
+                                    ) : (
+                                        <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600" title="WhatsApp активен">
+                                            <MessageCircle className="h-3 w-3" /> WA
+                                        </span>
+                                    )
                                 )}
                                 {lead.username && <span>• @{lead.username}</span>}
                                 {lead.source && <span className="flex items-center gap-1">• <MessageSquare className="h-3 w-3" /> {lead.source}</span>}
-                                {callFeedback && <span className="text-[11px] text-primary">• {callFeedback}</span>}
                             </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button
-                            onClick={handleStartCall}
-                            disabled={prepareLeadDial.isPending || !lead.phone}
-                            className="flex h-10 items-center gap-2 rounded-lg border bg-background px-4 text-sm font-medium transition-colors hover:bg-accent ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            <Phone className="h-4 w-4" />
-                            {prepareLeadDial.isPending ? 'Открываем...' : 'Позвонить'}
-                        </button>
                         {lead.converted_to_project_id ? (
                             <a
                                 href={`/projects?id=${lead.converted_to_project_id}`}
@@ -1132,6 +1122,8 @@ function LeadCard({
     selected?: boolean
 }) {
     const messengerPresence = getMessengerPresence(lead)
+    const telegramChatUrl = getTelegramChatUrl(lead)
+    const whatsappChatUrl = getWhatsAppChatUrl(lead)
 
     return (
         <div
@@ -1203,14 +1195,40 @@ function LeadCard({
                         {telegramLookupStatusLabels[lead.telegram_lookup_status || 'not_checked'] || (lead.telegram_lookup_status || 'not_checked')}
                     </div>
                     {messengerPresence.telegram && (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/15 text-blue-600" title="Telegram активен">
-                            <Send className="h-3 w-3" />
-                        </div>
+                        telegramChatUrl ? (
+                            <a
+                                href={telegramChatUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/15 text-blue-600 transition-colors hover:bg-blue-500/25"
+                                title="Открыть чат в Telegram"
+                            >
+                                <Send className="h-3 w-3" />
+                            </a>
+                        ) : (
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/15 text-blue-600" title="Telegram активен">
+                                <Send className="h-3 w-3" />
+                            </div>
+                        )
                     )}
                     {messengerPresence.whatsapp && (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600" title="WhatsApp активен">
-                            <MessageCircle className="h-3 w-3" />
-                        </div>
+                        whatsappChatUrl ? (
+                            <a
+                                href={whatsappChatUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 transition-colors hover:bg-emerald-500/25"
+                                title="Открыть чат в WhatsApp"
+                            >
+                                <MessageCircle className="h-3 w-3" />
+                            </a>
+                        ) : (
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600" title="WhatsApp активен">
+                                <MessageCircle className="h-3 w-3" />
+                            </div>
+                        )
                     )}
                     {lead.phone && (
                         <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
@@ -1231,20 +1249,48 @@ function LeadCard({
 }
 
 function getMessengerPresence(lead: Lead): { telegram: boolean; whatsapp: boolean } {
-    let parsed: any = {}
-    try {
-        parsed = typeof lead.extracted_data === 'string'
-            ? JSON.parse(lead.extracted_data || '{}')
-            : (lead.extracted_data || {})
-    } catch {
-        parsed = {}
-    }
-
+    const parsed = getLeadExtractedData(lead)
     const messengers = parsed?.messengers || {}
     return {
         telegram: Boolean(messengers.telegram),
         whatsapp: Boolean(messengers.whatsapp),
     }
+}
+
+function getLeadExtractedData(lead: Lead): Record<string, any> {
+    try {
+        return typeof lead.extracted_data === 'string'
+            ? JSON.parse(lead.extracted_data || '{}')
+            : (lead.extracted_data || {})
+    } catch {
+        return {}
+    }
+}
+
+function normalizePhoneDigits(phone?: string | null): string | null {
+    const digitsOnly = String(phone || '').replace(/\D/g, '')
+    if (!digitsOnly) return null
+    if (digitsOnly.length === 11 && digitsOnly.startsWith('8')) return `7${digitsOnly.slice(1)}`
+    if (digitsOnly.length === 10) return `7${digitsOnly}`
+    return digitsOnly.length >= 10 ? digitsOnly : null
+}
+
+function getTelegramChatUrl(lead: Lead): string | null {
+    const username = String(lead.username || '').replace(/^@/, '').trim()
+    if (username) return `https://t.me/${username}`
+
+    const telegramId = String((lead as any).telegram_id || '').trim()
+    if (telegramId) return `tg://user?id=${telegramId}`
+    return null
+}
+
+function getWhatsAppChatUrl(lead: Lead): string | null {
+    const extracted = getLeadExtractedData(lead)
+    const waId = String(extracted?.whatsapp_wa_id || '').replace(/\D/g, '')
+    const phoneDigits = normalizePhoneDigits(lead.phone)
+    const target = waId || phoneDigits
+    if (!target) return null
+    return `https://wa.me/${target}`
 }
 
 function DataField({ label, value, icon }: { label: string, value: string | null, icon?: React.ReactNode }) {

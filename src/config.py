@@ -115,32 +115,6 @@ class Settings(BaseSettings):
     whatsapp_lookup_max_per_minute: int = 20
     whatsapp_lookup_cache_ttl_seconds: int = 3600
     
-    # Novofon (click-to-call + post-call business card)
-    novofon_api_base_url: str = "https://callapi-jsonrpc.novofon.ru/v4.0"
-    novofon_login: str = ""
-    novofon_password: str = ""
-    novofon_access_token: str = ""
-    novofon_virtual_phone_number: str = ""
-    novofon_dial_url_template: str = "tel:{phone}"
-    novofon_default_operator_phone: str = ""
-    novofon_business_card_message: str = (
-        "Спасибо за звонок! Это наша визитка:\n"
-        "📞 Телефон: +7XXXXXXXXXX\n"
-        "🌐 Сайт: https://example.com"
-    )
-    novofon_business_card_template: str = (
-        "Спасибо за звонок!\n"
-        "Это визитка компании {company_name}.\n"
-        "Менеджер: {manager_name}\n"
-        "Телефон: {manager_phone}\n"
-        "{site_line}\n"
-        "{telegram_line}"
-    )
-    novofon_business_card_site_url: str = ""
-    novofon_business_card_telegram: str = ""
-    novofon_webhook_secret: str = ""
-    novofon_timeout_seconds: int = 15
-
     @field_validator("telegram_update_mode")
     @classmethod
     def validate_telegram_update_mode(cls, v: str) -> str:

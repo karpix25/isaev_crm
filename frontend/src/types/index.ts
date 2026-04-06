@@ -132,6 +132,34 @@ export interface OperatorUpdatePayload {
     role?: 'MANAGER' | 'WORKER'
 }
 
+export type OperatorAccessRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export interface OperatorAccessRequest {
+    id: string
+    org_id: string
+    telegram_id: number
+    full_name?: string | null
+    username?: string | null
+    status: OperatorAccessRequestStatus
+    processed_by_user_id?: string | null
+    processed_by_name?: string | null
+    processed_at?: string | null
+    rejection_reason?: string | null
+    created_at: string
+}
+
+export interface OperatorAccessApprovePayload {
+    role?: 'MANAGER' | 'WORKER'
+    full_name?: string
+    username?: string
+    phone?: string
+    email?: string
+}
+
+export interface OperatorAccessRejectPayload {
+    reason?: string
+}
+
 export interface LeadImportError {
     row: number
     reason: string
@@ -151,29 +179,6 @@ export interface LeadBulkDeleteResult {
     deleted: number
 }
 
-export interface LeadCallStartPayload {
-    operator_phone?: string
-    business_card_message?: string
-}
-
-export interface LeadCallStartResponse {
-    event_id: string
-    call_status: string
-    call_session_id?: string | null
-    detail: string
-}
-
-export interface LeadDialPreparePayload {
-    operator_phone?: string
-    business_card_message?: string
-}
-
-export interface LeadDialPrepareResponse {
-    event_id: string
-    dial_url: string
-    detail: string
-}
-
 export interface LeadChangeLogItem {
     id: string
     action: string
@@ -186,14 +191,6 @@ export interface LeadChangeLogItem {
 
 export interface LeadChangeLogResponse {
     items: LeadChangeLogItem[]
-}
-
-export interface NovofonSettings {
-    dial_url_template?: string | null
-    default_operator_phone?: string | null
-    business_card_template?: string | null
-    business_card_site_url?: string | null
-    business_card_telegram?: string | null
 }
 
 // AI Configuration

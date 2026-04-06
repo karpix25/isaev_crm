@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import sqlalchemy as sa
@@ -9,7 +9,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from src.database import get_db
-from src.models import User, Organization, AuthSession
+from src.models import (
+    User,
+    Organization,
+    AuthSession,
+    OperatorAccessRequest,
+    OperatorAccessRequestStatus,
+)
 from src.models.user import UserRole
 from src.schemas.auth import TokenResponse
 from src.services.auth import auth_service
@@ -62,10 +68,11 @@ class TelegramBotInitResponse(BaseModel):
 
 
 class TelegramBotCheckResponse(BaseModel):
-    status: str  # pending | authorized | expired
+    status: str  # pending | pending_approval | rejected | authorized | expired
     access_token: str | None = None
     refresh_token: str | None = None
     token_type: str = "bearer"
+    detail: str | None = None
 
 
 AUTH_SESSION_TTL_SECONDS = 5 * 60
@@ -108,6 +115,116 @@ class OperatorUpdateRequest(BaseModel):
     phone: str | None = None
     email: str | None = None
     role: UserRole | None = None
+
+
+class OperatorAccessRequestResponse(BaseModel):
+    id: uuid.UUID
+    org_id: uuid.UUID
+    telegram_id: int
+    full_name: str | None = None
+    username: str | None = None
+    status: str
+    processed_by_user_id: uuid.UUID | None = None
+    processed_by_name: str | None = None
+    processed_at: datetime | None = None
+    rejection_reason: str | None = None
+    created_at: datetime
+
+
+class OperatorAccessApproveRequest(BaseModel):
+    role: UserRole = UserRole.MANAGER
+    full_name: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+
+class OperatorAccessRejectRequest(BaseModel):
+    reason: str | None = None
+
+
+def _normalize_username(username: str | None) -> str | None:
+    return (username or "").replace("@", "").strip() or None
+
+
+def _build_crm_login_url() -> str:
+    explicit_url = (getattr(settings, "crm_login_url", "") or "").strip()
+    if explicit_url:
+        return explicit_url
+
+    origins = settings.cors_origins_list
+    if origins:
+        base_url = origins[0].rstrip("/")
+        if base_url.endswith("/login"):
+            return base_url
+        return f"{base_url}/login"
+    return "/login"
+
+
+async def _resolve_operator_request_org(db: AsyncSession) -> Organization | None:
+    result = await db.execute(
+        select(Organization)
+        .order_by(Organization.created_at.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_latest_operator_access_request(
+    db: AsyncSession,
+    org_id: uuid.UUID,
+    telegram_id: int,
+) -> OperatorAccessRequest | None:
+    result = await db.execute(
+        select(OperatorAccessRequest)
+        .where(
+            OperatorAccessRequest.org_id == org_id,
+            OperatorAccessRequest.telegram_id == telegram_id,
+        )
+        .order_by(OperatorAccessRequest.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_or_create_operator_access_request(
+    db: AsyncSession,
+    org_id: uuid.UUID,
+    telegram_id: int,
+    full_name: str | None = None,
+    username: str | None = None,
+) -> OperatorAccessRequest:
+    request = await _get_latest_operator_access_request(db, org_id=org_id, telegram_id=telegram_id)
+    normalized_username = _normalize_username(username)
+
+    if request:
+        changed = False
+        next_full_name = (full_name or "").strip() or request.full_name
+        if next_full_name != request.full_name:
+            request.full_name = next_full_name
+            changed = True
+
+        next_username = normalized_username or request.username
+        if next_username != request.username:
+            request.username = next_username
+            changed = True
+
+        if changed:
+            await db.commit()
+            await db.refresh(request)
+        return request
+
+    request = OperatorAccessRequest(
+        org_id=org_id,
+        telegram_id=telegram_id,
+        full_name=(full_name or "").strip() or None,
+        username=normalized_username,
+        status=OperatorAccessRequestStatus.PENDING.value,
+    )
+    db.add(request)
+    await db.commit()
+    await db.refresh(request)
+    return request
 
 
 def _telegram_mode() -> str:
@@ -226,12 +343,62 @@ async def telegram_bot_login_check(session_id: str, db: AsyncSession = Depends(g
     if session.status != "authorized" or not session.telegram_id:
         return TelegramBotCheckResponse(status="pending")
 
-    user = await _get_or_create_user_by_telegram(
-        db=db,
-        telegram_id=int(session.telegram_id),
-        full_name=session.full_name,
-        username=session.username,
-    )
+    telegram_id = int(session.telegram_id)
+    user_result = await db.execute(select(User).where(User.telegram_id == telegram_id))
+    user = user_result.scalar_one_or_none()
+
+    if not user:
+        count_result = await db.execute(select(sa.func.count(User.id)))
+        total_users = count_result.scalar() or 0
+
+        if total_users == 0:
+            user = await _get_or_create_user_by_telegram(
+                db=db,
+                telegram_id=telegram_id,
+                full_name=session.full_name,
+                username=session.username,
+            )
+        else:
+            organization = await _resolve_operator_request_org(db)
+            if not organization:
+                return TelegramBotCheckResponse(
+                    status="expired",
+                    detail="Организация не найдена. Обратитесь к администратору.",
+                )
+
+            access_request = await _get_or_create_operator_access_request(
+                db=db,
+                org_id=organization.id,
+                telegram_id=telegram_id,
+                full_name=session.full_name,
+                username=session.username,
+            )
+
+            if access_request.status == OperatorAccessRequestStatus.REJECTED.value:
+                return TelegramBotCheckResponse(
+                    status="rejected",
+                    detail=access_request.rejection_reason or "Заявка на доступ отклонена администратором.",
+                )
+
+            if access_request.status != OperatorAccessRequestStatus.APPROVED.value:
+                return TelegramBotCheckResponse(
+                    status="pending_approval",
+                    detail="Заявка отправлена администратору. Ожидайте одобрения.",
+                )
+
+            user_result = await db.execute(select(User).where(User.telegram_id == telegram_id))
+            user = user_result.scalar_one_or_none()
+            if not user:
+                user = User(
+                    org_id=organization.id,
+                    telegram_id=telegram_id,
+                    role=UserRole.MANAGER,
+                    full_name=(session.full_name or "").strip() or access_request.full_name,
+                    username=_normalize_username(session.username) or access_request.username,
+                )
+                db.add(user)
+                await db.commit()
+                await db.refresh(user)
 
     access_token = auth_service.create_access_token(data={"sub": str(user.id)})
     refresh_token = auth_service.create_refresh_token(data={"sub": str(user.id)})
@@ -251,10 +418,22 @@ async def _get_or_create_user_by_telegram(
     full_name: str | None = None,
     username: str | None = None,
 ) -> User:
+    normalized_username = _normalize_username(username)
+
     result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
 
     if user:
+        changed = False
+        if full_name and full_name != user.full_name:
+            user.full_name = full_name
+            changed = True
+        if normalized_username and normalized_username != user.username:
+            user.username = normalized_username
+            changed = True
+        if changed:
+            await db.commit()
+            await db.refresh(user)
         return user
 
     # Check if database is completely empty (0 users)
@@ -280,7 +459,7 @@ async def _get_or_create_user_by_telegram(
         telegram_id=telegram_id,
         role=UserRole.ADMIN,
         full_name=full_name,
-        username=username,
+        username=normalized_username,
     )
     db.add(user)
     await db.commit()
@@ -333,6 +512,163 @@ async def telegram_auth(
     )
 
 
+@router.get("/operator-access-requests", response_model=list[OperatorAccessRequestResponse])
+async def list_operator_access_requests(
+    status_filter: str = Query("pending", pattern="^(pending|approved|rejected|all)$"),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    query = (
+        select(
+            OperatorAccessRequest,
+            User.full_name,
+            User.username,
+            User.email,
+        )
+        .outerjoin(User, OperatorAccessRequest.processed_by_user_id == User.id)
+        .where(OperatorAccessRequest.org_id == current_user.org_id)
+        .order_by(OperatorAccessRequest.created_at.desc())
+    )
+    if status_filter != "all":
+        query = query.where(OperatorAccessRequest.status == status_filter)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    items: list[OperatorAccessRequestResponse] = []
+    for request_item, processed_full_name, processed_username, processed_email in rows:
+        processed_name = processed_full_name or processed_username or processed_email or None
+        items.append(
+            OperatorAccessRequestResponse(
+                id=request_item.id,
+                org_id=request_item.org_id,
+                telegram_id=request_item.telegram_id,
+                full_name=request_item.full_name,
+                username=request_item.username,
+                status=request_item.status,
+                processed_by_user_id=request_item.processed_by_user_id,
+                processed_by_name=processed_name,
+                processed_at=request_item.processed_at,
+                rejection_reason=request_item.rejection_reason,
+                created_at=request_item.created_at,
+            )
+        )
+
+    return items
+
+
+@router.post("/operator-access-requests/{request_id}/approve", response_model=OperatorUserResponse)
+async def approve_operator_access_request(
+    request_id: uuid.UUID,
+    payload: OperatorAccessApproveRequest = Body(default_factory=OperatorAccessApproveRequest),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    if payload.role not in {UserRole.MANAGER, UserRole.WORKER}:
+        raise HTTPException(status_code=400, detail="Для оператора доступны только роли MANAGER или WORKER.")
+
+    request_result = await db.execute(select(OperatorAccessRequest).where(OperatorAccessRequest.id == request_id))
+    access_request = request_result.scalar_one_or_none()
+    if not access_request or str(access_request.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+    user_result = await db.execute(select(User).where(User.telegram_id == access_request.telegram_id))
+    operator = user_result.scalar_one_or_none()
+    if operator and str(operator.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=400, detail="Пользователь с этим Telegram ID принадлежит другой организации.")
+
+    normalized_username = _normalize_username(payload.username or access_request.username)
+    normalized_full_name = (payload.full_name or access_request.full_name or "").strip() or None
+    normalized_phone = (payload.phone or "").strip() or None
+    normalized_email = (payload.email or "").strip() or None
+
+    if operator is None:
+        operator = User(
+            org_id=current_user.org_id,
+            telegram_id=access_request.telegram_id,
+            full_name=normalized_full_name,
+            username=normalized_username,
+            phone=normalized_phone,
+            email=normalized_email,
+            role=payload.role,
+        )
+        db.add(operator)
+    else:
+        if operator.role == UserRole.ADMIN:
+            raise HTTPException(status_code=400, detail="Нельзя изменять роль ADMIN через этот сценарий.")
+        operator.role = payload.role
+        if normalized_full_name:
+            operator.full_name = normalized_full_name
+        if normalized_username:
+            operator.username = normalized_username
+        if normalized_phone:
+            operator.phone = normalized_phone
+        if normalized_email:
+            operator.email = normalized_email
+
+    access_request.status = OperatorAccessRequestStatus.APPROVED.value
+    access_request.processed_by_user_id = current_user.id
+    access_request.processed_at = datetime.now(timezone.utc)
+    access_request.rejection_reason = None
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=f"Не удалось одобрить заявку: {exc}")
+
+    await db.refresh(operator)
+
+    if telegram_bot:
+        try:
+            login_url = _build_crm_login_url()
+            message_text = (
+                "✅ Доступ в CRM одобрен.\n"
+                f"Войдите по ссылке: {login_url}\n\n"
+                "После входа нажмите кнопку открытия бота и подтвердите авторизацию."
+            )
+            await telegram_bot.send_message(chat_id=access_request.telegram_id, text=message_text)
+        except Exception as exc:
+            logger.warning("Failed to send approval notification to operator %s: %s", access_request.telegram_id, exc)
+
+    return operator
+
+
+@router.post("/operator-access-requests/{request_id}/reject", response_model=OperatorAccessRequestResponse)
+async def reject_operator_access_request(
+    request_id: uuid.UUID,
+    payload: OperatorAccessRejectRequest = Body(default_factory=OperatorAccessRejectRequest),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    request_result = await db.execute(select(OperatorAccessRequest).where(OperatorAccessRequest.id == request_id))
+    access_request = request_result.scalar_one_or_none()
+    if not access_request or str(access_request.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+    access_request.status = OperatorAccessRequestStatus.REJECTED.value
+    access_request.processed_by_user_id = current_user.id
+    access_request.processed_at = datetime.now(timezone.utc)
+    access_request.rejection_reason = (payload.reason or "").strip() or "Отклонено администратором."
+
+    await db.commit()
+    await db.refresh(access_request)
+
+    return OperatorAccessRequestResponse(
+        id=access_request.id,
+        org_id=access_request.org_id,
+        telegram_id=access_request.telegram_id,
+        full_name=access_request.full_name,
+        username=access_request.username,
+        status=access_request.status,
+        processed_by_user_id=access_request.processed_by_user_id,
+        processed_by_name=current_user.full_name or current_user.username or current_user.email,
+        processed_at=access_request.processed_at,
+        rejection_reason=access_request.rejection_reason,
+        created_at=access_request.created_at,
+    )
+
+
 @router.get("/operators", response_model=list[OperatorUserResponse])
 async def list_operators(
     current_user: User = Depends(require_role(UserRole.ADMIN)),
@@ -381,6 +717,24 @@ async def create_operator(
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=400, detail=f"Не удалось создать оператора: {exc}")
+
+    request_result = await db.execute(
+        select(OperatorAccessRequest)
+        .where(
+            OperatorAccessRequest.org_id == current_user.org_id,
+            OperatorAccessRequest.telegram_id == data.telegram_id,
+            OperatorAccessRequest.status == OperatorAccessRequestStatus.PENDING.value,
+        )
+        .order_by(OperatorAccessRequest.created_at.desc())
+        .limit(1)
+    )
+    access_request = request_result.scalar_one_or_none()
+    if access_request:
+        access_request.status = OperatorAccessRequestStatus.APPROVED.value
+        access_request.processed_by_user_id = current_user.id
+        access_request.processed_at = datetime.now(timezone.utc)
+        access_request.rejection_reason = None
+        await db.commit()
 
     await db.refresh(operator)
     return operator

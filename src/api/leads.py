@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
@@ -6,8 +6,7 @@ import uuid
 import json
 
 from src.database import get_db
-from src.config import settings
-from src.models import User, UserRole, LeadStatus, LeadChangeLog, LeadCallEvent
+from src.models import User, UserRole, LeadStatus, LeadChangeLog
 from src.schemas.lead import (
     LeadCreate,
     LeadResponse,
@@ -16,42 +15,15 @@ from src.schemas.lead import (
     LeadImportResponse,
     LeadBulkDeleteRequest,
     LeadBulkDeleteResponse,
-    LeadCallStartRequest,
-    LeadCallStartResponse,
-    LeadDialPrepareRequest,
-    LeadDialPrepareResponse,
     LeadChangeLogItem,
     LeadChangeLogResponse,
 )
 from src.services.lead_service import lead_service
 from src.services.lead_import_service import lead_import_service
 from src.services.lead_audit_service import lead_audit_service
-from src.services.novofon_service import novofon_service, NovofonApiError
 from src.dependencies.auth import require_role
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
-
-
-async def _build_business_card_message(
-    db: AsyncSession,
-    current_user: User,
-    operator_phone: str,
-    custom_message: Optional[str] = None,
-) -> str:
-    if custom_message and custom_message.strip():
-        return custom_message.strip()
-
-    org_settings = await novofon_service.get_org_settings(db, current_user.org_id)
-
-    return novofon_service.render_business_card_message(
-        company_name=org_settings.get("organization_name"),
-        manager_name=current_user.full_name,
-        manager_phone=operator_phone or current_user.phone,
-        template=org_settings.get("business_card_template"),
-        default_operator_phone=org_settings.get("default_operator_phone"),
-        site_url=org_settings.get("business_card_site_url"),
-        telegram_username=org_settings.get("business_card_telegram"),
-    )
 
 
 @router.get("/", response_model=LeadListResponse)
@@ -293,227 +265,6 @@ async def update_lead(
     await db.refresh(lead)
     
     return LeadResponse.model_validate(lead)
-
-
-@router.post("/{lead_id}/call", response_model=LeadCallStartResponse)
-async def start_lead_call(
-    lead_id: uuid.UUID,
-    payload: LeadCallStartRequest = Body(default_factory=LeadCallStartRequest),
-    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Start click-to-call via Novofon for a lead phone number.
-    """
-    lead = await lead_service.get_lead_by_id(db, lead_id)
-    if not lead:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lead not found",
-        )
-    if str(lead.org_id) != str(current_user.org_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    if not lead.phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="У лида не указан номер телефона.",
-        )
-    if not novofon_service.is_configured():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Novofon не настроен. Проверьте переменные окружения.",
-        )
-    org_settings = await novofon_service.get_org_settings(db, current_user.org_id)
-
-    operator_phone = (
-        (payload.operator_phone or "").strip()
-        or (current_user.phone or "").strip()
-        or (org_settings.get("default_operator_phone") or "").strip()
-        or (settings.novofon_default_operator_phone or "").strip()
-    )
-    if not operator_phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Не удалось определить номер сотрудника для звонка. Укажите номер в профиле пользователя или NOVOFON_DEFAULT_OPERATOR_PHONE.",
-        )
-
-    business_card_message = await _build_business_card_message(
-        db=db,
-        current_user=current_user,
-        operator_phone=operator_phone,
-        custom_message=payload.business_card_message,
-    )
-
-    event_id = uuid.uuid4()
-    call_event = LeadCallEvent(
-        id=event_id,
-        org_id=current_user.org_id,
-        lead_id=lead.id,
-        initiated_by_user_id=current_user.id,
-        operator_phone=operator_phone,
-        contact_phone=lead.phone,
-        external_id=str(event_id),
-        call_status="starting",
-        business_card_message=business_card_message,
-        business_card_status="pending",
-    )
-    db.add(call_event)
-
-    try:
-        call_result = await novofon_service.start_employee_call(
-            operator_phone=operator_phone,
-            contact_phone=lead.phone,
-            external_id=str(event_id),
-            virtual_phone_number=settings.novofon_virtual_phone_number,
-        )
-        call_event.call_status = "initiated"
-        call_event.call_session_id = call_result.get("call_session_id")
-        call_event.operator_phone = call_result.get("operator_phone") or operator_phone
-        call_event.contact_phone = call_result.get("contact_phone") or lead.phone
-        call_event.novofon_response_json = json.dumps(call_result.get("response") or {}, ensure_ascii=False)
-
-        await lead_audit_service.log_change(
-            db=db,
-            lead=lead,
-            action="call_started",
-            source="novofon",
-            user_id=current_user.id,
-            changes={
-                "call_session_id": {"old": None, "new": call_event.call_session_id},
-                "call_to": {"old": None, "new": call_event.contact_phone},
-            },
-        )
-
-        await db.commit()
-        return LeadCallStartResponse(
-            event_id=call_event.id,
-            call_status=call_event.call_status,
-            call_session_id=call_event.call_session_id,
-            detail="Звонок запущен. После успешного завершения визитка отправится автоматически.",
-        )
-    except NovofonApiError as exc:
-        call_event.call_status = "failed"
-        call_event.business_card_status = "failed"
-        call_event.business_card_error = exc.message
-        call_event.novofon_response_json = json.dumps(
-            {"error": {"message": exc.message, "mnemonic": exc.mnemonic, "code": exc.code}},
-            ensure_ascii=False,
-        )
-        await lead_audit_service.log_change(
-            db=db,
-            lead=lead,
-            action="call_failed",
-            source="novofon",
-            user_id=current_user.id,
-            changes={"call_error": {"old": None, "new": exc.message}},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Novofon error: {exc.message}",
-        )
-    except Exception as exc:
-        call_event.call_status = "failed"
-        call_event.business_card_status = "failed"
-        call_event.business_card_error = str(exc)
-        call_event.novofon_response_json = json.dumps({"error": str(exc)}, ensure_ascii=False)
-        await lead_audit_service.log_change(
-            db=db,
-            lead=lead,
-            action="call_failed",
-            source="novofon",
-            user_id=current_user.id,
-            changes={"call_error": {"old": None, "new": str(exc)}},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Не удалось запустить звонок.",
-        )
-
-
-@router.post("/{lead_id}/dial/prepare", response_model=LeadDialPrepareResponse)
-async def prepare_lead_dial(
-    lead_id: uuid.UUID,
-    payload: LeadDialPrepareRequest = Body(default_factory=LeadDialPrepareRequest),
-    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Register manual dial intent and return dial URL for desktop softphone.
-    """
-    lead = await lead_service.get_lead_by_id(db, lead_id)
-    if not lead:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lead not found",
-        )
-    if str(lead.org_id) != str(current_user.org_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    if not lead.phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="У лида не указан номер телефона.",
-        )
-    org_settings = await novofon_service.get_org_settings(db, current_user.org_id)
-
-    operator_phone = (
-        (payload.operator_phone or "").strip()
-        or (current_user.phone or "").strip()
-        or (org_settings.get("default_operator_phone") or "").strip()
-        or (settings.novofon_default_operator_phone or "").strip()
-    )
-    if not operator_phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Не удалось определить номер сотрудника для звонка. Укажите номер в профиле пользователя или NOVOFON_DEFAULT_OPERATOR_PHONE.",
-        )
-
-    business_card_message = await _build_business_card_message(
-        db=db,
-        current_user=current_user,
-        operator_phone=operator_phone,
-        custom_message=payload.business_card_message,
-    )
-
-    event_id = uuid.uuid4()
-    call_event = LeadCallEvent(
-        id=event_id,
-        org_id=current_user.org_id,
-        lead_id=lead.id,
-        initiated_by_user_id=current_user.id,
-        operator_phone=operator_phone,
-        contact_phone=lead.phone,
-        external_id=str(event_id),
-        call_status="manual_dial_requested",
-        business_card_message=business_card_message,
-        business_card_status="pending",
-    )
-    db.add(call_event)
-    await lead_audit_service.log_change(
-        db=db,
-        lead=lead,
-        action="manual_dial_opened",
-        source="novofon",
-        user_id=current_user.id,
-        changes={"dial_to": {"old": None, "new": lead.phone}},
-    )
-    await db.commit()
-
-    return LeadDialPrepareResponse(
-        event_id=event_id,
-        dial_url=novofon_service.build_dial_url(
-            lead.phone,
-            template=(org_settings.get("dial_url_template") or settings.novofon_dial_url_template),
-        ),
-        detail="Открываем софтфон и номер для набора.",
-    )
 
 
 @router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

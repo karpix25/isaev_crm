@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { leadsAPI } from '@/lib/api'
-import type { Lead, LeadStatus, LeadCallStartPayload, LeadDialPreparePayload } from '@/types'
+import type { Lead, LeadStatus } from '@/types'
 
 type LeadsQueryParams = { status?: LeadStatus; source?: string; search?: string; page?: number; page_size?: number }
 
@@ -107,30 +107,6 @@ export function useImportLeads() {
             leadsAPI.importBulk(file, source),
         onSuccess: () => {
             invalidateLeadQueries(queryClient)
-        },
-    })
-}
-
-export function useStartLeadCall() {
-    const queryClient = useQueryClient()
-
-    return useMutation({
-        mutationFn: ({ id, payload }: { id: string; payload?: LeadCallStartPayload }) => leadsAPI.startCall(id, payload),
-        onSuccess: (_data, variables) => {
-            invalidateLeadQueries(queryClient)
-            queryClient.invalidateQueries({ queryKey: ['lead-history', variables.id] })
-        },
-    })
-}
-
-export function usePrepareLeadDial() {
-    const queryClient = useQueryClient()
-
-    return useMutation({
-        mutationFn: ({ id, payload }: { id: string; payload?: LeadDialPreparePayload }) => leadsAPI.prepareDial(id, payload),
-        onSuccess: (_data, variables) => {
-            invalidateLeadQueries(queryClient)
-            queryClient.invalidateQueries({ queryKey: ['lead-history', variables.id] })
         },
     })
 }

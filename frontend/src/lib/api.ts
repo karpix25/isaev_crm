@@ -7,15 +7,13 @@ import type {
     TokenResponse,
     LeadImportResult,
     LeadBulkDeleteResult,
-    LeadCallStartPayload,
-    LeadCallStartResponse,
-    LeadDialPreparePayload,
-    LeadDialPrepareResponse,
     LeadChangeLogResponse,
     OperatorUser,
     OperatorCreatePayload,
     OperatorUpdatePayload,
-    NovofonSettings,
+    OperatorAccessRequest,
+    OperatorAccessApprovePayload,
+    OperatorAccessRejectPayload,
 } from '@/types'
 
 const api = axios.create({
@@ -72,8 +70,18 @@ export const authAPI = {
     },
     telegramBotLoginCheck: async (
         sessionId: string
-    ): Promise<{ status: 'pending' | 'authorized' | 'expired'; access_token?: string; refresh_token?: string }> => {
-        const response = await api.get<{ status: 'pending' | 'authorized' | 'expired'; access_token?: string; refresh_token?: string }>(
+    ): Promise<{
+        status: 'pending' | 'pending_approval' | 'rejected' | 'authorized' | 'expired'
+        access_token?: string
+        refresh_token?: string
+        detail?: string | null
+    }> => {
+        const response = await api.get<{
+            status: 'pending' | 'pending_approval' | 'rejected' | 'authorized' | 'expired'
+            access_token?: string
+            refresh_token?: string
+            detail?: string | null
+        }>(
             `/auth/telegram/bot/check/${sessionId}`
         )
         return response.data
@@ -92,6 +100,20 @@ export const authAPI = {
     },
     deleteOperator: async (id: string): Promise<void> => {
         await api.delete(`/auth/operators/${id}`)
+    },
+    getOperatorAccessRequests: async (statusFilter: 'pending' | 'approved' | 'rejected' | 'all' = 'pending'): Promise<OperatorAccessRequest[]> => {
+        const response = await api.get<OperatorAccessRequest[]>('/auth/operator-access-requests', {
+            params: { status_filter: statusFilter },
+        })
+        return response.data
+    },
+    approveOperatorAccessRequest: async (id: string, payload?: OperatorAccessApprovePayload): Promise<OperatorUser> => {
+        const response = await api.post<OperatorUser>(`/auth/operator-access-requests/${id}/approve`, payload || {})
+        return response.data
+    },
+    rejectOperatorAccessRequest: async (id: string, payload?: OperatorAccessRejectPayload): Promise<OperatorAccessRequest> => {
+        const response = await api.post<OperatorAccessRequest>(`/auth/operator-access-requests/${id}/reject`, payload || {})
+        return response.data
     },
 }
 
@@ -143,15 +165,6 @@ export const leadsAPI = {
         return response.data
     },
 
-    startCall: async (id: string, payload?: LeadCallStartPayload): Promise<LeadCallStartResponse> => {
-        const response = await api.post<LeadCallStartResponse>(`/leads/${id}/call`, payload || {})
-        return response.data
-    },
-
-    prepareDial: async (id: string, payload?: LeadDialPreparePayload): Promise<LeadDialPrepareResponse> => {
-        const response = await api.post<LeadDialPrepareResponse>(`/leads/${id}/dial/prepare`, payload || {})
-        return response.data
-    },
 }
 
 export const chatAPI = {
@@ -177,17 +190,6 @@ export const chatAPI = {
 export const dashboardAPI = {
     getMetrics: async (): Promise<DashboardMetrics> => {
         const response = await api.get<DashboardMetrics>('/dashboard/metrics')
-        return response.data
-    },
-}
-
-export const aiSettingsAPI = {
-    getNovofonSettings: async (): Promise<NovofonSettings> => {
-        const response = await api.get<NovofonSettings>('/ai/novofon-settings')
-        return response.data
-    },
-    updateNovofonSettings: async (payload: NovofonSettings): Promise<NovofonSettings> => {
-        const response = await api.put<NovofonSettings>('/ai/novofon-settings', payload)
         return response.data
     },
 }
