@@ -567,6 +567,19 @@ function parseExtractedData(raw: Lead['extracted_data']): Record<string, any> {
     }
 }
 
+function buildBusinessCardMessage(lead: Lead): string {
+    const rawName = (lead.full_name || lead.username || '').trim()
+    const firstName = rawName ? rawName.split(/\s+/)[0] : ''
+    const greeting = firstName ? `Здравствуйте, ${firstName}!` : 'Здравствуйте!'
+
+    return `${greeting}
+
+Спасибо за звонок 🙌
+
+Я ваш менеджер по проекту.
+По всем вопросам можно писать прямо в этот Telegram-чат — отвечу максимально быстро.`
+}
+
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
     const [message, setMessage] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -626,6 +639,14 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
             { leadId: lead.id, content: message },
             { onSuccess: () => setMessage('') }
         )
+    }
+
+    const handleSendBusinessCard = () => {
+        if (!lead.telegram_id || sendMessage.isPending) return
+        sendMessage.mutate({
+            leadId: lead.id,
+            content: buildBusinessCardMessage(lead),
+        })
     }
 
     const handleExtractedFieldChange = (key: string, value: string) => {
@@ -1082,6 +1103,16 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 
                         {/* Input Area */}
                         <div className="border-t p-4 bg-card">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                <button
+                                    onClick={handleSendBusinessCard}
+                                    disabled={!lead.telegram_id || sendMessage.isPending}
+                                    className="rounded-lg border bg-background px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                                    title={lead.telegram_id ? 'Отправить шаблон визитки в Telegram' : 'Для отправки нужен Telegram у лида'}
+                                >
+                                    Отправить визитку (TG)
+                                </button>
+                            </div>
                             <div className="flex gap-2 bg-background rounded-xl border p-1 focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-inner">
                                 <input
                                     type="text"
