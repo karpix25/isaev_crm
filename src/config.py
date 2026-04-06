@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     whatsapp_lookup_timeout_seconds: int = 10
     whatsapp_lookup_max_per_minute: int = 20
     whatsapp_lookup_cache_ttl_seconds: int = 3600
+    telegram_business_card_default_template: str = (
+        "Здравствуйте, {{client_name}}!\n\n"
+        "Спасибо за звонок 🙌\n\n"
+        "Я {{operator_name}}, менеджер компании {{company_name}}.\n"
+        "Если будут вопросы — пишите сюда в Telegram."
+    )
     
     @field_validator("telegram_update_mode")
     @classmethod

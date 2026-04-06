@@ -14,6 +14,7 @@ class Organization(BaseModel):
     __tablename__ = "organizations"
     
     name = Column(String(255), nullable=False, index=True)
+    telegram_business_card_template = Column(String(5000), nullable=True)
     # Owner ID (stored as UUID, but no FK constraint to avoid circular dependency)
     # The owner_id references a User, but we don't enforce it at the database level
     owner_id = Column(UUID(as_uuid=True), nullable=True)

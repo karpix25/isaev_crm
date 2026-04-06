@@ -1,20 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 import uuid
 
 from src.database import get_db
-from src.models import User, UserRole
+from src.models import Organization, User, UserRole
 from src.schemas.ai import (
     PromptConfigCreate, PromptConfigResponse,
     KnowledgeItemCreate, KnowledgeItemResponse,
     KnowledgeSearchRequest,
+    TelegramBusinessCardTemplateResponse,
+    TelegramBusinessCardTemplateUpdate,
 )
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
 from src.dependencies.auth import require_role
+from src.config import settings
 
 router = APIRouter(prefix="/ai", tags=["AI Configuration"])
+
+TELEGRAM_BUSINESS_CARD_VARIABLES = [
+    "client_name",
+    "client_full_name",
+    "operator_name",
+    "operator_username",
+    "operator_phone",
+    "company_name",
+]
 
 # --- Prompt Management ---
 
@@ -49,6 +62,55 @@ async def get_active_prompt(
     if not config:
         raise HTTPException(status_code=404, detail="No active AI configuration found")
     return config
+
+
+@router.get("/telegram-business-card-template", response_model=TelegramBusinessCardTemplateResponse)
+async def get_telegram_business_card_template(
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Organization).where(Organization.id == current_user.org_id)
+    )
+    organization = result.scalar_one_or_none()
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    template = (
+        (organization.telegram_business_card_template or "").strip()
+        or (settings.telegram_business_card_default_template or "").strip()
+    )
+    return TelegramBusinessCardTemplateResponse(
+        template=template,
+        variables=TELEGRAM_BUSINESS_CARD_VARIABLES,
+    )
+
+
+@router.put("/telegram-business-card-template", response_model=TelegramBusinessCardTemplateResponse)
+async def update_telegram_business_card_template(
+    data: TelegramBusinessCardTemplateUpdate,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Organization).where(Organization.id == current_user.org_id)
+    )
+    organization = result.scalar_one_or_none()
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    template = (data.template or "").strip()
+    if not template:
+        raise HTTPException(status_code=400, detail="Template cannot be empty")
+
+    organization.telegram_business_card_template = template
+    await db.commit()
+    await db.refresh(organization)
+
+    return TelegramBusinessCardTemplateResponse(
+        template=organization.telegram_business_card_template,
+        variables=TELEGRAM_BUSINESS_CARD_VARIABLES,
+    )
 
 # --- Knowledge Base Management ---
 

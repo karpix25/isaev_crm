@@ -99,7 +99,8 @@ class ChatService:
         # Index CRM messages into knowledge base for long-term memory
         # Only index if it's explicitly from CRM or marked as admin
         is_crm = ai_metadata and ai_metadata.get("source") == "CRM"
-        if is_crm or sender_name == "Admin":
+        skip_knowledge_index = bool(ai_metadata and ai_metadata.get("skip_knowledge_index"))
+        if not skip_knowledge_index and (is_crm or sender_name == "Admin"):
             try:
                 from src.services.knowledge_service import knowledge_service
                 

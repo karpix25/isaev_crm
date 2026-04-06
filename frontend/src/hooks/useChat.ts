@@ -24,6 +24,20 @@ export function useSendMessage() {
     })
 }
 
+export function useSendBusinessCard() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ leadId }: { leadId: string }) =>
+            chatAPI.sendBusinessCard(leadId),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['chat', variables.leadId] })
+            queryClient.invalidateQueries({ queryKey: ['leads'] })
+            queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
+        },
+    })
+}
+
 export function useUnreadCount() {
     return useQuery({
         queryKey: ['unread-count'],

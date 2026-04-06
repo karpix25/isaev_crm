@@ -181,6 +181,11 @@ export const chatAPI = {
         return response.data
     },
 
+    sendBusinessCard: async (leadId: string): Promise<ChatMessage> => {
+        const response = await api.post<ChatMessage>(`/chat/${leadId}/send-business-card`)
+        return response.data
+    },
+
     getUnreadCount: async (): Promise<number> => {
         const response = await api.get<{ unread_count: number }>('/chat/unread')
         return response.data.unread_count

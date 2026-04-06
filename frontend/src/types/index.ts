@@ -160,6 +160,11 @@ export interface OperatorAccessRejectPayload {
     reason?: string
 }
 
+export interface TelegramBusinessCardTemplateSettings {
+    template: string
+    variables: string[]
+}
+
 export interface LeadImportError {
     row: number
     reason: string

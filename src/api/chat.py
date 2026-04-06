@@ -1,17 +1,46 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional
 import uuid
+import re
 
 from src.database import get_db
-from src.models import Lead, MessageDirection, User, UserRole
+from src.models import Lead, MessageDirection, Organization, User, UserRole
 from src.schemas.chat import ChatHistoryResponse, ChatMessageResponse, ChatMessageCreate, SendMessageRequest
 from src.services.chat_service import chat_service
 from src.services.lead_service import lead_service
 from src.dependencies.auth import get_current_user, require_role
 from src.bot import bot
+from src.config import settings
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+TELEGRAM_BUSINESS_CARD_VARIABLES = {
+    "client_name",
+    "client_full_name",
+    "operator_name",
+    "operator_username",
+    "operator_phone",
+    "company_name",
+}
+
+
+def _first_name(full_name: str | None, username: str | None) -> str:
+    candidate = (full_name or "").strip()
+    if candidate:
+        return candidate.split()[0]
+    return (username or "").strip().replace("@", "")
+
+
+def _render_business_card_template(template: str, values: dict[str, str]) -> str:
+    rendered = template
+    for key in TELEGRAM_BUSINESS_CARD_VARIABLES:
+        rendered = rendered.replace(f"{{{{{key}}}}}", (values.get(key) or "").strip())
+
+    rendered = re.sub(r"[ \t]{2,}", " ", rendered)
+    rendered = re.sub(r"\n{3,}", "\n\n", rendered)
+    return rendered.strip()
 
 
 @router.get("/{lead_id}/history", response_model=ChatHistoryResponse)
@@ -118,6 +147,105 @@ async def send_message_to_lead(
     )
 
     
+    return ChatMessageResponse.model_validate(message)
+
+
+@router.post("/{lead_id}/send-business-card", response_model=ChatMessageResponse)
+async def send_business_card_to_lead(
+    lead_id: uuid.UUID,
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Send organization-configured Telegram business card template to lead.
+    This message is excluded from Knowledge Base indexing.
+    """
+    lead = await lead_service.get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lead not found"
+        )
+
+    if str(lead.org_id) != str(current_user.org_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    if not lead.telegram_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot send business card: this lead has no associated Telegram account."
+        )
+
+    org_result = await db.execute(select(Organization).where(Organization.id == current_user.org_id))
+    organization = org_result.scalar_one_or_none()
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    template = (
+        (organization.telegram_business_card_template or "").strip()
+        or (settings.telegram_business_card_default_template or "").strip()
+    )
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Telegram business card template is empty."
+        )
+
+    operator_username = (current_user.username or "").strip().replace("@", "")
+    message_content = _render_business_card_template(
+        template=template,
+        values={
+            "client_name": _first_name(lead.full_name, lead.username),
+            "client_full_name": (lead.full_name or "").strip(),
+            "operator_name": (current_user.full_name or "").strip() or "Ваш менеджер",
+            "operator_username": f"@{operator_username}" if operator_username else "",
+            "operator_phone": (current_user.phone or "").strip(),
+            "company_name": (organization.name or "").strip(),
+        },
+    )
+    if not message_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Rendered business card message is empty. Check template variables."
+        )
+
+    telegram_message_id = None
+    if lead.source != "userbot" and lead.source != "CRM":
+        if not bot:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Telegram bot is not configured. Please add TELEGRAM_BOT_TOKEN to .env"
+            )
+        try:
+            telegram_message = await bot.send_message(
+                chat_id=lead.telegram_id,
+                text=message_content
+            )
+            telegram_message_id = telegram_message.message_id
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to send Telegram message: {str(e)}"
+            )
+
+    message = await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead_id,
+        content=message_content,
+        telegram_message_id=telegram_message_id,
+        sender_name=current_user.full_name or current_user.username or "Оператор",
+        ai_metadata={
+            "source": "CRM",
+            "type": "business_card",
+            "skip_knowledge_index": True,
+        },
+    )
     return ChatMessageResponse.model_validate(message)
 
 

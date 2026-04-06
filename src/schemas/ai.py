@@ -50,3 +50,12 @@ class KnowledgeSearchRequest(BaseModel):
     limit: int = 5
     category: Optional[str] = None
     lead_id: Optional[UUID] = None
+
+
+class TelegramBusinessCardTemplateResponse(BaseModel):
+    template: str
+    variables: List[str] = Field(default_factory=list)
+
+
+class TelegramBusinessCardTemplateUpdate(BaseModel):
+    template: str = Field(min_length=1, max_length=5000)

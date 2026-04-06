@@ -4,6 +4,7 @@ import type {
     PromptConfigResponse, PromptConfigCreate,
     KnowledgeItemResponse, KnowledgeItemCreate,
     KnowledgeSearchRequest,
+    TelegramBusinessCardTemplateSettings,
 } from '@/types'
 
 export function useAI() {
@@ -95,6 +96,24 @@ export function useAI() {
         }
     })
 
+    const telegramBusinessCardTemplate = useQuery({
+        queryKey: ['ai', 'telegram-business-card-template'],
+        queryFn: async () => {
+            const { data } = await api.get<TelegramBusinessCardTemplateSettings>('/ai/telegram-business-card-template')
+            return data
+        },
+    })
+
+    const updateTelegramBusinessCardTemplate = useMutation({
+        mutationFn: async (payload: { template: string }) => {
+            const { data } = await api.put<TelegramBusinessCardTemplateSettings>('/ai/telegram-business-card-template', payload)
+            return data
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai', 'telegram-business-card-template'] })
+        },
+    })
+
     return {
         prompts,
         activePrompt,
@@ -105,5 +124,7 @@ export function useAI() {
         uploadFile,
         deleteKnowledge,
         knowledge,
+        telegramBusinessCardTemplate,
+        updateTelegramBusinessCardTemplate,
     }
 }

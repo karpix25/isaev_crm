@@ -16,6 +16,7 @@ import type {
     OperatorCreatePayload,
     OperatorUpdatePayload,
     OperatorAccessRequest,
+    TelegramBusinessCardTemplateSettings,
 } from '@/types'
 import {
     Database,
@@ -47,6 +48,8 @@ export function AISettings() {
         knowledge,
         uploadFile,
         deleteKnowledge,
+        telegramBusinessCardTemplate,
+        updateTelegramBusinessCardTemplate,
     } = useAI()
     const operators = useOperators()
     const createOperator = useCreateOperator()
@@ -113,15 +116,34 @@ export function AISettings() {
             <div className="grid grid-cols-12 gap-6 flex-1">
                 <div className="col-span-12 lg:col-span-8 space-y-6">
                     {activeTab === 'config' && (
-                        <ConfigurationForm
-                            activePrompt={activePrompt.data}
-                            onSave={(data) => {
-                                createPrompt.mutate(data, {
-                                    onSuccess: () => toast.success('Конфигурация успешно сохранена'),
-                                    onError: () => toast.error('Ошибка сохранения конфигурации')
-                                })
-                            }}
-                        />
+                        <>
+                            <ConfigurationForm
+                                activePrompt={activePrompt.data}
+                                onSave={(data) => {
+                                    createPrompt.mutate(data, {
+                                        onSuccess: () => toast.success('Конфигурация успешно сохранена'),
+                                        onError: () => toast.error('Ошибка сохранения конфигурации')
+                                    })
+                                }}
+                            />
+                            <BusinessCardTemplatePanel
+                                settings={telegramBusinessCardTemplate.data}
+                                isLoading={telegramBusinessCardTemplate.isLoading}
+                                isSaving={updateTelegramBusinessCardTemplate.isPending}
+                                onSave={(template) => {
+                                    updateTelegramBusinessCardTemplate.mutate(
+                                        { template },
+                                        {
+                                            onSuccess: () => toast.success('Шаблон визитки сохранён'),
+                                            onError: (error: any) => {
+                                                const detail = error?.response?.data?.detail || 'Ошибка сохранения шаблона визитки'
+                                                toast.error(String(detail))
+                                            },
+                                        }
+                                    )
+                                }}
+                            />
+                        </>
                     )}
                     {activeTab === 'fields' && (
                         <div className="bg-card border rounded-3xl p-8 shadow-xl">
@@ -365,6 +387,104 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
                     </div>
                 </div>
             </div>
+        </div>
+    )
+}
+
+function BusinessCardTemplatePanel({
+    settings,
+    isLoading,
+    isSaving,
+    onSave,
+}: {
+    settings?: TelegramBusinessCardTemplateSettings
+    isLoading: boolean
+    isSaving: boolean
+    onSave: (template: string) => void
+}) {
+    const [template, setTemplate] = useState('')
+
+    React.useEffect(() => {
+        setTemplate(settings?.template || '')
+    }, [settings?.template])
+
+    const variableHints: { key: string; title: string; description: string }[] = [
+        { key: 'client_name', title: 'Имя клиента', description: 'Первое имя из карточки лида' },
+        { key: 'client_full_name', title: 'ФИО клиента', description: 'Полное имя из карточки лида' },
+        { key: 'operator_name', title: 'Имя оператора', description: 'ФИО сотрудника, который отправляет визитку' },
+        { key: 'operator_username', title: 'Username оператора', description: 'Telegram username оператора с @' },
+        { key: 'operator_phone', title: 'Телефон оператора', description: 'Телефон из профиля оператора' },
+        { key: 'company_name', title: 'Название компании', description: 'Название вашей организации в CRM' },
+    ]
+
+    const insertVariable = (key: string) => {
+        const token = `{{${key}}}`
+        setTemplate((prev) => {
+            if (!prev.trim()) return token
+            return `${prev}${prev.endsWith('\n') ? '' : '\n'}${token}`
+        })
+    }
+
+    const isChanged = template.trim() !== (settings?.template || '').trim()
+
+    return (
+        <div className="bg-card border rounded-3xl p-8 shadow-xl">
+            <div className="flex items-center justify-between gap-4 mb-4">
+                <div>
+                    <h3 className="text-xl font-black flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 text-primary" />
+                        ШАБЛОН ВИЗИТКИ В ЧАТЕ (TELEGRAM)
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                        Используется кнопкой «Отправить визитку (TG)» в карточке лида.
+                    </p>
+                </div>
+                <button
+                    onClick={() => onSave(template.trim())}
+                    disabled={isSaving || isLoading || !template.trim() || !isChanged}
+                    className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-bold flex items-center gap-2 hover:opacity-90 transition-all disabled:opacity-50"
+                >
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Сохранить шаблон
+                </button>
+            </div>
+
+            {isLoading ? (
+                <div className="flex items-center gap-3 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span>Загрузка шаблона...</span>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    <textarea
+                        value={template}
+                        onChange={(e) => setTemplate(e.target.value)}
+                        rows={8}
+                        className="w-full rounded-2xl border bg-background px-4 py-3 text-sm leading-relaxed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder="Введите шаблон сообщения..."
+                    />
+
+                    <div className="rounded-2xl border bg-muted/30 p-4">
+                        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                            Переменные шаблона (нажмите, чтобы добавить)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {variableHints.map((item) => (
+                                <button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => insertVariable(item.key)}
+                                    className="text-left rounded-xl border bg-background px-3 py-2 hover:bg-accent transition-colors"
+                                >
+                                    <div className="text-xs font-semibold">{item.title}</div>
+                                    <div className="text-[11px] text-primary font-mono mt-0.5">{`{{${item.key}}}`}</div>
+                                    <div className="text-[11px] text-muted-foreground mt-1">{item.description}</div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
