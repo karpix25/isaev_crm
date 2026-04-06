@@ -10,6 +10,7 @@ from src.models import Lead, MessageDirection, MessageTransport, Organization, U
 from src.schemas.chat import ChatHistoryResponse, ChatMessageResponse, ChatMessageCreate, SendMessageRequest
 from src.services.chat_service import chat_service
 from src.services.lead_service import lead_service
+from src.services.wazzup_service import WazzupError, wazzup_service
 from src.dependencies.auth import get_current_user, require_role
 from src.bot import bot
 from src.config import settings
@@ -109,40 +110,65 @@ async def send_message_to_lead(
             detail="Access denied"
         )
     
-    if not lead.telegram_id:
-        if message_data.transport == MessageTransport.TELEGRAM:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot send message: This lead has no associated Telegram account."
-            )
-
-    if message_data.transport == MessageTransport.WHATSAPP:
+    if message_data.transport == MessageTransport.TELEGRAM and not lead.telegram_id:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="WhatsApp transport is not connected yet. Select Telegram channel.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot send message: This lead has no associated Telegram account."
+        )
+    if message_data.transport == MessageTransport.WHATSAPP and not lead.phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot send WhatsApp message: this lead has no phone number."
         )
 
-    # Send message via Telegram
     telegram_message_id = None
-    if lead.source != "userbot" and lead.source != "CRM":
-        # Send via Official Bot
-        if not bot:
+    wa_message_id = None
+    if message_data.transport == MessageTransport.WHATSAPP:
+        if not wazzup_service.is_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Telegram bot is not configured. Please add TELEGRAM_BOT_TOKEN to .env"
+                detail="WhatsApp transport is not configured on server.",
             )
-        
         try:
-            telegram_message = await bot.send_message(
-                chat_id=lead.telegram_id,
-                text=message_data.content
+            wa_response = await wazzup_service.send_whatsapp_message(
+                chat_id=lead.phone or "",
+                text=message_data.content,
             )
-            telegram_message_id = telegram_message.message_id
-        except Exception as e:
+            wa_message_id = (
+                wa_response.get("messageId")
+                or wa_response.get("id")
+                or (
+                    wa_response.get("data", {}).get("messageId")
+                    if isinstance(wa_response.get("data"), dict)
+                    else None
+                )
+            )
+        except WazzupError as exc:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to send Telegram message: {str(e)}"
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to send WhatsApp message: {exc}",
             )
+    else:
+        # Send message via Telegram
+        if lead.source != "userbot" and lead.source != "CRM":
+            # Send via Official Bot
+            if not bot:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Telegram bot is not configured. Please add TELEGRAM_BOT_TOKEN to .env"
+                )
+            
+            try:
+                telegram_message = await bot.send_message(
+                    chat_id=lead.telegram_id,
+                    text=message_data.content
+                )
+                telegram_message_id = telegram_message.message_id
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to send Telegram message: {str(e)}"
+                )
 
     # Save message to database (UserBot messages will be picked up by the worker because status defaults to PENDING)
     message = await chat_service.send_outbound_message(
@@ -151,7 +177,10 @@ async def send_message_to_lead(
         content=message_data.content,
         media_url=message_data.media_url,
         telegram_message_id=telegram_message_id,
-        ai_metadata={"source": "CRM"},
+        ai_metadata={
+            "source": "CRM",
+            "wazzup_message_id": str(wa_message_id) if wa_message_id else None,
+        },
         transport=message_data.transport,
     )
 

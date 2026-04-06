@@ -591,6 +591,7 @@ function getDefaultTransport(lead: Lead): MessageTransport {
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
     const [message, setMessage] = useState('')
     const [selectedTransport, setSelectedTransport] = useState<MessageTransport>(getDefaultTransport(lead))
+    const [sendChannelError, setSendChannelError] = useState<string | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const { data: chatData } = useChatHistory(lead.id, 1, selectedTransport)
     const { data: historyData, isLoading: isHistoryLoading } = useLeadHistory(lead.id, 100)
@@ -645,9 +646,16 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 
     const handleSendMessage = () => {
         if (!message.trim() || !isSelectedTransportSendAvailable) return
+        setSendChannelError(null)
         sendMessage.mutate(
             { leadId: lead.id, content: message, transport: selectedTransport },
-            { onSuccess: () => setMessage('') }
+            {
+                onSuccess: () => setMessage(''),
+                onError: (error: any) => {
+                    const detail = error?.response?.data?.detail || 'Ошибка отправки сообщения'
+                    setSendChannelError(String(detail))
+                },
+            }
         )
     }
 
@@ -747,7 +755,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const messengerPresence = getMessengerPresence(lead)
     const availableTransports = getLeadAvailableTransports(lead)
     const isWhatsappTransport = selectedTransport === MessageTransport.WHATSAPP
-    const isSelectedTransportSendAvailable = selectedTransport === MessageTransport.TELEGRAM
+    const isSelectedTransportSendAvailable = true
     const telegramChatUrl = getTelegramChatUrl(lead)
     const whatsappChatUrl = getWhatsAppChatUrl(lead)
 
@@ -1148,7 +1156,12 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                             </div>
                             {isWhatsappTransport && (
                                 <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-                                    Канал WhatsApp выбран. Отправка из CRM будет доступна после подключения WA-интеграции.
+                                    Канал WhatsApp выбран. Сообщение уйдёт через интеграцию Wazzup.
+                                </div>
+                            )}
+                            {sendChannelError && (
+                                <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                                    {sendChannelError}
                                 </div>
                             )}
                             <div className="flex gap-2 bg-background rounded-xl border p-1 focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-inner">

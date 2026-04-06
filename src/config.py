@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     whatsapp_lookup_timeout_seconds: int = 10
     whatsapp_lookup_max_per_minute: int = 20
     whatsapp_lookup_cache_ttl_seconds: int = 3600
+
+    # Wazzup WhatsApp channel
+    wazzup_enabled: bool = False
+    wazzup_api_base_url: str = "https://api.wazzup24.com/v3"
+    wazzup_api_key: str = ""
+    wazzup_default_channel_id: str = ""
+    wazzup_webhook_token: str = ""
+    wazzup_timeout_seconds: int = 15
     telegram_business_card_default_template: str = (
         "Здравствуйте, {{client_name}}!\n\n"
         "Спасибо за звонок 🙌\n\n"
