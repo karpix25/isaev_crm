@@ -340,10 +340,72 @@ async def telegram_bot_login_check(session_id: str, db: AsyncSession = Depends(g
         await db.commit()
         return TelegramBotCheckResponse(status="expired")
 
-    if session.status != "authorized" or not session.telegram_id:
+    if not session.telegram_id:
         return TelegramBotCheckResponse(status="pending")
 
     telegram_id = int(session.telegram_id)
+
+    if session.status == "pending_approval":
+        organization = await _resolve_operator_request_org(db)
+        if not organization:
+            return TelegramBotCheckResponse(
+                status="pending_approval",
+                detail="Заявка на доступ ожидает администратора.",
+            )
+
+        access_request = await _get_latest_operator_access_request(
+            db,
+            org_id=organization.id,
+            telegram_id=telegram_id,
+        )
+
+        if access_request:
+            if access_request.status == OperatorAccessRequestStatus.REJECTED.value:
+                session.status = "rejected"
+                await db.commit()
+                return TelegramBotCheckResponse(
+                    status="rejected",
+                    detail=access_request.rejection_reason or "Заявка на доступ отклонена администратором.",
+                )
+            if access_request.status == OperatorAccessRequestStatus.APPROVED.value:
+                session.status = "authorized"
+                await db.commit()
+            else:
+                return TelegramBotCheckResponse(
+                    status="pending_approval",
+                    detail="Заявка отправлена администратору. Ожидайте одобрения.",
+                )
+        else:
+            return TelegramBotCheckResponse(
+                status="pending_approval",
+                detail="Заявка отправлена администратору. Ожидайте одобрения.",
+            )
+
+    if session.status == "rejected":
+        organization = await _resolve_operator_request_org(db)
+        if organization:
+            access_request = await _get_latest_operator_access_request(
+                db,
+                org_id=organization.id,
+                telegram_id=telegram_id,
+            )
+            if access_request and access_request.status == OperatorAccessRequestStatus.APPROVED.value:
+                session.status = "authorized"
+                await db.commit()
+            elif access_request and access_request.status == OperatorAccessRequestStatus.REJECTED.value:
+                return TelegramBotCheckResponse(
+                    status="rejected",
+                    detail=access_request.rejection_reason or "Заявка на доступ отклонена администратором.",
+                )
+
+        if session.status == "rejected":
+            return TelegramBotCheckResponse(
+                status="rejected",
+                detail="Заявка на доступ отклонена администратором.",
+            )
+
+    if session.status != "authorized":
+        return TelegramBotCheckResponse(status="pending")
     user_result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = user_result.scalar_one_or_none()
 
@@ -375,12 +437,16 @@ async def telegram_bot_login_check(session_id: str, db: AsyncSession = Depends(g
             )
 
             if access_request.status == OperatorAccessRequestStatus.REJECTED.value:
+                session.status = "rejected"
+                await db.commit()
                 return TelegramBotCheckResponse(
                     status="rejected",
                     detail=access_request.rejection_reason or "Заявка на доступ отклонена администратором.",
                 )
 
             if access_request.status != OperatorAccessRequestStatus.APPROVED.value:
+                session.status = "pending_approval"
+                await db.commit()
                 return TelegramBotCheckResponse(
                     status="pending_approval",
                     detail="Заявка отправлена администратору. Ожидайте одобрения.",

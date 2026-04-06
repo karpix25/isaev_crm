@@ -8,9 +8,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 import uuid
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.filters import CommandStart
 from aiogram.filters.command import CommandObject
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot import dp, bot
@@ -25,7 +26,8 @@ from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS,
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
-from src.models import AuthSession
+from src.models import AuthSession, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
+from src.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,168 @@ router = Router()
 
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
+
+AUTH_SESSION_TTL_SECONDS = 5 * 60
+
+
+def _normalize_username(username: str | None) -> str | None:
+    return (username or "").replace("@", "").strip() or None
+
+
+def _build_crm_login_url() -> str:
+    explicit_url = (getattr(settings, "crm_login_url", "") or "").strip()
+    if explicit_url:
+        return explicit_url
+    origins = settings.cors_origins_list
+    if origins:
+        base_url = origins[0].rstrip("/")
+        if base_url.endswith("/login"):
+            return base_url
+        return f"{base_url}/login"
+    return "/login"
+
+
+async def _resolve_operator_request_org(db: AsyncSession) -> Organization | None:
+    result = await db.execute(
+        select(Organization)
+        .order_by(Organization.created_at.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_latest_operator_access_request(
+    db: AsyncSession,
+    org_id,
+    telegram_id: int,
+) -> OperatorAccessRequest | None:
+    result = await db.execute(
+        select(OperatorAccessRequest)
+        .where(
+            OperatorAccessRequest.org_id == org_id,
+            OperatorAccessRequest.telegram_id == telegram_id,
+        )
+        .order_by(OperatorAccessRequest.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_or_create_operator_access_request(
+    db: AsyncSession,
+    org_id,
+    telegram_id: int,
+    full_name: str | None = None,
+    username: str | None = None,
+) -> tuple[OperatorAccessRequest, bool]:
+    request = await _get_latest_operator_access_request(db, org_id=org_id, telegram_id=telegram_id)
+    normalized_username = _normalize_username(username)
+    if request:
+        changed = False
+        next_full_name = (full_name or "").strip() or request.full_name
+        if next_full_name != request.full_name:
+            request.full_name = next_full_name
+            changed = True
+        next_username = normalized_username or request.username
+        if next_username != request.username:
+            request.username = next_username
+            changed = True
+        if changed:
+            await db.flush()
+        return request, False
+
+    request = OperatorAccessRequest(
+        org_id=org_id,
+        telegram_id=telegram_id,
+        full_name=(full_name or "").strip() or None,
+        username=normalized_username,
+        status=OperatorAccessRequestStatus.PENDING.value,
+    )
+    db.add(request)
+    await db.flush()
+    return request, True
+
+
+def _build_operator_access_keyboard(request_id: uuid.UUID) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"operator_access:approve:{request_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"operator_access:reject:{request_id}"),
+            ]
+        ]
+    )
+
+
+async def _notify_admins_about_operator_request(db: AsyncSession, access_request: OperatorAccessRequest) -> None:
+    if not bot:
+        return
+
+    result = await db.execute(
+        select(User)
+        .where(
+            User.org_id == access_request.org_id,
+            User.role == UserRole.ADMIN,
+            User.telegram_id.is_not(None),
+        )
+    )
+    admins = result.scalars().all()
+    if not admins:
+        logger.warning("No Telegram admins found for operator access request %s", access_request.id)
+        return
+
+    applicant_name = (access_request.full_name or "").strip() or "Без имени"
+    applicant_username = f"@{access_request.username}" if access_request.username else "—"
+    message_text = (
+        "🔐 Новая заявка на доступ в CRM\n\n"
+        f"Имя: {applicant_name}\n"
+        f"Username: {applicant_username}\n"
+        f"Telegram ID: {access_request.telegram_id}\n\n"
+        "Выберите действие:"
+    )
+    keyboard = _build_operator_access_keyboard(access_request.id)
+
+    for admin in admins:
+        try:
+            await bot.send_message(
+                chat_id=admin.telegram_id,
+                text=message_text,
+                reply_markup=keyboard,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to send operator request %s notification to admin %s: %s",
+                access_request.id,
+                admin.telegram_id,
+                exc,
+            )
+
+
+async def _notify_operator_access_approved(telegram_id: int) -> None:
+    if not bot:
+        return
+    try:
+        login_url = _build_crm_login_url()
+        message_text = (
+            "✅ Доступ в CRM одобрен администратором.\n"
+            f"Войдите по ссылке: {login_url}"
+        )
+        await bot.send_message(chat_id=telegram_id, text=message_text)
+    except Exception as exc:
+        logger.warning("Failed to send approval notification to operator %s: %s", telegram_id, exc)
+
+
+async def _notify_operator_access_rejected(telegram_id: int, reason: str | None = None) -> None:
+    if not bot:
+        return
+    try:
+        base_reason = (reason or "").strip() or "Заявка отклонена администратором."
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=f"❌ Доступ в CRM не одобрен.\n{base_reason}",
+        )
+    except Exception as exc:
+        logger.warning("Failed to send rejection notification to operator %s: %s", telegram_id, exc)
 
 
 async def _try_authorize_login_payload(message: Message, payload: str | None) -> bool:
@@ -44,6 +208,10 @@ async def _try_authorize_login_payload(message: Message, payload: str | None) ->
     try:
         if not payload or not payload.startswith("login_"):
             return False
+
+        if not message.from_user:
+            await message.answer("Не удалось определить пользователя Telegram. Попробуйте ещё раз.")
+            return True
 
         if message.chat and getattr(message.chat, "type", None) != "private":
             await message.answer("Напишите боту в личные сообщения для входа в CRM.")
@@ -57,8 +225,6 @@ async def _try_authorize_login_payload(message: Message, payload: str | None) ->
             return True
 
         async with AsyncSessionLocal() as db:
-            from sqlalchemy import select
-
             res = await db.execute(select(AuthSession).where(AuthSession.id == session_uuid))
             session = res.scalar_one_or_none()
             if not session or session.status != "pending":
@@ -72,20 +238,72 @@ async def _try_authorize_login_payload(message: Message, payload: str | None) ->
             else:
                 created_at = created_at.astimezone(timezone.utc)
 
-            if now - created_at > timedelta(minutes=5):
+            if now - created_at > timedelta(seconds=AUTH_SESSION_TTL_SECONDS):
                 await db.delete(session)
                 await db.commit()
                 await message.answer("Срок действия сессии истёк. Откройте страницу входа на сайте ещё раз.")
                 return True
 
-            session.status = "authorized"
             session.telegram_id = message.from_user.id
             session.username = message.from_user.username
             session.full_name = message.from_user.full_name
+
+            user_result = await db.execute(select(User).where(User.telegram_id == message.from_user.id))
+            user = user_result.scalar_one_or_none()
+            if user:
+                session.status = "authorized"
+                await db.commit()
+                await message.answer("✅ Вход подтверждён. Вернитесь на сайт — авторизация выполнится автоматически.")
+                return True
+
+            count_result = await db.execute(select(func.count(User.id)))
+            total_users = count_result.scalar() or 0
+            if total_users == 0:
+                session.status = "authorized"
+                await db.commit()
+                await message.answer(
+                    "✅ Вход подтверждён.\n"
+                    "Вы будете первым администратором CRM. Вернитесь на сайт — вход выполнится автоматически."
+                )
+                return True
+
+            organization = await _resolve_operator_request_org(db)
+            if not organization:
+                await db.delete(session)
+                await db.commit()
+                await message.answer("Организация не найдена. Обратитесь к администратору.")
+                return True
+
+            access_request, created = await _get_or_create_operator_access_request(
+                db=db,
+                org_id=organization.id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+            )
+
+            if access_request.status == OperatorAccessRequestStatus.REJECTED.value:
+                session.status = "rejected"
+                await db.commit()
+                await message.answer(
+                    "❌ Заявка на доступ отклонена.\n"
+                    f"{access_request.rejection_reason or 'Обратитесь к администратору CRM.'}"
+                )
+                return True
+
+            if access_request.status == OperatorAccessRequestStatus.APPROVED.value:
+                session.status = "authorized"
+                await db.commit()
+                await message.answer("✅ Доступ уже одобрен. Вернитесь на сайт — вход выполнится автоматически.")
+                return True
+
+            session.status = "pending_approval"
             await db.commit()
 
-        await message.answer("✅ Вход подтверждён. Вернитесь на сайт — авторизация выполнится автоматически.")
-        return True
+            await message.answer("⏳ Заявка отправлена администратору. Ожидайте одобрения.")
+            if created:
+                await _notify_admins_about_operator_request(db, access_request)
+            return True
     except Exception as e:
         logger.error("Failed to handle login_ payload: %s", e, exc_info=True)
         await message.answer("Произошла ошибка при подтверждении входа. Попробуйте ещё раз.")
@@ -182,6 +400,115 @@ async def login_payload_fallback(message: Message):
     handled = await _try_authorize_login_payload(message, payload)
     if handled:
         return
+
+
+@router.callback_query(F.data.regexp(r"^operator_access:(approve|reject):[0-9a-fA-F-]{36}$"))
+async def operator_access_callback(query: CallbackQuery):
+    if not query.data or not query.from_user:
+        await query.answer("Некорректный запрос", show_alert=True)
+        return
+
+    parts = query.data.split(":")
+    if len(parts) != 3:
+        await query.answer("Некорректный формат запроса", show_alert=True)
+        return
+
+    action = parts[1]
+    try:
+        request_id = uuid.UUID(parts[2])
+    except Exception:
+        await query.answer("Некорректный идентификатор заявки", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as db:
+        request_result = await db.execute(select(OperatorAccessRequest).where(OperatorAccessRequest.id == request_id))
+        access_request = request_result.scalar_one_or_none()
+        if not access_request:
+            await query.answer("Заявка не найдена", show_alert=True)
+            return
+
+        admin_result = await db.execute(select(User).where(User.telegram_id == query.from_user.id))
+        admin_user = admin_result.scalar_one_or_none()
+        if (
+            not admin_user
+            or admin_user.role != UserRole.ADMIN
+            or str(admin_user.org_id) != str(access_request.org_id)
+        ):
+            await query.answer("Недостаточно прав", show_alert=True)
+            return
+
+        if access_request.status != OperatorAccessRequestStatus.PENDING.value:
+            await query.answer("Заявка уже обработана")
+            return
+
+        if action == "approve":
+            user_result = await db.execute(select(User).where(User.telegram_id == access_request.telegram_id))
+            operator = user_result.scalar_one_or_none()
+            if operator and str(operator.org_id) != str(access_request.org_id):
+                await query.answer("Пользователь привязан к другой организации", show_alert=True)
+                return
+            if operator and operator.role == UserRole.ADMIN:
+                await query.answer("Нельзя изменять роль ADMIN", show_alert=True)
+                return
+
+            if operator is None:
+                operator = User(
+                    org_id=access_request.org_id,
+                    telegram_id=access_request.telegram_id,
+                    full_name=(access_request.full_name or "").strip() or None,
+                    username=_normalize_username(access_request.username),
+                    role=UserRole.MANAGER,
+                )
+                db.add(operator)
+            else:
+                operator.role = UserRole.MANAGER
+                if not operator.full_name and access_request.full_name:
+                    operator.full_name = (access_request.full_name or "").strip() or None
+                if not operator.username and access_request.username:
+                    operator.username = _normalize_username(access_request.username)
+
+            access_request.status = OperatorAccessRequestStatus.APPROVED.value
+            access_request.processed_by_user_id = admin_user.id
+            access_request.processed_at = datetime.now(timezone.utc)
+            access_request.rejection_reason = None
+            await db.commit()
+
+            await query.answer("Заявка одобрена")
+            if query.message:
+                applicant_name = (access_request.full_name or "").strip() or "Без имени"
+                try:
+                    await query.message.edit_text(
+                        "✅ Заявка одобрена\n\n"
+                        f"Имя: {applicant_name}\n"
+                        f"Telegram ID: {access_request.telegram_id}\n"
+                        f"Одобрил: {admin_user.full_name or admin_user.username or admin_user.email or 'Администратор'}"
+                    )
+                except Exception:
+                    pass
+
+            await _notify_operator_access_approved(access_request.telegram_id)
+            return
+
+        access_request.status = OperatorAccessRequestStatus.REJECTED.value
+        access_request.processed_by_user_id = admin_user.id
+        access_request.processed_at = datetime.now(timezone.utc)
+        access_request.rejection_reason = "Отклонено администратором."
+        await db.commit()
+
+        await query.answer("Заявка отклонена")
+        if query.message:
+            applicant_name = (access_request.full_name or "").strip() or "Без имени"
+            try:
+                await query.message.edit_text(
+                    "❌ Заявка отклонена\n\n"
+                    f"Имя: {applicant_name}\n"
+                    f"Telegram ID: {access_request.telegram_id}\n"
+                    f"Отклонил: {admin_user.full_name or admin_user.username or admin_user.email or 'Администратор'}"
+                )
+            except Exception:
+                pass
+
+        await _notify_operator_access_rejected(access_request.telegram_id, access_request.rejection_reason)
 
 
 @router.message(F.text)
