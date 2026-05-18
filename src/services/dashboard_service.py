@@ -25,8 +25,14 @@ class DashboardService:
         appointments_query = select(func.count(Lead.id)).where(
             Lead.org_id == org_id,
             Lead.status.in_([
+                LeadStatus.MEASUREMENT_BOOKED,
                 LeadStatus.MEASUREMENT,
+                LeadStatus.MEASUREMENT_DONE,
+                LeadStatus.ESTIMATE_PREPARING,
+                LeadStatus.ESTIMATE_REVIEW,
+                LeadStatus.ESTIMATE_SENT,
                 LeadStatus.ESTIMATE,
+                LeadStatus.CONTRACT_NEGOTIATION,
                 LeadStatus.CONTRACT,
                 LeadStatus.WON
             ])
@@ -38,9 +44,14 @@ class DashboardService:
             Lead.org_id == org_id,
             Lead.status.in_([
                 LeadStatus.NEW,
+                LeadStatus.QUIZ_COMPLETED,
+                LeadStatus.MESSENGER_PENDING,
+                LeadStatus.DESIGN_PENDING,
+                LeadStatus.DESIGN_REVIEW,
                 LeadStatus.CONSULTING,
                 LeadStatus.FOLLOW_UP,
-                LeadStatus.QUALIFIED
+                LeadStatus.QUALIFIED,
+                LeadStatus.MEASUREMENT_PENDING
             ])
         )
         in_progress = (await db.execute(in_progress_query)).scalar() or 0
@@ -86,8 +97,15 @@ class DashboardService:
         # 6. Conversion Chart (Qualified+ leads per day) — single GROUP BY query
         qualified_statuses = [
             LeadStatus.QUALIFIED,
+            LeadStatus.MEASUREMENT_PENDING,
+            LeadStatus.MEASUREMENT_BOOKED,
             LeadStatus.MEASUREMENT,
+            LeadStatus.MEASUREMENT_DONE,
+            LeadStatus.ESTIMATE_PREPARING,
+            LeadStatus.ESTIMATE_REVIEW,
+            LeadStatus.ESTIMATE_SENT,
             LeadStatus.ESTIMATE,
+            LeadStatus.CONTRACT_NEGOTIATION,
             LeadStatus.CONTRACT,
             LeadStatus.WON
         ]

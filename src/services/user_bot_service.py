@@ -6,7 +6,7 @@ import re
 import time
 from collections import defaultdict, deque
 from typing import Dict, Optional, List
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 import httpx
 
 from telethon import TelegramClient, events, sessions
@@ -260,11 +260,13 @@ class UserBotService:
             # Use a separate background task to avoid blocking the client
             asyncio.create_task(self._process_message(
                 org_id, sender_id, sender, content, 
-                is_voice=is_voice, image_base64=image_base64, photo_caption=photo_caption
+                is_voice=is_voice, image_base64=image_base64, photo_caption=photo_caption,
+                telegram_message_id=getattr(event.message, "id", None),
             ))
 
     async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str, 
-                               is_voice: bool = False, image_base64: str = None, photo_caption: str = ""):
+                               is_voice: bool = False, image_base64: str = None, photo_caption: str = "",
+                               telegram_message_id: int | None = None):
         """Logic to generate AI response and save to CRM with RAG"""
         import json
         import logging
@@ -282,22 +284,33 @@ class UserBotService:
                 last_name = getattr(sender, 'last_name', '') or ""
                 full_name = f"{first_name} {last_name}".strip() or "Unknown"
                 username = getattr(sender, 'username', None)
-                
-                lead = await lead_service.create_or_get_lead(
+
+                from src.services.quiz_service import quiz_service
+                lead = await quiz_service.link_telegram_message(
+                    db=db,
+                    org_id=org_id,
+                    text=content,
+                    telegram_id=tg_user_id,
+                    full_name=full_name,
+                    username=username,
+                )
+                if not lead:
+                    lead = await lead_service.create_or_get_lead(
                     db=db, 
                     org_id=org_id, 
                     telegram_id=tg_user_id,
                     full_name=full_name,
                     username=username,
                     source="userbot"
-                )
+                    )
 
                 # 2. Save incoming message
                 await chat_service.save_incoming_message(
                     db, 
                     lead_id=lead.id, 
                     content=content,
-                    telegram_message_id=None,
+                    telegram_message_id=telegram_message_id,
+                    sender_name=full_name,
                     ai_metadata={"is_voice": True} if is_voice else None
                 )
                 
@@ -346,6 +359,18 @@ class UserBotService:
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
                 identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
                 system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
+                quiz_url = self.build_personal_quiz_url(
+                    lead_id=str(lead.id),
+                    telegram_id=tg_user_id,
+                    username=username,
+                )
+                from src.services.lead_stage_context_service import lead_stage_context_service
+                stage_context = await lead_stage_context_service.build_context(
+                    db=db,
+                    lead=lead,
+                    personal_quiz_url=quiz_url,
+                )
+                system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}"
                 
                 client = self.clients.get(org_id)
                 typing_context = client.action(int(tg_user_id), 'typing') if client else None
@@ -355,7 +380,7 @@ class UserBotService:
 
                 try:
                     # 5. RAG: Search knowledge base for relevant context
-                    ai_metadata = {}
+                    ai_metadata = {"stage_context": stage_context.metadata}
                     try:
                         relevant_docs = await knowledge_service.search_knowledge(
                             db=db,
@@ -586,6 +611,25 @@ class UserBotService:
                     await client(functions.contacts.DeleteContactsRequest(id=[imported_user]))
                 except Exception as cleanup_err:
                     logger.warning(f"[USERBOT] Failed to cleanup imported contact for {normalized_phone}: {cleanup_err}")
+
+    def build_personal_quiz_url(
+        self,
+        lead_id: str,
+        telegram_id: int | None = None,
+        username: str | None = None,
+    ) -> str:
+        base_url = (settings.public_quiz_url or "").strip() or "http://localhost:5173/quiz-remont.html"
+        params = {
+            "source": "telegram_direct",
+            "messenger": "telegram",
+            "lead_id": lead_id,
+        }
+        if telegram_id:
+            params["tg_id"] = str(telegram_id)
+        if username:
+            params["tg_username"] = username.lstrip("@")
+        separator = "&" if "?" in base_url else "?"
+        return f"{base_url}{separator}{urlencode(params)}"
 
     async def resolve_whatsapp(self, org_id: uuid.UUID, phone: str) -> Optional[dict]:
         """

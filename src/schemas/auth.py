@@ -11,6 +11,11 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RefreshTokenRequest(BaseModel):
+    """Refresh an access token using a refresh token"""
+    refresh_token: str
+
+
 class LoginRequest(BaseModel):
     """Admin/Manager login request"""
     email: EmailStr

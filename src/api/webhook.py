@@ -3,9 +3,11 @@ from aiogram.types import Update
 import logging
 import asyncio
 import json
+import hmac
 from sqlalchemy import and_, desc, select
 
 from src.bot import bot, dp
+from src.config import settings
 from src.database import AsyncSessionLocal
 from src.models import ChatMessage, Lead, LeadStatus, MessageDirection, MessageTransport
 from src.services.chat_service import chat_service
@@ -84,12 +86,21 @@ async def _process_wazzup_payload(payload) -> None:
 
             org_id = await get_default_org_id(db)
             for item in incoming_messages:
-                lead = await _get_or_create_whatsapp_lead(
+                from src.services.quiz_service import quiz_service
+                lead = await quiz_service.link_whatsapp_message(
                     db=db,
                     org_id=org_id,
+                    text=item.text,
                     chat_id=item.chat_id,
                     sender_name=item.sender_name,
                 )
+                if not lead:
+                    lead = await _get_or_create_whatsapp_lead(
+                        db=db,
+                        org_id=org_id,
+                        chat_id=item.chat_id,
+                        sender_name=item.sender_name,
+                    )
 
                 if await _wazzup_message_exists(db, lead.id, item.message_id):
                     continue
@@ -117,6 +128,12 @@ async def telegram_webhook(request: Request):
     """
     if not bot:
         raise HTTPException(status_code=500, detail="Bot not initialized")
+
+    expected_secret = (settings.telegram_webhook_secret_token or "").strip()
+    if expected_secret:
+        provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not hmac.compare_digest(provided_secret, expected_secret):
+            raise HTTPException(status_code=401, detail="Invalid Telegram webhook secret")
         
     try:
         data = await request.json()

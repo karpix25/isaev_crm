@@ -106,29 +106,20 @@ class ChatService:
         skip_knowledge_index = bool(ai_metadata and ai_metadata.get("skip_knowledge_index"))
         if not skip_knowledge_index and (is_crm or sender_name == "Admin"):
             try:
-                from src.services.knowledge_service import knowledge_service
+                from src.services.background_job_service import background_job_service
                 
                 # We need org_id for knowledge items. Fetch it if not provided.
                 lead_result = await db.execute(select(Lead.org_id).where(Lead.id == lead_id))
                 org_id = lead_result.scalar_one_or_none()
                 
                 if org_id:
-                    # Index in background (non-blocking for the API response)
-                    import asyncio
-                    from src.database import AsyncSessionLocal
-                    
-                    async def index_task(oid, lid, cont):
-                        async with AsyncSessionLocal() as index_db:
-                            await knowledge_service.add_knowledge_item(
-                                db=index_db,
-                                org_id=oid,
-                                lead_id=lid,
-                                content=cont,
-                                category="chat_history",
-                                title=f"CRM Message to lead {lid}"
-                            )
-                    
-                    asyncio.create_task(index_task(org_id, lead_id, content))
+                    await background_job_service.enqueue_knowledge_index(
+                        db=db,
+                        org_id=org_id,
+                        lead_id=lead_id,
+                        content=content,
+                        title=f"CRM Message to lead {lead_id}",
+                    )
             except Exception as e:
                 # Log but don't fail the message send
                 import logging

@@ -20,6 +20,8 @@ from src.models.telegram_user_bot import TelegramUserBot
 from src.models.auth_session import AuthSession
 from src.models.lead_change_log import LeadChangeLog
 from src.models.operator_access_request import OperatorAccessRequest, OperatorAccessRequestStatus
+from src.models.background_job import BackgroundJob
+from src.models.funnel import FunnelEvent, FunnelSession
 
 __all__ = [
     "BaseModel",
@@ -49,4 +51,7 @@ __all__ = [
     "LeadChangeLog",
     "OperatorAccessRequest",
     "OperatorAccessRequestStatus",
+    "BackgroundJob",
+    "FunnelEvent",
+    "FunnelSession",
 ]

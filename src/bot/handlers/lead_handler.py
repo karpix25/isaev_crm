@@ -374,14 +374,107 @@ async def _handle_regular_start(message: Message) -> None:
         )
 
 
+async def _handle_quiz_start(message: Message, session_token: str) -> None:
+    """
+    Handle quiz deep-link /start qz_... and connect Telegram user to CRM lead.
+    """
+    async with AsyncSessionLocal() as db:
+        org_id = await get_default_org_id(db)
+        avatar_url = await download_user_avatar(bot, message.from_user.id)
+
+        from src.services.quiz_service import quiz_service
+        lead = await quiz_service.link_telegram_message(
+            db=db,
+            org_id=org_id,
+            text=session_token,
+            telegram_id=message.from_user.id,
+            full_name=message.from_user.full_name,
+            username=message.from_user.username,
+        )
+        if not lead:
+            lead = await lead_service.create_or_get_lead(
+                db=db,
+                org_id=org_id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+                avatar_url=avatar_url,
+                source="telegram_bot",
+            )
+        elif avatar_url and not lead.avatar_url:
+            lead.avatar_url = avatar_url
+            await db.flush()
+
+        try:
+            from src.services.analytics_service import analytics_service
+            await analytics_service.record_event(
+                db=db,
+                session_token=session_token,
+                event_type="telegram_bot_started",
+                step_id="messenger",
+                event_data={"lead_id": str(lead.id), "telegram_id": message.from_user.id},
+            )
+        except Exception as exc:
+            logger.warning("Failed to record telegram_bot_started for %s: %s", session_token, exc)
+
+        await chat_service.save_incoming_message(
+            db=db,
+            lead_id=lead.id,
+            content=message.text or f"/start {session_token}",
+            telegram_message_id=message.message_id,
+            sender_name=message.from_user.full_name,
+            ai_metadata={"source": "quiz_deep_link", "session_token": session_token},
+        )
+
+        from src.services.lead_stage_context_service import lead_stage_context_service
+        stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+        next_action = stage_context.metadata.get("next_action")
+        if next_action == "awaiting_design_project":
+            welcome_text = (
+                "Здравствуйте! Вижу вашу заявку по ремонту. "
+                "Пришлите сюда дизайн-проект файлом, и мы передадим его на расчет сметы."
+            )
+        elif next_action == "awaiting_measurement_slot":
+            welcome_text = (
+                "Здравствуйте! Вижу вашу заявку по ремонту. "
+                "Для точного расчета лучше записаться на замер. Напишите, какой день вам удобен?"
+            )
+        elif next_action == "confirm_measurement":
+            welcome_text = (
+                "Здравствуйте! Вижу выбранный слот замера. "
+                "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+            )
+        else:
+            welcome_text = (
+                "Здравствуйте! Вижу вашу заявку по квизу. "
+                "Напишите сюда любой вопрос, и мы продолжим расчет по вашим данным."
+            )
+
+        if not is_business_hours():
+            welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время."
+
+        sent_message = await message.answer(welcome_text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=welcome_text,
+            telegram_message_id=sent_message.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "quiz_deep_link", "stage_context": stage_context.metadata},
+        )
+
+
 @router.message(CommandStart(deep_link=True))
 async def cmd_start_deep_link(message: Message, command: CommandObject):
     """
-    Handle deep-link /start payloads like /start login_<session_id>.
+    Handle deep-link /start payloads like /start login_<session_id> or /start qz_...
     """
     payload = (command.args or "").strip()
     handled = await _try_authorize_login_payload(message, payload)
     if handled:
+        return
+    if re.fullmatch(r"qz_[A-Za-z0-9_-]{12,}", payload):
+        await _handle_quiz_start(message, payload)
         return
     await _handle_regular_start(message)
 

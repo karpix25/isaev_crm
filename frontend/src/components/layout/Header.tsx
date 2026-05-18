@@ -11,6 +11,7 @@ export function Header({ title }: HeaderProps) {
 
     const handleLogout = () => {
         localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         navigate('/login')
     }
 

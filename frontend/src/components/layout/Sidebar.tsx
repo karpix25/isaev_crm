@@ -2,6 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard,
+    BarChart3,
     Users,
     MessageSquare,
     Building2,
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils'
 
 const navigation = [
     { name: 'Дашборд', href: '/', icon: LayoutDashboard },
+    { name: 'Аналитика квиза', href: '/analytics', icon: BarChart3 },
     { name: 'Воронка продаж', href: '/leads', icon: Users },
     { name: 'Объекты', href: '/projects', icon: HardHat },
     { name: 'Чат', href: '/chat', icon: MessageSquare },

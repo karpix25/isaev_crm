@@ -146,10 +146,50 @@ interface ActionItemProps {
 
 function ActionItem({ name, message, status, time, avatar }: ActionItemProps) {
     const statusColors: Record<string, string> = {
-        [LeadStatus.NEW]: 'bg-blue-500',
+        [LeadStatus.NEW]: 'bg-sky-500',
+        [LeadStatus.QUIZ_COMPLETED]: 'bg-cyan-500',
+        [LeadStatus.MESSENGER_PENDING]: 'bg-amber-500',
+        [LeadStatus.DESIGN_PENDING]: 'bg-orange-500',
+        [LeadStatus.DESIGN_REVIEW]: 'bg-lime-600',
         [LeadStatus.CONSULTING]: 'bg-yellow-500',
-        [LeadStatus.QUALIFIED]: 'bg-green-500',
-        [LeadStatus.FOLLOW_UP]: 'bg-purple-500',
+        [LeadStatus.QUALIFIED]: 'bg-emerald-500',
+        [LeadStatus.MEASUREMENT_PENDING]: 'bg-violet-500',
+        [LeadStatus.MEASUREMENT_BOOKED]: 'bg-purple-500',
+        [LeadStatus.MEASUREMENT]: 'bg-fuchsia-500',
+        [LeadStatus.MEASUREMENT_DONE]: 'bg-rose-500',
+        [LeadStatus.ESTIMATE_PREPARING]: 'bg-pink-500',
+        [LeadStatus.ESTIMATE_REVIEW]: 'bg-orange-600',
+        [LeadStatus.ESTIMATE_SENT]: 'bg-indigo-500',
+        [LeadStatus.ESTIMATE]: 'bg-blue-500',
+        [LeadStatus.FOLLOW_UP]: 'bg-stone-500',
+        [LeadStatus.CONTRACT_NEGOTIATION]: 'bg-teal-600',
+        [LeadStatus.CONTRACT]: 'bg-teal-700',
+        [LeadStatus.WON]: 'bg-green-600',
+        [LeadStatus.LOST]: 'bg-red-500',
+        [LeadStatus.SPAM]: 'bg-slate-800',
+    }
+    const statusLabels: Record<string, string> = {
+        [LeadStatus.NEW]: 'Новый лид',
+        [LeadStatus.QUIZ_COMPLETED]: 'Квиз пройден',
+        [LeadStatus.MESSENGER_PENDING]: 'Ждем сообщение',
+        [LeadStatus.DESIGN_PENDING]: 'Ждем проект',
+        [LeadStatus.DESIGN_REVIEW]: 'Проект на разборе',
+        [LeadStatus.CONSULTING]: 'Консультация',
+        [LeadStatus.QUALIFIED]: 'Квалифицирован',
+        [LeadStatus.MEASUREMENT_PENDING]: 'Ждем запись',
+        [LeadStatus.MEASUREMENT_BOOKED]: 'Замер назначен',
+        [LeadStatus.MEASUREMENT]: 'Замер',
+        [LeadStatus.MEASUREMENT_DONE]: 'Замер проведен',
+        [LeadStatus.ESTIMATE_PREPARING]: 'Смета готовится',
+        [LeadStatus.ESTIMATE_REVIEW]: 'Смета на проверке',
+        [LeadStatus.ESTIMATE_SENT]: 'Смета отправлена',
+        [LeadStatus.ESTIMATE]: 'Смета',
+        [LeadStatus.FOLLOW_UP]: 'Дожим',
+        [LeadStatus.CONTRACT_NEGOTIATION]: 'Договор',
+        [LeadStatus.CONTRACT]: 'Договор подписан',
+        [LeadStatus.WON]: 'В работе',
+        [LeadStatus.LOST]: 'Отказ',
+        [LeadStatus.SPAM]: 'Спам',
     }
 
     return (
@@ -165,7 +205,7 @@ function ActionItem({ name, message, status, time, avatar }: ActionItemProps) {
                 <p className="text-sm text-muted-foreground truncate">{message}</p>
                 <div className="mt-1">
                     <span className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold text-white ${statusColors[status] || 'bg-slate-500'}`}>
-                        {status}
+                        {statusLabels[status] || status}
                     </span>
                 </div>
             </div>

@@ -313,7 +313,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
     }, [activePrompt])
 
     const promptHelpers = [
-        { label: 'СТАТУСЫ', tags: ['NEW', 'CONSULTING', 'QUALIFIED', 'MEASUREMENT', 'LOST'], color: 'text-blue-500' },
+        { label: 'СТАТУСЫ', tags: ['NEW', 'DESIGN_PENDING', 'MEASUREMENT_BOOKED', 'ESTIMATE_REVIEW', 'ESTIMATE_SENT', 'LOST'], color: 'text-blue-500' },
         { label: 'ПОЛЯ ДАННЫХ', tags: ['message', 'client_name', 'phone', 'property_type', 'area_sqm', 'address', 'renovation_type', 'budget', 'deadline', 'is_hot_lead'], color: 'text-purple-500' }
     ]
 

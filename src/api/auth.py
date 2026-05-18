@@ -17,7 +17,7 @@ from src.models import (
     OperatorAccessRequestStatus,
 )
 from src.models.user import UserRole
-from src.schemas.auth import TokenResponse
+from src.schemas.auth import RefreshTokenRequest, TokenResponse
 from src.services.auth import auth_service
 from src.bot import bot as telegram_bot
 from src.config import settings
@@ -234,6 +234,14 @@ def _telegram_mode() -> str:
     return mode
 
 
+def _telegram_webhook_params(url: str) -> dict:
+    params = {"url": url, "drop_pending_updates": False}
+    secret_token = (settings.telegram_webhook_secret_token or "").strip()
+    if secret_token:
+        params["secret_token"] = secret_token
+    return params
+
+
 async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
     """
     Ensure Telegram webhook is configured to TELEGRAM_WEBHOOK_URL.
@@ -266,7 +274,7 @@ async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
             current_url,
             configured_url,
         )
-        await telegram_bot.set_webhook(configured_url, drop_pending_updates=False)
+        await telegram_bot.set_webhook(**_telegram_webhook_params(configured_url))
         info = await telegram_bot.get_webhook_info()
         current_url = getattr(info, "url", "") or ""
 
@@ -575,6 +583,49 @@ async def telegram_auth(
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    data: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    payload = auth_service.decode_token(data.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    access_token = auth_service.create_access_token(data={"sub": str(user.id)})
+    rotated_refresh_token = auth_service.create_refresh_token(data={"sub": str(user.id)})
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=rotated_refresh_token,
     )
 
 

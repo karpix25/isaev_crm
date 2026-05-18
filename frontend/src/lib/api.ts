@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import axiosRetry from 'axios-retry'
 import type {
     Lead,
@@ -15,6 +15,8 @@ import type {
     OperatorAccessApprovePayload,
     OperatorAccessRejectPayload,
     MessageTransport,
+    AnalyticsSummary,
+    AnalyticsSummaryParams,
 } from '@/types'
 
 const api = axios.create({
@@ -23,6 +25,37 @@ const api = axios.create({
         'Content-Type': 'application/json',
     },
 })
+
+let refreshPromise: Promise<TokenResponse> | null = null
+
+function clearStoredAuth() {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+}
+
+async function refreshStoredToken(): Promise<TokenResponse> {
+    const refreshToken = localStorage.getItem('refresh_token')
+    if (!refreshToken) throw new Error('No refresh token')
+
+    if (!refreshPromise) {
+        refreshPromise = axios
+            .post<TokenResponse>(
+                `${api.defaults.baseURL}/auth/refresh`,
+                { refresh_token: refreshToken },
+                { headers: { 'Content-Type': 'application/json' } }
+            )
+            .then((response) => {
+                localStorage.setItem('access_token', response.data.access_token)
+                localStorage.setItem('refresh_token', response.data.refresh_token)
+                return response.data
+            })
+            .finally(() => {
+                refreshPromise = null
+            })
+    }
+
+    return refreshPromise
+}
 
 // Configure robust automatic retries for network and 5xx errors
 axiosRetry(api, {
@@ -47,9 +80,21 @@ api.interceptors.request.use((config) => {
 // Response interceptor for error handling
 api.interceptors.response.use(
     (response) => response,
-    (error) => {
-        if (error.response?.status === 401) {
-            localStorage.removeItem('access_token')
+    async (error: AxiosError) => {
+        const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
+
+        if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+            originalRequest._retry = true
+            try {
+                const tokens = await refreshStoredToken()
+                originalRequest.headers.Authorization = `Bearer ${tokens.access_token}`
+                return api(originalRequest)
+            } catch {
+                clearStoredAuth()
+                window.location.href = '/login'
+            }
+        } else if (error.response?.status === 401) {
+            clearStoredAuth()
             window.location.href = '/login'
         }
         return Promise.reject(error)
@@ -85,6 +130,10 @@ export const authAPI = {
         }>(
             `/auth/telegram/bot/check/${sessionId}`
         )
+        return response.data
+    },
+    refresh: async (refreshToken: string): Promise<TokenResponse> => {
+        const response = await api.post<TokenResponse>('/auth/refresh', { refresh_token: refreshToken })
         return response.data
     },
     getOperators: async (): Promise<OperatorUser[]> => {
@@ -196,6 +245,13 @@ export const chatAPI = {
 export const dashboardAPI = {
     getMetrics: async (): Promise<DashboardMetrics> => {
         const response = await api.get<DashboardMetrics>('/dashboard/metrics')
+        return response.data
+    },
+}
+
+export const analyticsAPI = {
+    getSummary: async (params?: AnalyticsSummaryParams): Promise<AnalyticsSummary> => {
+        const response = await api.get<AnalyticsSummary>('/analytics/summary', { params })
         return response.data
     },
 }

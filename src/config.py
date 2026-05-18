@@ -101,7 +101,9 @@ class Settings(BaseSettings):
     
     # Telegram
     telegram_bot_token: str
+    telegram_bot_username: str = ""
     telegram_webhook_url: str = ""
+    telegram_webhook_secret_token: str = ""
     telegram_update_mode: str = "polling"  # polling | webhook | auto
     manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
     telegram_phone_lookup_max_per_minute: int = 20
@@ -114,6 +116,23 @@ class Settings(BaseSettings):
     whatsapp_lookup_timeout_seconds: int = 10
     whatsapp_lookup_max_per_minute: int = 20
     whatsapp_lookup_cache_ttl_seconds: int = 3600
+    userbot_pending_message_batch_size: int = 100
+
+    # Cal.com / Cal Pro measurement scheduling
+    cal_pro_enabled: bool = False
+    cal_pro_api_base_url: str = "https://api.cal.com"
+    cal_pro_api_key: str = ""
+    cal_pro_slots_api_version: str = "2024-09-04"
+    cal_pro_bookings_api_version: str = "2026-02-25"
+    cal_pro_event_type_id: Optional[int] = None
+    cal_pro_event_type_slug: str = ""
+    cal_pro_username: str = ""
+    cal_pro_team_slug: str = ""
+    cal_pro_organization_slug: str = ""
+    cal_pro_time_zone: str = "Europe/Moscow"
+    cal_pro_duration_minutes: int = 60
+    cal_pro_slot_days_ahead: int = 14
+    cal_pro_max_slots: int = 12
 
     # Wazzup WhatsApp channel
     wazzup_enabled: bool = False
@@ -161,6 +180,17 @@ class Settings(BaseSettings):
     app_debug: bool = False
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    public_quiz_url: str = "http://localhost:5173/quiz-remont.html"
+    auto_create_tables: bool = False
+    background_job_batch_size: int = 25
+    background_job_poll_interval_seconds: int = 5
+    background_job_lock_timeout_seconds: int = 900
+
+    # PostHog Cloud analytics
+    posthog_enabled: bool = False
+    posthog_host: str = "https://us.i.posthog.com"
+    posthog_project_api_key: str = ""
+    posthog_timeout_seconds: int = 3
     
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:5173"

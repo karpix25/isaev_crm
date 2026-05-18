@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Layout } from './components/layout/Layout'
 import { Dashboard } from './pages/Dashboard'
+import { Analytics } from './pages/Analytics'
 import { Leads } from './pages/Leads'
 import { Chat } from './pages/Chat'
 import { Projects } from './pages/Projects'
@@ -21,7 +22,8 @@ const queryClient = new QueryClient({
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token')
-  return token ? <>{children}</> : <Navigate to="/login" replace />
+  const refreshToken = localStorage.getItem('refresh_token')
+  return token || refreshToken ? <>{children}</> : <Navigate to="/login" replace />
 }
 
 import { Toaster } from 'sonner'
@@ -36,6 +38,10 @@ function App() {
 
           <Route path="/" element={<PrivateRoute><Layout title="Бизнес-аналитика" /></PrivateRoute>}>
             <Route index element={<Dashboard />} />
+          </Route>
+
+          <Route path="/analytics" element={<PrivateRoute><Layout title="Аналитика квиза" /></PrivateRoute>}>
+            <Route index element={<Analytics />} />
           </Route>
 
           <Route path="/leads" element={<PrivateRoute><Layout title="Управление лидами" /></PrivateRoute>}>

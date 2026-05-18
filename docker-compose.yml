@@ -10,6 +10,11 @@ services:
       POSTGRES_DB: crm
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d crm" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - default
 
@@ -18,6 +23,11 @@ services:
     restart: always
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - default
 
@@ -30,14 +40,31 @@ services:
     networks:
       - default
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health/ready" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  worker:
+    build: .
+    command: python run_worker.py
+    restart: always
+    env_file: .env
+    depends_on:
+      app:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - default
 
   userbot:
     build: .
@@ -45,9 +72,12 @@ services:
     restart: always
     env_file: .env
     depends_on:
-      - app
-      - db
-      - redis
+      app:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - default
 
@@ -58,7 +88,8 @@ services:
     expose:
       - "80"
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     networks:
       - default
 

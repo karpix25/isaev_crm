@@ -6,14 +6,15 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import AsyncSessionLocal
 from src.models import Lead, LeadStatus, ChatMessage, MessageDirection
 from src.services.chat_service import chat_service
+from src.services.lead_stage_context_service import lead_stage_context_service
 from src.services.openrouter_service import openrouter_service
-from src.services.prompts import FOLLOWUP_PROMPT
+from src.services.prompts import FOLLOWUP_PROMPT, STAGE_FOLLOWUP_PROMPT
 from src.services.business_hours import is_business_hours, get_business_now
 
 logger = logging.getLogger(__name__)
@@ -26,10 +27,77 @@ FOLLOWUP_THRESHOLDS = {
 }
 
 MAX_FOLLOWUPS = 3
+MAX_FOLLOWUP_AGE_DAYS = 21
+AUTO_COOL_AFTER_FINAL_FOLLOWUP = True
 
 # ONLY these statuses should receive follow-ups
 # If the lead progressed further (QUALIFIED, MEASUREMENT, etc.) — the deal is moving, no need to nag
-FOLLOWUP_STATUSES = {LeadStatus.NEW, LeadStatus.CONSULTING, LeadStatus.FOLLOW_UP}
+FOLLOWUP_STATUSES = {
+    LeadStatus.NEW,
+    LeadStatus.QUIZ_COMPLETED,
+    LeadStatus.MESSENGER_PENDING,
+    LeadStatus.DESIGN_PENDING,
+    LeadStatus.DESIGN_REVIEW,
+    LeadStatus.CONSULTING,
+    LeadStatus.QUALIFIED,
+    LeadStatus.MEASUREMENT_PENDING,
+    LeadStatus.MEASUREMENT_BOOKED,
+    LeadStatus.MEASUREMENT,
+    LeadStatus.MEASUREMENT_DONE,
+    LeadStatus.ESTIMATE_PREPARING,
+    LeadStatus.ESTIMATE_REVIEW,
+    LeadStatus.ESTIMATE_SENT,
+    LeadStatus.ESTIMATE,
+    LeadStatus.FOLLOW_UP,
+    LeadStatus.CONTRACT_NEGOTIATION,
+    LeadStatus.CONTRACT,
+}
+
+STAGE_FOLLOWUP_THRESHOLDS = {
+    "awaiting_design_project": {0: 12, 1: 48, 2: 96},
+    "awaiting_measurement_slot": {0: 12, 1: 48, 2: 96},
+    "confirm_measurement": {0: 6, 1: 24, 2: 72},
+    "estimate_internal_review": {0: 24, 1: 72, 2: 168},
+    "needs_estimate_review": {0: 24, 1: 72, 2: 168},
+    "contract_closing": {0: 24, 1: 72, 2: 168},
+    "direct_chat_qualification": {0: 12, 1: 48, 2: 96},
+    "general_consultation": {0: 24, 1: 72, 2: 168},
+}
+
+STAGE_SCENARIOS = {
+    "awaiting_design_project": (
+        "Ждем дизайн-проект",
+        "Мягко напомнить прислать файл дизайн-проекта, чтобы можно было точнее считать смету.",
+    ),
+    "awaiting_measurement_slot": (
+        "Ждем выбор слота замера",
+        "Подтолкнуть к записи на бесплатный замер без давления.",
+    ),
+    "confirm_measurement": (
+        "Ждем подтверждение замера",
+        "Аккуратно подтвердить слот и попросить адрес, если он нужен для выезда.",
+    ),
+    "estimate_internal_review": (
+        "Смета на проверке",
+        "Если клиент сам написал — спокойно объяснить, что расчет проверяет сметчик, чтобы не отправить сырые цифры.",
+    ),
+    "needs_estimate_review": (
+        "Ждем реакцию на смету",
+        "Вернуть клиента к обсуждению сметы через пользу: объяснить один важный пункт, предложить оптимизацию или показать, где можно сэкономить без потери качества.",
+    ),
+    "contract_closing": (
+        "Ждем финальное решение по договору",
+        "Мягко вернуть клиента к фиксации даты старта, бригады или условий договора.",
+    ),
+    "direct_chat_qualification": (
+        "Клиент пишет напрямую",
+        "Продолжить диалог и довести до квиза, если данных мало для расчета.",
+    ),
+    "general_consultation": (
+        "Общий прогрев",
+        "Коротко напомнить о себе и вернуть диалог в сторону замера или расчета.",
+    ),
+}
 
 # How often to run the check (seconds)
 CHECK_INTERVAL = 30 * 60  # 30 minutes
@@ -41,30 +109,58 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
     
     Criteria:
     - Last message was OUTBOUND (we sent the last message, client didn't reply)
-      OR last message was INBOUND but we already started a follow-up sequence
     - Enough time has passed since last activity
+    - Follow-up window is not older than MAX_FOLLOWUP_AGE_DAYS
     - Status is not WON/LOST/SPAM
     - followup_count < MAX_FOLLOWUPS
     - Has a telegram_id (can receive messages)
     """
     now = datetime.now(timezone.utc)
     
-    # Get all active leads with telegram_id
+    latest_message_subquery = (
+        select(
+            ChatMessage.lead_id,
+            ChatMessage.direction,
+            func.row_number()
+            .over(
+                partition_by=ChatMessage.lead_id,
+                order_by=(ChatMessage.created_at.desc(), ChatMessage.id.desc()),
+            )
+            .label("row_number"),
+        )
+        .subquery()
+    )
+
     result = await db.execute(
-        select(Lead).where(
+        select(Lead)
+        .join(
+            latest_message_subquery,
+            and_(
+                latest_message_subquery.c.lead_id == Lead.id,
+                latest_message_subquery.c.row_number == 1,
+                latest_message_subquery.c.direction == MessageDirection.OUTBOUND,
+            ),
+        )
+        .where(
             and_(
                 Lead.telegram_id.isnot(None),
                 Lead.last_message_at.isnot(None),
                 Lead.followup_count < MAX_FOLLOWUPS,
-                Lead.status.in_(FOLLOWUP_STATUSES),
+                Lead.status.in_([status.value for status in FOLLOWUP_STATUSES]),
             )
         )
     )
-    leads = result.scalars().all()
+    leads = result.scalars().unique().all()
     
     eligible = []
     for lead in leads:
-        threshold_hours = FOLLOWUP_THRESHOLDS.get(lead.followup_count)
+        try:
+            scenario_key, _, _ = await _build_stage_context(db, lead)
+            setattr(lead, "_stage_context", {"next_action": scenario_key})
+        except Exception as exc:
+            logger.warning("[FOLLOWUP] Could not build stage context for lead %s: %s", lead.id, exc)
+
+        threshold_hours = _get_threshold_hours(lead)
         if threshold_hours is None:
             continue
         
@@ -78,31 +174,44 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
         # Ensure reference_time is timezone-aware
         if reference_time.tzinfo is None:
             reference_time = reference_time.replace(tzinfo=timezone.utc)
+
+        if _is_followup_too_old(now, reference_time):
+            await _cool_down_stale_followup(db, lead, reason="followup_window_expired")
+            continue
         
         time_since = now - reference_time
         if time_since >= timedelta(hours=threshold_hours):
-            # Check that the last message is NOT an inbound message 
-            # (if client wrote last and we haven't replied, don't send follow-up,
-            #  the AI should have already replied)
-            last_msg = await _get_last_message(db, lead.id)
-            if last_msg and last_msg.direction == MessageDirection.OUTBOUND:
-                eligible.append(lead)
+            eligible.append(lead)
     
     return eligible
 
 
-async def _get_last_message(db: AsyncSession, lead_id) -> ChatMessage | None:
-    """Get the most recent message for a lead."""
-    result = await db.execute(
-        select(ChatMessage)
-        .where(ChatMessage.lead_id == lead_id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(1)
-    )
-    return result.scalar_one_or_none()
+def _is_followup_too_old(now: datetime, reference_time: datetime) -> bool:
+    return now - reference_time > timedelta(days=MAX_FOLLOWUP_AGE_DAYS)
+
+def _get_threshold_hours(lead: Lead) -> int | None:
+    stage_key = _get_stage_key_cached(lead)
+    stage_thresholds = STAGE_FOLLOWUP_THRESHOLDS.get(stage_key)
+    if stage_thresholds:
+        return stage_thresholds.get(lead.followup_count)
+    return FOLLOWUP_THRESHOLDS.get(lead.followup_count)
 
 
-async def generate_followup_message(db: AsyncSession, lead: Lead) -> str | None:
+def _get_stage_key_cached(lead: Lead) -> str:
+    stage_context = getattr(lead, "_stage_context", None)
+    if stage_context:
+        return stage_context.get("next_action") or "general_consultation"
+    return "general_consultation"
+
+
+async def _build_stage_context(db: AsyncSession, lead: Lead) -> tuple[str, dict[str, str], str]:
+    stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+    scenario_key = stage_context.next_action if stage_context.next_action in STAGE_SCENARIOS else "general_consultation"
+    scenario_title, scenario_goal = STAGE_SCENARIOS.get(scenario_key, STAGE_SCENARIOS["general_consultation"])
+    return scenario_key, {"title": scenario_title, "goal": scenario_goal}, stage_context.prompt_block
+
+
+async def generate_followup_message(db: AsyncSession, lead: Lead) -> tuple[str | None, str | None]:
     """
     Generate a contextual follow-up message using AI based on conversation history.
     Returns the message text, or None if generation fails.
@@ -121,12 +230,22 @@ async def generate_followup_message(db: AsyncSession, lead: Lead) -> str | None:
             history_lines.append(f"{role}: {m.content}")
         
         conversation_history = "\n".join(history_lines)
-        
-        # Build follow-up prompt
-        prompt = FOLLOWUP_PROMPT.format(
-            attempt_number=lead.followup_count + 1,
-            conversation_history=conversation_history
-        )
+        scenario_key, scenario_meta, stage_context_block = await _build_stage_context(db, lead)
+
+        if scenario_key != "general_consultation":
+            prompt = STAGE_FOLLOWUP_PROMPT.format(
+                attempt_number=lead.followup_count + 1,
+                scenario_title=scenario_meta["title"],
+                scenario_goal=scenario_meta["goal"],
+                attempt_guidance=_attempt_guidance(lead.followup_count + 1),
+                stage_context=stage_context_block,
+                conversation_history=conversation_history,
+            )
+        else:
+            prompt = FOLLOWUP_PROMPT.format(
+                attempt_number=lead.followup_count + 1,
+                conversation_history=conversation_history
+            )
         
         # Get org config for model selection
         from src.services.prompt_service import prompt_service
@@ -147,11 +266,19 @@ async def generate_followup_message(db: AsyncSession, lead: Lead) -> str | None:
         if text.startswith("'") and text.endswith("'"):
             text = text[1:-1]
         
-        return text if text else None
+        return (text if text else None, scenario_key)
         
     except Exception as e:
         logger.error(f"Failed to generate follow-up for lead {lead.id}: {e}", exc_info=True)
-        return None
+        return None, None
+
+
+def _attempt_guidance(attempt_number: int) -> str:
+    if attempt_number == 1:
+        return "Попытка 1: мягкое напоминание и один ясный следующий шаг."
+    if attempt_number == 2:
+        return "Попытка 2: чуть более прямое напоминание без давления."
+    return "Попытка 3: финальное теплое напоминание с открытой дверью."
 
 
 async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
@@ -168,17 +295,26 @@ async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
             lead_id=lead.id,
             content=message,
             sender_name="AI Agent",
-            ai_metadata={"type": "followup", "attempt": lead.followup_count + 1}
+            ai_metadata={
+                "type": "followup",
+                "attempt": lead.followup_count + 1,
+                "followup_variant": getattr(lead, "_followup_variant", None),
+            }
         )
         
         # Update lead follow-up tracking
+        next_count = lead.followup_count + 1
+        update_values = {
+            "followup_count": next_count,
+            "last_followup_at": datetime.now(timezone.utc),
+        }
+        if AUTO_COOL_AFTER_FINAL_FOLLOWUP and next_count >= MAX_FOLLOWUPS:
+            update_values["status"] = LeadStatus.FOLLOW_UP.value
+
         await db.execute(
             sql_update(Lead)
             .where(Lead.id == lead.id)
-            .values(
-                followup_count=lead.followup_count + 1,
-                last_followup_at=datetime.now(timezone.utc)
-            )
+            .values(**update_values)
         )
         await db.commit()
         
@@ -191,6 +327,21 @@ async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
     except Exception as e:
         logger.error(f"[FOLLOWUP] Failed to send to lead {lead.id}: {e}", exc_info=True)
         return False
+
+
+async def _cool_down_stale_followup(db: AsyncSession, lead: Lead, reason: str) -> None:
+    from sqlalchemy import update as sql_update
+
+    await db.execute(
+        sql_update(Lead)
+        .where(Lead.id == lead.id)
+        .values(
+            followup_count=MAX_FOLLOWUPS,
+            status=LeadStatus.FOLLOW_UP.value,
+        )
+    )
+    await db.commit()
+    logger.info("[FOLLOWUP] Cooled stale lead %s: %s", lead.id, reason)
 
 
 async def check_and_send_followups():
@@ -215,9 +366,10 @@ async def check_and_send_followups():
             
             for lead in leads:
                 # Generate contextual message
-                message = await generate_followup_message(db, lead)
+                message, scenario_key = await generate_followup_message(db, lead)
                 
                 if message:
+                    setattr(lead, "_followup_variant", scenario_key)
                     await send_followup(db, lead, message)
                     # Small delay between sends to avoid rate limits
                     await asyncio.sleep(2)
@@ -228,7 +380,7 @@ async def check_and_send_followups():
             logger.error(f"[FOLLOWUP] Error during follow-up check: {e}", exc_info=True)
 
 
-async def start_followup_loop():
+async def start_followup_loop(stop_event: asyncio.Event | None = None):
     """
     Background asyncio loop that periodically checks for leads needing follow-ups.
     Started once at application startup.
@@ -236,12 +388,20 @@ async def start_followup_loop():
     logger.info(f"[FOLLOWUP] Follow-up loop started (check every {CHECK_INTERVAL}s)")
     
     # Wait a bit on startup to let everything initialize
-    await asyncio.sleep(30)
+    stop_event = stop_event or asyncio.Event()
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=30)
+        return
+    except asyncio.TimeoutError:
+        pass
     
-    while True:
+    while not stop_event.is_set():
         try:
             await check_and_send_followups()
         except Exception as e:
             logger.error(f"[FOLLOWUP] Unhandled error in follow-up loop: {e}", exc_info=True)
         
-        await asyncio.sleep(CHECK_INTERVAL)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=CHECK_INTERVAL)
+        except asyncio.TimeoutError:
+            continue

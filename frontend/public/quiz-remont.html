@@ -1,0 +1,1729 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Квиз — ISAEV GROUP</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --gold: #c8a96e;
+    --gold-light: #e2c98e;
+    --gold-dark: #a8893e;
+    --bg: #0a0a0a;
+    --card: #141414;
+    --card2: #1c1c1c;
+    --border: #282828;
+    --text: #ffffff;
+    --muted: #666;
+    --muted2: #444;
+  }
+
+  body {
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: hidden;
+  }
+
+  /* Animated background */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 20% 20%, #c8a96e08 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, #c8a96e05 0%, transparent 50%);
+    animation: bgPulse 8s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  @keyframes bgPulse {
+    0%   { transform: scale(1) rotate(0deg); }
+    100% { transform: scale(1.1) rotate(3deg); }
+  }
+
+  .quiz-wrap {
+    width: 100%;
+    max-width: 680px;
+    padding: 20px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* LOGO */
+  .logo {
+    text-align: center;
+    margin-bottom: 28px;
+    animation: fadeDown 0.6s ease;
+  }
+  .logo-text {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 8px;
+    color: #fff;
+    text-transform: uppercase;
+  }
+  .logo-text span { color: var(--gold); }
+  .logo-line {
+    width: 40px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    margin: 8px auto 0;
+    animation: lineGrow 1s ease 0.3s both;
+  }
+  @keyframes lineGrow {
+    from { width: 0; opacity: 0; }
+    to   { width: 40px; opacity: 1; }
+  }
+
+  /* PROGRESS */
+  .progress-wrap {
+    margin-bottom: 24px;
+    animation: fadeIn 0.4s ease;
+  }
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .progress-bar {
+    height: 4px;
+    background: #1f1f1f;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-dark), var(--gold), var(--gold-light));
+    border-radius: 4px;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+  }
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    background: var(--gold-light);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--gold);
+  }
+
+  /* CARD */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 44px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold)33, transparent);
+  }
+
+  /* SCREEN TRANSITIONS */
+  .screen { display: none; }
+  .screen.active {
+    display: block;
+    animation: slideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .screen.exit {
+    animation: slideOut 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(30px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes slideOut {
+    from { opacity: 1; transform: translateX(0); }
+    to   { opacity: 0; transform: translateX(-30px); }
+  }
+  @keyframes slideInBack {
+    from { opacity: 0; transform: translateX(-30px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeUp   { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes popIn    { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+  @keyframes shimmer  {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+
+  /* GIFT BADGE */
+  .gift-banner {
+    background: linear-gradient(135deg, #1a1505, #2a1f05);
+    border: 1px solid var(--gold)44;
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    animation: fadeUp 0.5s ease 0.2s both;
+    position: relative;
+    overflow: hidden;
+  }
+  .gift-banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--gold)08, transparent);
+    background-size: 200% 100%;
+    animation: shimmer 3s linear infinite;
+  }
+  .gift-icon {
+    font-size: 28px;
+    flex-shrink: 0;
+    animation: bounce 2s ease infinite;
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25%       { transform: translateY(-4px) rotate(-5deg); }
+    75%       { transform: translateY(-2px) rotate(3deg); }
+  }
+  .gift-text { flex: 1; }
+  .gift-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.5px;
+  }
+  .gift-sub {
+    font-size: 12px;
+    color: #888;
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  .gift-tag {
+    background: var(--gold);
+    color: #000;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+
+  /* START SCREEN */
+  .start-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #1a1505;
+    border: 1px solid var(--gold)33;
+    color: var(--gold);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    letter-spacing: 1px;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    animation: fadeIn 0.5s ease;
+  }
+  .start-tag::before { content: '●'; font-size: 8px; animation: blink 1.5s ease infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .start-title {
+    font-size: 32px;
+    font-weight: 900;
+    line-height: 1.2;
+    margin-bottom: 14px;
+    animation: fadeUp 0.5s ease 0.1s both;
+  }
+  .start-title em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--gold), var(--gold-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .start-sub {
+    color: #999;
+    font-size: 15px;
+    line-height: 1.7;
+    margin-bottom: 28px;
+    animation: fadeUp 0.5s ease 0.15s both;
+  }
+
+  .start-points {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 28px;
+    animation: fadeUp 0.5s ease 0.2s both;
+  }
+  .start-point {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #ccc;
+    font-weight: 500;
+  }
+  .start-point-icon {
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, var(--gold-dark), var(--gold));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .start-time {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 14px;
+    animation: fadeIn 0.5s ease 0.4s both;
+  }
+  .resume-box {
+    display: none;
+    background: #101010;
+    border: 1px solid var(--gold)44;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 18px;
+    animation: fadeUp 0.5s ease 0.05s both;
+  }
+  .resume-box.active { display: block; }
+  .resume-title { color: var(--gold); font-size: 13px; font-weight: 800; margin-bottom: 4px; }
+  .resume-sub { color: #888; font-size: 12px; line-height: 1.5; margin-bottom: 12px; }
+  .resume-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .btn-small {
+    border: 1px solid var(--border);
+    background: #1b1b1b;
+    color: #fff;
+    border-radius: 10px;
+    padding: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .btn-small.primary { background: var(--gold); border-color: var(--gold); color: #000; }
+
+  /* QUESTION */
+  .question-num {
+    font-size: 11px;
+    color: var(--gold);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .question-text {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.4;
+    margin-bottom: 24px;
+  }
+
+  /* OPTIONS */
+  .options { display: flex; flex-direction: column; gap: 10px; }
+
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    cursor: pointer;
+    background: var(--card2);
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    animation: fadeUp 0.3s ease var(--delay, 0s) both;
+    position: relative;
+    overflow: hidden;
+  }
+  .option::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, var(--gold)08, transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .option:hover { border-color: var(--gold)77; transform: translateY(-1px); }
+  .option:hover::before { opacity: 1; }
+  .option:active { transform: scale(0.98); }
+
+  .option.selected {
+    border-color: var(--gold);
+    background: #1e1708;
+  }
+  .option.selected::before { opacity: 1; }
+  .option.selected .opt-icon {
+    background: linear-gradient(135deg, var(--gold-dark), var(--gold));
+    box-shadow: 0 0 12px var(--gold)44;
+    transform: scale(1.05);
+  }
+
+  .opt-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: #252525;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+    transition: all 0.25s;
+  }
+  .opt-label { font-size: 15px; font-weight: 600; }
+  .opt-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .check-mark {
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+  .option.selected .check-mark {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #000;
+  }
+  .option.selected .check-mark::before { content: '✓'; font-weight: 800; }
+
+  /* BUTTONS */
+  .btn-next {
+    margin-top: 24px;
+    width: 100%;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--gold-dark), var(--gold), var(--gold-light));
+    background-size: 200% 100%;
+    color: #000;
+    border: none;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-next::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, #fff2, transparent);
+    transform: translateX(-100%);
+    transition: transform 0.4s;
+  }
+  .btn-next:hover::before { transform: translateX(100%); }
+  .btn-next:hover { background-position: right center; box-shadow: 0 8px 24px var(--gold)33; transform: translateY(-1px); }
+  .btn-next:active { transform: scale(0.98); }
+  .btn-next:disabled { opacity: 0.3; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .btn-back {
+    display: block;
+    margin: 14px auto 0;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.2s;
+    font-family: inherit;
+  }
+  .btn-back:hover { color: #aaa; }
+
+  /* FORM */
+  .form-group { margin-bottom: 14px; }
+  .form-group label {
+    display: block;
+    font-size: 11px;
+    color: #777;
+    margin-bottom: 6px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 16px 18px;
+    background: var(--card2);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    color: #fff;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .form-group input:focus {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px var(--gold)15;
+  }
+  .form-group input::placeholder { color: var(--muted2); }
+  .file-row {
+    display: none;
+    margin: 12px 0 18px;
+    padding: 14px;
+    background: #171717;
+    border: 1px dashed var(--gold)55;
+    border-radius: 12px;
+  }
+  .file-row.active { display: block; }
+  .file-row input { margin-top: 10px; color: #aaa; width: 100%; }
+  .design-upload-note {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 10px 0 16px;
+  }
+  .design-upload-actions {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .inline-status { margin-top: 10px; color: #888; font-size: 12px; text-align: center; min-height: 18px; }
+  .messenger-choice {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .messenger-choice-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px;
+    background: var(--card2);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .messenger-choice-btn.active {
+    border-color: var(--gold);
+    background: #1e1708;
+  }
+  .messenger-choice-icon { font-size: 24px; }
+  .messenger-choice-title { font-size: 14px; font-weight: 800; }
+  .messenger-choice-sub { color: #777; font-size: 11px; margin-top: 2px; }
+
+  /* RESULT */
+  .result-header { text-align: center; margin-bottom: 28px; }
+  .result-emoji { font-size: 52px; display: block; margin-bottom: 14px; animation: popIn 0.5s cubic-bezier(0.34,1.56,0.64,1); }
+  .result-title { font-size: 24px; font-weight: 800; margin-bottom: 6px; }
+  .result-sub   { color: var(--muted); font-size: 14px; }
+
+  .price-box {
+    background: linear-gradient(135deg, #1a1505, #221b06);
+    border: 1px solid var(--gold)44;
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 20px;
+    animation: popIn 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.15s both;
+    position: relative;
+    overflow: hidden;
+  }
+  .price-box::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--gold)06, transparent);
+    background-size: 200% 100%;
+    animation: shimmer 4s linear infinite;
+  }
+  .price-label { font-size: 12px; color: #888; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; font-weight: 600; }
+  .price-value {
+    font-size: 40px;
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--gold-dark), var(--gold), var(--gold-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .price-note { font-size: 12px; color: #666; }
+
+  .result-items {
+    background: var(--card2);
+    border-radius: 14px;
+    padding: 4px 0;
+    margin-bottom: 20px;
+    animation: fadeUp 0.4s ease 0.25s both;
+  }
+  .result-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-item-label { color: var(--muted); }
+  .result-item-val   { font-weight: 600; }
+
+  /* GIFT IN RESULT */
+  .gift-result {
+    background: linear-gradient(135deg, #0d1a05, #122005);
+    border: 1px solid #4a7c2244;
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+    animation: fadeUp 0.4s ease 0.3s both;
+  }
+  .gift-result-icon { font-size: 32px; flex-shrink: 0; }
+  .gift-result-title { font-size: 14px; font-weight: 700; color: #7eda5a; margin-bottom: 3px; }
+  .gift-result-sub   { font-size: 12px; color: #888; line-height: 1.4; }
+
+  /* THANK YOU */
+  .ty-wrap { text-align: center; }
+  .ty-anim { font-size: 72px; display: block; margin-bottom: 20px; animation: popIn 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+  .ty-title { font-size: 28px; font-weight: 900; margin-bottom: 10px; }
+  .ty-sub   { color: #999; font-size: 15px; line-height: 1.7; margin-bottom: 24px; }
+  .ty-cards { display: flex; flex-direction: column; gap: 10px; }
+  .ty-card {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    animation: fadeUp 0.4s ease var(--d, 0s) both;
+  }
+  .ty-card-icon { font-size: 22px; }
+
+  .slots-section {
+    display: none;
+    margin-top: 18px;
+    padding: 18px;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  .slots-section.active { display: block; }
+  .slots-title { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
+  .slots-sub { color: #888; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+  .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .slot-btn {
+    background: #101010;
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 700;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .slot-btn:hover { border-color: var(--gold); background: #1e1708; }
+  .slot-btn:disabled { opacity: 0.5; cursor: wait; }
+  .messenger-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+  .messenger-link {
+    display: block;
+    text-align: center;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    color: #ddd;
+    text-decoration: none;
+    font-weight: 700;
+    background: #101010;
+  }
+  .messenger-link:hover { border-color: var(--gold); color: #fff; }
+
+  .exit-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #000b;
+    z-index: 500;
+    padding: 20px;
+  }
+  .exit-overlay.active { display: flex; }
+  .exit-modal {
+    width: 100%;
+    max-width: 460px;
+    background: var(--card);
+    border: 1px solid var(--gold)44;
+    border-radius: 18px;
+    padding: 26px;
+    box-shadow: 0 24px 80px #000c;
+    animation: popIn 0.25s ease;
+  }
+  .exit-title { font-size: 23px; font-weight: 900; line-height: 1.25; margin-bottom: 8px; }
+  .exit-sub { color: #999; font-size: 14px; line-height: 1.6; margin-bottom: 18px; }
+  .exit-grid { display: grid; gap: 10px; }
+  .exit-grid input {
+    width: 100%;
+    padding: 14px 16px;
+    background: var(--card2);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    color: #fff;
+    font-size: 15px;
+    outline: none;
+  }
+  .exit-close {
+    margin-top: 12px;
+    width: 100%;
+    border: none;
+    background: none;
+    color: #777;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+  }
+
+  /* DISCLAIMER */
+  .disclaimer { margin-top: 12px; font-size: 11px; color: var(--muted2); text-align: center; line-height: 1.5; }
+
+  /* FLOATING GIFT */
+  .float-gift {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: linear-gradient(135deg, #1a1505, #2a2005);
+    border: 1px solid var(--gold)55;
+    border-radius: 16px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 260px;
+    box-shadow: 0 8px 32px #0008, 0 0 0 1px var(--gold)11;
+    animation: floatIn 0.5s cubic-bezier(0.34,1.56,0.64,1) 1.5s both;
+    z-index: 100;
+  }
+  @keyframes floatIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.9); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .float-gift-icon { font-size: 26px; animation: bounce 2s ease infinite; }
+  .float-gift-text { flex: 1; }
+  .float-gift-title { font-size: 12px; font-weight: 700; color: var(--gold); }
+  .float-gift-sub   { font-size: 11px; color: #777; margin-top: 1px; }
+  .float-gift-close {
+    font-size: 16px;
+    color: #555;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s;
+    flex-shrink: 0;
+  }
+  .float-gift-close:hover { color: #999; }
+
+  @media (max-width: 480px) {
+    .card { padding: 28px 20px; }
+    .start-title { font-size: 24px; }
+    .question-text { font-size: 18px; }
+    .price-value { font-size: 32px; }
+    .float-gift { display: none; }
+    .slot-grid, .messenger-actions { grid-template-columns: 1fr; }
+    .messenger-choice { grid-template-columns: 1fr; }
+    .resume-actions { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Floating gift notification -->
+<div class="float-gift" id="floatGift">
+  <div class="float-gift-icon">🎁</div>
+  <div class="float-gift-text">
+    <div class="float-gift-title">Подарок за квиз</div>
+    <div class="float-gift-sub">Дизайн-проект бесплатно</div>
+  </div>
+  <div class="float-gift-close" onclick="document.getElementById('floatGift').style.display='none'">✕</div>
+</div>
+
+<div class="quiz-wrap">
+  <div class="logo">
+    <img src="data:image/jpeg;base64,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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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wRVXt17de1Xt17de3RG/Bhl1NsgDEsPsXtliZU9WVYmRPsCITkDoC725UVPuYGPUfmHCRKJJmbYISJRIzJ5eY9hAmCQRilmqB5LkXp1TyASJFYh5GM7rEd1iO6xndYzusR3WIUSTPkYzusZ3WM7rEd1iO6cZk/8AuU8I4O9BgjTDmhAWyCOQCxUUxsXvXARMYjOIKUyyNaZI0Kw6hl/Vg701uxH33QSZHAzHECEW1wUiLyeLUslOQkZyyN9kLeBC7y0RDQCJIWot9MQYoIsEegW4CHrE6hMKZ/i+/UCLdXcjGVaE5U5fAd2CGZJNYbSARBEAW9I3hS6hc63EA1yMAiQIc9Yp+hiYaXLRRElx8CbplsdLW7xRvuouAKy/RGf4vv1At4pyMZFo4R8oEDPwTzA+Ba2f2+FyY2Etff7T7p/Be9UZtE7YrMOGYWz0tbPFbNVxy/RGf4vsVByObRVSe5Bimi4dQSDdWDDujzpGQWSAIxEQUxcRdYopKISr8pBQW+sw4Z8LfKWthit6q473BGf4vsVByObBVZrQ5A4WywA6AwW0ZjiKrQLLuQyzThnAt8pa2GK3qrgFsMEZ/i4yi4lKYYI5jF4BjpWwJppGR9KnAmdoNyDrB7gxRBuwQeN+kVaa5K2wewrWDUWMhfgTAaIkwOuuv+rTLTLSXyWJ5KTl+IC0W7b0/wCst//aAAwDAQACAAMAAAAQ8888888888888888888888888888888888888888888888888888888888888888488888888888888888888888888888888888888888888888884g888888888888AAw88gA888888o088888888888888088888888888888888888s8888888884888AAE8sAAQ84g88M88888888808888888880888888888888o888888884wg08o088U8M8888A8gAAA888888888w888888888oEc8888oA8888888wA88888oAAA8sAU8A088888A8sAAE88888888sM84gI88888s888888oE8888888AA88oAwsAAA88AU8Ac84888888IU88o088888888oc888888s888888oU888888sMM888sMAAAs88sU8c88o8888IEsQ88s888088888s8888888888888o888888w080888808oIE8888888888oAA0888s88888888888888888888888888k88888888gAww8sc808s8488U8U888gAEc888888888888888888888888888888888888888sAMA8888o0888w808A08o888888wwg888888888888888888888888888088888s8888888888884AEc8AU8888888oAE8888888888888888888888888888o8sQ888884088888888sA088AU88888w0sA88884U888sc888888888888888888888A84k888c888888088sc88AU88884Ac88888oAc88888o88808884888888888888o0k888888888880888888AU8888sA08888888888888o8888888o888848888888sE888o0888gwA4A888888AU88888sU88888888888888888884888888o888888888888AE888oAAAA088888A888888s888888888888888888w8sc88888AQ8w08888888EM8888888AAA88888AU88888888888888888888888gA08488888Mc8sAw8880888888888888AIQ8888Ec8848888888888888888888gAAU8oA888888888M8888488888888888IAE88888888s88888888884g88888wwAAAA88I08888888888888s8M888k88888sMc888884g0888488888888888gAAAEIAAc88888888g8888s88888888sU888g888w88880sAA088g8888888w888gAAAU8Ac8888888c8AU88888888888888888888oA8884888sAAAE8888888E884sMIE888888888888sA88888888888888w888888oA88888888oA88888888w088A88oQ8o888888888884wgAw0888www8888888888oc8888Q888s8888888o8oQwgAQgAAAsM8888888888gAEMMMowAAMM8888888888888888A0888w8840888QIAAAgAAAEcIE48884gkoA0AcEIYAAAAAkQEwgQA88Q88wgAQ88Ec88oA88oc88wAgAQYgU8ogwwQ888AAQUkAQAggo+8gU8QQ+84Ac8o8A88sAAA88U88888888888AQoMcAgA84UAAAQQgAAAAwEAAA04EQAQgAE8gYM4wAAE888E8888U88888840888sUM4oUoUwkUEMAQ8IEoAAoUAAAAw2+AAAAQ+sY8AAAAA88808888c8888888s8888Eo8gQoAA8Mk4IM88so84UEAAoMEQ0oAAQAsgIgAAAAU88A88888888888888888888sAAAAM888McA88M888McAA8swgwcMAQAM88AAMAAU88888888888888888888s8888IA8888888888888888sAAwEMMc8oAc888sc8sIU88888888A08888888408888888o888888ww088888888AA8888888888888w88sc88888888AU8888884AA08888888Y8EAQgAAAwgAA08AAAA84wgAAAQ8888oA84w888888888A8888848gMIE8888888s0EEIAEAUAQkEAAAscAQo8UoAAM8888888oAU88808888E88888oc888888888888AAoAAQcgAAMQAcEAYAAsA8oAE88888888sAMgAAU8888U888888888880888888sAEoAAAc8AAgYAAEA0AA0g8oAAg8888888888IAU8w888U888888888888888888888oAE888Ac8AAA8s8AAUoAAAAA88848888888A88M888U840888888888888888888888888A88IIAQ88sIAAAc888888o8888o08A888888U88c884wg8888888888888888888s8888oA8888888888888888888sMw8888888U88888EM8888o888w8408888888880888gU88w8888oA08888888888888gAA888E888888888ww8888s4gA888888888Aw88AAAAA088888488gAAA08gEc88sMM8888088888888AA040g08AMoAw888owgEsQ0ssMsM8888oQs88IE8sMsAU888888888888888888oAAA88I8o88sMc88888888AU88888888888888sU8888sU884088888U88888888sIAAU888088888888888888A0888oA888888888A888gA88sAA0888888w8o888888ss888oA88888oAQ88888wAA8888M88888gAU8M88oAAw88MIM888888M8888888888888AE888888M8s888gAc88888888888s888888oEMAQ8A8888088888888888884A8oE888888888888s888884g88888888888A08s808IsAAw0oU8888888888888oAgA0888808888888888888AA88888888888oQgUoU8A8sAAUoU8A0888888888sgIAAc888884wAAAAEM88oAAI8888888888888sAAsA8AU88M88U8A08888oAU888888c888888gEc8sM88888I8888888888888888IAoE8888884gU8A08888sM888888888AU88oE8888888888s88888sA0888888888I08888088oAU8AU880888888888888gU88sU888888888U8888888Mc888888888sA84AkM88oAU8AUAgA884A0888w088sU888s088g888o8c8g40888888488888888A4AA88888A88AAAAAsogAU88gAE888Q8888Q88A8888888M88888888I888888wgUoEA8888gA08UMIc888sMU8oAA8888oU888oU8M88888888888888888888888AAQgAAAAAAAAU8Q8888g088AgAA88888sA888gU888888888888888888888888880oAAAMAAAM8c8AQw8AAA88Ec8I888888AQ84AU8888888oA88ow888888888888oc8IAA0gAA84U8AAA08oA8808oA88s888AU8gAU84w88g8sA88sAA888888888040888IA8sAEoAA8AAAAwgAwgAwgAAA84gAA88soA0gA84888o888sA8888U488gIAA0808I88oQgAE8AAAEAAAAAAIAAAA0sAAA888gAAAAgA8848s88888888oA4gcoAAAgQ8s88oAAc88AAAogAAAA8AAAoAA0Mcs88oAIAAAAA88s888888888888sE88AAAEA0888sMM888EMMMs8sMc8csc88sE88888sM8IAM888888888888888888888sMc8sA888888888888888888888888s8888888s8sc888888888s888888888888888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" alt="ИСАЕВ ГРУПП" style="height:70px;width:auto;display:block;margin:0 auto;">
+  </div>
+
+  <div class="progress-wrap" id="progressWrap" style="display:none">
+    <div class="progress-label">
+      <span id="stepLabel">Вопрос 1 из 7</span>
+      <span id="pct">14%</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill" style="width:14%"></div>
+    </div>
+  </div>
+
+  <div class="card">
+
+    <!-- START -->
+    <div class="screen active" id="screen-start">
+      <div class="resume-box" id="resumeBox">
+        <div class="resume-title">Ваш расчет сохранился</div>
+        <div class="resume-sub" id="resumeText">Можно продолжить с последнего вопроса.</div>
+        <div class="resume-actions">
+          <button class="btn-small primary" onclick="resumeQuiz()">Продолжить</button>
+          <button class="btn-small" onclick="resetSavedQuiz()">Начать заново</button>
+        </div>
+      </div>
+
+      <div class="gift-banner">
+        <div class="gift-icon">🎁</div>
+        <div class="gift-text">
+          <div class="gift-title">Подарок за прохождение квиза</div>
+          <div class="gift-sub">Дизайн-проект квартиры бесплатно — при заключении договора</div>
+        </div>
+        <div class="gift-tag">Дар</div>
+      </div>
+
+      <div class="start-tag">Бесплатный расчёт · 2 минуты</div>
+      <div class="start-title">Узнайте стоимость ремонта<br>за <em>8 вопросов</em></div>
+      <div class="start-sub">Ответьте — и мы подготовим предварительную смету специально для вашего объекта. Бесплатно и без обязательств.</div>
+
+      <div class="start-points">
+        <div class="start-point">
+          <div class="start-point-icon">📊</div>
+          Точная предварительная смета
+        </div>
+        <div class="start-point">
+          <div class="start-point-icon">⚡</div>
+          Перезвоним в течение 30 минут
+        </div>
+        <div class="start-point">
+          <div class="start-point-icon">🏠</div>
+          Выезд на замер бесплатно
+        </div>
+        <div class="start-point">
+          <div class="start-point-icon">🎁</div>
+          Дизайн-проект в подарок
+        </div>
+      </div>
+
+      <button class="btn-next" onclick="startQuiz()">Рассчитать стоимость →</button>
+      <div class="start-time">⏱ Займёт около 2 минут</div>
+    </div>
+
+    <!-- QUESTION -->
+    <div class="screen" id="screen-q">
+      <div class="question-num" id="qNum">Вопрос 1</div>
+      <div class="question-text" id="qText"></div>
+      <div class="options" id="qOptions"></div>
+      <button class="btn-next" id="btnNext" disabled onclick="nextStep()">Далее →</button>
+      <button class="btn-back" id="btnBack" onclick="prevStep()" style="display:none">← Назад</button>
+    </div>
+
+    <!-- DESIGN PROJECT UPLOAD -->
+    <div class="screen" id="screen-design-upload">
+      <div class="question-num">Дизайн-проект</div>
+      <div class="question-text" style="font-size:20px">Прикрепите проект, если он под рукой</div>
+      <div class="design-upload-note">
+        Так мы сможем быстрее уточнить расчет после квиза. Если файл сейчас не рядом, ничего страшного — можно продолжить и прислать его позже в мессенджере.
+      </div>
+      <div class="file-row active">
+        <div class="gift-result-title">Файл дизайн-проекта</div>
+        <div class="gift-result-sub">PDF, JPG, PNG, ZIP, RAR или DWG до 25 МБ</div>
+        <input type="file" id="designFile" accept=".pdf,.jpg,.jpeg,.png,.zip,.rar,.dwg" onchange="handleDesignFileSelected()">
+      </div>
+      <div class="design-upload-actions">
+        <button class="btn-next" id="designContinueBtn" onclick="continueAfterDesignUpload()" disabled>Продолжить →</button>
+        <button class="btn-small" onclick="skipDesignUpload()">Пришлю позже в мессенджере</button>
+        <button class="btn-back" onclick="backToDesignQuestion()">← Назад</button>
+      </div>
+      <div class="inline-status" id="designUploadStatus"></div>
+    </div>
+
+    <!-- CONTACT (показывается сразу после вопросов, ДО результата) -->
+    <div class="screen" id="screen-contact">
+      <!-- тизер цены -->
+      <div class="price-box" style="margin-bottom:20px">
+        <div class="price-label">Ваш предварительный расчёт готов 🎉</div>
+        <div class="price-value" id="teaserRange">—</div>
+        <div class="price-note">Стоимость работ (без материалов) · уточняется после замера</div>
+      </div>
+
+      <div class="question-num">Последний шаг</div>
+      <div class="question-text" style="font-size:18px">Куда удобнее отправить расчёт?</div>
+
+      <div class="form-group">
+        <label>Ваше имя</label>
+        <input type="text" id="fname" placeholder="Александра">
+      </div>
+      <div class="messenger-choice" id="messengerChoice">
+        <button type="button" class="messenger-choice-btn" data-messenger="telegram" onclick="selectMessenger('telegram')">
+          <span class="messenger-choice-icon">✈️</span>
+          <span>
+            <span class="messenger-choice-title">Telegram</span>
+            <span class="messenger-choice-sub">Откроется чат с готовым текстом</span>
+          </span>
+        </button>
+        <button type="button" class="messenger-choice-btn" data-messenger="whatsapp" onclick="selectMessenger('whatsapp')">
+          <span class="messenger-choice-icon">☘️</span>
+          <span>
+            <span class="messenger-choice-title">WhatsApp</span>
+            <span class="messenger-choice-sub">Откроется сообщение с кодом заявки</span>
+          </span>
+        </button>
+      </div>
+      <div class="gift-result" style="margin-bottom:16px">
+        <div class="gift-result-icon">🎁</div>
+        <div>
+          <div class="gift-result-title">Дизайн-проект в подарок</div>
+          <div class="gift-result-sub">При заключении договора — профессиональный дизайн за наш счёт</div>
+        </div>
+      </div>
+
+      <button class="btn-next" onclick="submitForm()">Перейти в мессенджер →</button>
+      <button class="btn-back" onclick="prevStep()">← Назад</button>
+      <div class="inline-status" id="submitStatus"></div>
+      <div class="disclaimer">Нажимая кнопку, вы соглашаетесь на обработку персональных данных</div>
+    </div>
+
+    <!-- RESULT (показывается после отправки заявки) -->
+    <div class="screen" id="screen-result">
+      <div class="ty-wrap" style="text-align:left">
+        <div style="text-align:center;margin-bottom:20px">
+          <span class="ty-anim">🎉</span>
+          <div class="ty-title">Заявка принята!</div>
+          <div class="ty-sub" style="margin-bottom:20px">
+            <strong id="tyName"></strong>, нажмите кнопку ниже — откроется<br>
+            <strong id="tyMessenger"></strong> с готовым сообщением
+          </div>
+        </div>
+
+        <div class="price-box" style="margin-bottom:16px">
+          <div class="price-label">Предварительная стоимость работ</div>
+          <div class="price-value" id="resultRange">—</div>
+          <div class="price-note">Без материалов · точная цена после выезда замерщика</div>
+        </div>
+
+        <div class="result-items" id="resultItems"></div>
+
+        <div class="ty-cards" style="margin-top:16px">
+          <div class="ty-card" style="--d:0.1s">
+            <div class="ty-card-icon">💬</div>
+            <div>Отправьте готовое сообщение, чтобы менеджер увидел вашу заявку</div>
+          </div>
+          <div class="ty-card" style="--d:0.2s">
+            <div class="ty-card-icon">📐</div>
+            <div>Выезд замерщика — бесплатно и в удобное время</div>
+          </div>
+          <div class="ty-card" style="--d:0.3s">
+            <div class="ty-card-icon">🎁</div>
+            <div>Дизайн-проект в подарок при подписании договора</div>
+          </div>
+        </div>
+
+        <div class="slots-section" id="slotsSection">
+          <div class="slots-title">Выберите время бесплатного замера</div>
+          <div class="slots-sub">Если дизайн-проекта нет или он в работе, лучше сразу закрепить удобное время замерщика.</div>
+          <div class="slot-grid" id="slotGrid"></div>
+          <div class="inline-status" id="slotStatus"></div>
+        </div>
+
+        <div class="messenger-actions">
+          <a class="messenger-link" id="primaryMessengerLink" href="#" target="_blank" rel="noopener">Открыть мессенджер</a>
+          <a class="messenger-link" id="secondaryMessengerLink" href="#" target="_blank" rel="noopener">Другой способ</a>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /card -->
+</div>
+
+<div class="exit-overlay" id="exitOverlay">
+  <div class="exit-modal">
+    <div class="exit-title">Сохранить расчет?</div>
+    <div class="exit-sub">Вы уже начали квиз. Выберите удобный мессенджер — мы откроем готовое сообщение с кодом расчета.</div>
+    <div class="exit-grid">
+      <input type="text" id="exitName" placeholder="Ваше имя">
+      <button class="btn-next" style="margin-top:0" onclick="captureExitContact('telegram')">Продолжить в Telegram</button>
+      <button class="btn-small" onclick="captureExitContact('whatsapp')">Продолжить в WhatsApp</button>
+    </div>
+    <div class="inline-status" id="exitStatus"></div>
+    <button class="exit-close" onclick="closeExitPopup()">Не сейчас</button>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.QUIZ_API_BASE || '/api';
+const TELEGRAM_URL = window.QUIZ_TELEGRAM_URL || 'https://t.me/karlo25';
+let telegramBotUsername = (window.QUIZ_TELEGRAM_BOT_USERNAME || '').replace(/^@/, '');
+const WHATSAPP_PHONE = window.QUIZ_WHATSAPP_PHONE || '';
+let posthogReady = false;
+
+const questions = [
+  {
+    id: 'type',
+    text: 'Какой объект нужно отремонтировать?',
+    options: [
+      { icon: '🏠', label: 'Квартира', sub: 'Вторичка или новостройка', val: 'flat' },
+      { icon: '🏡', label: 'Частный дом / коттедж', sub: 'Загородное строение', val: 'house' },
+      { icon: '🏢', label: 'Коммерческое помещение', sub: 'Офис, магазин, студия', val: 'commercial' },
+    ],
+    coef: { flat: 1.0, house: 1.2, commercial: 1.15 }
+  },
+  {
+    id: 'area',
+    text: 'Какая площадь помещения?',
+    options: [
+      { icon: '📐', label: 'До 40 м²', sub: 'Студия, однушка', val: 'xs' },
+      { icon: '📐', label: '40 – 70 м²', sub: 'Двушка, небольшая трёшка', val: 'sm' },
+      { icon: '📐', label: '70 – 100 м²', sub: 'Просторная трёшка', val: 'md' },
+      { icon: '📐', label: 'Более 100 м²', sub: 'Большая квартира / дом', val: 'lg' },
+    ],
+    base: { xs: 900000, sm: 1700000, md: 2800000, lg: 4500000 }
+  },
+  {
+    id: 'rtype',
+    text: 'Какой тип ремонта планируете?',
+    options: [
+      { icon: '🖌️', label: 'Косметический', sub: 'Обои, покраска, замена полов', val: 'cosm', coef: 0.35 },
+      { icon: '🔨', label: 'Чистовая отделка', sub: 'Без демонтажа, без перепланировки', val: 'finish', coef: 0.65 },
+      { icon: '🏗️', label: 'Ремонт под ключ', sub: 'Полный цикл: черновой + чистовой', val: 'full', coef: 1.0 },
+    ],
+  },
+  {
+    id: 'state',
+    text: 'Текущее состояние объекта?',
+    options: [
+      { icon: '🧱', label: 'Черновая отделка', sub: 'Новостройка без отделки', val: 'rough', coef: 1.0 },
+      { icon: '🏚️', label: 'Жилое, требует обновления', sub: 'Старый ремонт, нужна замена', val: 'lived', coef: 1.15 },
+      { icon: '💥', label: 'Нужен полный снос', sub: 'Старый фонд, плохое состояние', val: 'demo', coef: 1.3 },
+    ],
+  },
+  {
+    id: 'rooms',
+    text: 'Что именно ремонтируете?',
+    options: [
+      { icon: '🛁', label: 'Только санузел / кухня', sub: 'Один или два помещения', val: 'partial', coef: 0.4 },
+      { icon: '🚪', label: 'Несколько комнат', sub: '2–4 помещения', val: 'several', coef: 0.7 },
+      { icon: '🏠', label: 'Вся квартира целиком', sub: 'Все помещения', val: 'all', coef: 1.0 },
+    ],
+  },
+  {
+    id: 'design',
+    text: 'Есть ли дизайн-проект?',
+    options: [
+      { icon: '✅', label: 'Да, уже готов', sub: 'Чертежи, планы, визуализация', val: 'yes', coef: 1.0 },
+      { icon: '📝', label: 'В процессе разработки', sub: 'Только эскизы или идеи', val: 'wip', coef: 1.05 },
+      { icon: '🎁', label: 'Нет — хочу в подарок!', sub: 'Получите дизайн-проект бесплатно', val: 'no', coef: 1.1 },
+    ],
+  },
+  {
+    id: 'deadline',
+    text: 'Когда планируете начать?',
+    options: [
+      { icon: '⚡', label: 'Как можно скорее', sub: 'В течение 1–2 недель', val: 'asap' },
+      { icon: '📅', label: 'В течение 1–3 месяцев', sub: 'Ещё выбираем и планируем', val: 'soon' },
+      { icon: '🕐', label: 'Не спешу', sub: 'Просто хочу понять цену', val: 'later' },
+    ],
+  },
+  {
+    id: 'budget',
+    text: 'Какой бюджет на ремонт вы рассматриваете?',
+    options: [
+      { icon: '💛', label: 'До 1 млн ₽', sub: '', val: 'b1' },
+      { icon: '💛', label: '1 – 2 млн ₽', sub: '', val: 'b2' },
+      { icon: '💛', label: '2 – 4 млн ₽', sub: '', val: 'b3' },
+      { icon: '💛', label: 'От 4 млн ₽', sub: '', val: 'b4' },
+    ],
+  }
+];
+
+let step = -1;
+let answers = {};
+let goingBack = false;
+let sessionToken = localStorage.getItem('isaev_quiz_session_token') || '';
+let currentLeadId = '';
+let measurementSlots = [];
+let designProjectFileUrl = '';
+let designUploadDecision = '';
+let selectedMessenger = '';
+let exitPopupShown = sessionStorage.getItem('isaev_exit_popup_shown') === '1';
+let inactivityTimer = null;
+
+const labels = {
+  type:  { flat: 'Квартира', house: 'Дом', commercial: 'Коммерция' },
+  area:  { xs: 'до 40 м²', sm: '40–70 м²', md: '70–100 м²', lg: '100+ м²' },
+  rtype: { cosm: 'Косметический', finish: 'Чистовая отделка', full: 'Под ключ' },
+  state: { rough: 'Черновая отделка', lived: 'Жилое, требует обновления', demo: 'Нужен полный снос' },
+  rooms: { partial: 'Только санузел / кухня', several: 'Несколько комнат', all: 'Вся квартира целиком' },
+  design: { yes: 'Да, уже готов', wip: 'В процессе разработки', no: 'Нет — хочу в подарок' },
+  deadline: { asap: 'Как можно скорее', soon: 'В течение 1–3 месяцев', later: 'Не спешу' },
+  budget: { b1: 'До 1 млн ₽', b2: '1–2 млн ₽', b3: '2–4 млн ₽', b4: 'От 4 млн ₽' }
+};
+const resultFields = [
+  ['type', 'Объект'],
+  ['area', 'Площадь'],
+  ['rtype', 'Тип ремонта'],
+  ['state', 'Состояние'],
+  ['rooms', 'Объём'],
+  ['design', 'Дизайн'],
+  ['deadline', 'Срок'],
+  ['budget', 'Бюджет']
+];
+
+function collectTrackingParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    channel: params.get('channel') || 'web',
+    source: params.get('utm_source') || params.get('source') || 'quiz',
+    entry_url: window.location.href,
+    referrer: document.referrer || null,
+    utm_source: params.get('utm_source'),
+    utm_medium: params.get('utm_medium'),
+    utm_campaign: params.get('utm_campaign'),
+    utm_content: params.get('utm_content'),
+    utm_term: params.get('utm_term'),
+    metadata: {
+      quiz_token: params.get('q') || params.get('token'),
+      messenger: params.get('messenger'),
+      design_upload_decision: designUploadDecision || null
+    },
+    lead_id: params.get('lead_id'),
+    telegram_id: params.get('tg_id') ? Number(params.get('tg_id')) : null
+  };
+}
+
+async function apiFetch(path, options = {}) {
+  const response = await fetch(API_BASE + path, {
+    ...options,
+    headers: {
+      ...(options.body instanceof FormData ? {} : {'Content-Type': 'application/json'}),
+      ...(options.headers || {})
+    }
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+async function initPostHog() {
+  try {
+    const config = await apiFetch('/quiz/config');
+    const ph = config.posthog || {};
+    const telegram = config.telegram || {};
+    if (telegram.bot_username) telegramBotUsername = String(telegram.bot_username).replace(/^@/, '');
+    if (!ph.enabled || !ph.project_api_key || window.posthog) return;
+
+    (function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split('.');2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement('script')).type='text/javascript',p.crossOrigin='anonymous',p.async=!0,p.src=s.api_host.replace('.i.posthog.com','-assets.i.posthog.com')+'/static/array.js',(r=t.getElementsByTagName('script')[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a='posthog',u.people=u.people||[],u.toString=function(t){var e='posthog';return'posthog'!==a&&(e+='.'+a),t||(e+=' (stub)'),e},u.people.toString=function(){return u.toString(1)+'.people (stub)'},o='init capture register register_once unregister identify alias set_config get_distinct_id onFeatureFlags reloadFeatureFlags group reset'.split(' '),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)})(document,window.posthog||[]);
+
+    posthog.init(ph.project_api_key, {
+      api_host: ph.host,
+      capture_pageview: true,
+      autocapture: true,
+      persistence: 'localStorage+cookie',
+      session_recording: {
+        maskAllInputs: true,
+      },
+    });
+    posthogReady = true;
+    if (sessionToken) posthog.identify(sessionToken, { crm_session: true });
+  } catch (e) {
+    console.warn('PostHog init failed', e);
+  }
+}
+
+async function ensureSession() {
+  if (sessionToken) return sessionToken;
+  const session = await apiFetch('/analytics/funnel/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ funnel_name: 'renovation_quiz', ...collectTrackingParams() })
+  });
+  sessionToken = session.session_token;
+  localStorage.setItem('isaev_quiz_session_token', sessionToken);
+  if (window.posthog && posthogReady) posthog.identify(sessionToken, { crm_session: true });
+  await trackEvent('quiz_opened', 'start');
+  return sessionToken;
+}
+
+function saveProgress() {
+  if (step < 0) return;
+  localStorage.setItem('isaev_quiz_progress', JSON.stringify({
+    step,
+    answers,
+    sessionToken,
+    updatedAt: new Date().toISOString()
+  }));
+}
+
+function getSavedProgress() {
+  try {
+    const raw = localStorage.getItem('isaev_quiz_progress');
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data.step !== 'number') return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+function showResumeBoxIfNeeded() {
+  const saved = getSavedProgress();
+  if (!saved || saved.step < 0 || Object.keys(saved.answers || {}).length === 0) return;
+  document.getElementById('resumeBox').classList.add('active');
+  document.getElementById('resumeText').textContent = `Сохранено ответов: ${Object.keys(saved.answers || {}).length}. Можно продолжить с нужного места.`;
+}
+
+function resumeQuiz() {
+  const saved = getSavedProgress();
+  if (!saved) return;
+  answers = saved.answers || {};
+  step = Math.min(Math.max(saved.step, 0), questions.length - 1);
+  sessionToken = saved.sessionToken || sessionToken;
+  if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
+  document.getElementById('progressWrap').style.display = 'block';
+  showScreen('screen-q');
+  renderQuestion();
+  trackEvent('quiz_resumed', questions[step]?.id || 'resume', { saved_answers: Object.keys(answers).length });
+}
+
+function resetSavedQuiz() {
+  localStorage.removeItem('isaev_quiz_progress');
+  localStorage.removeItem('isaev_quiz_session_token');
+  sessionToken = '';
+  answers = {};
+  designProjectFileUrl = '';
+  designUploadDecision = '';
+  step = -1;
+  document.getElementById('resumeBox').classList.remove('active');
+  showScreen('screen-start');
+}
+
+async function trackEvent(event_type, step_id, event_data = null) {
+  try {
+    const token = await ensureSession();
+    await apiFetch('/analytics/funnel/events', {
+      method: 'POST',
+      body: JSON.stringify({ session_token: token, event_type, step_id, event_data })
+    });
+  } catch (e) {
+    console.warn('Analytics event failed', e);
+  }
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.remove('active');
+    s.style.display = 'none';
+  });
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.style.animation = goingBack
+    ? 'slideInBack 0.35s cubic-bezier(0.4,0,0.2,1)'
+    : 'slideIn 0.35s cubic-bezier(0.4,0,0.2,1)';
+  el.classList.add('active');
+  goingBack = false;
+}
+
+function startQuiz() {
+  localStorage.removeItem('isaev_quiz_progress');
+  answers = {};
+  designProjectFileUrl = '';
+  designUploadDecision = '';
+  step = 0;
+  document.getElementById('progressWrap').style.display = 'block';
+  showScreen('screen-q');
+  renderQuestion();
+  ensureSession().then(() => trackEvent('quiz_started', 'start'));
+}
+
+function renderQuestion() {
+  const q = questions[step];
+  document.getElementById('qNum').textContent = `Вопрос ${step + 1} из ${questions.length}`;
+  document.getElementById('qText').textContent = q.text;
+
+  const pct = Math.round(((step + 1) / questions.length) * 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('pct').textContent = pct + '%';
+  document.getElementById('stepLabel').textContent = `Вопрос ${step + 1} из ${questions.length}`;
+
+  const optEl = document.getElementById('qOptions');
+  optEl.innerHTML = '';
+  q.options.forEach((opt, i) => {
+    const div = document.createElement('div');
+    div.className = 'option' + (answers[q.id] === opt.val ? ' selected' : '');
+    div.style.setProperty('--delay', (i * 0.06) + 's');
+    div.innerHTML = `
+      <div class="opt-icon">${opt.icon}</div>
+      <div style="flex:1">
+        <div class="opt-label">${opt.label}</div>
+        <div class="opt-sub">${opt.sub}</div>
+      </div>
+      <div class="check-mark"></div>`;
+    div.onclick = () => selectOption(q.id, opt.val, div);
+    optEl.appendChild(div);
+  });
+
+  document.getElementById('btnNext').disabled = !answers[q.id];
+  document.getElementById('btnBack').style.display = step === 0 ? 'none' : 'block';
+}
+
+function selectOption(qId, val, el) {
+  document.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  answers[qId] = val;
+  if (qId === 'design') {
+    designUploadDecision = '';
+    designProjectFileUrl = '';
+    const input = document.getElementById('designFile');
+    if (input && val === 'no') input.value = '';
+  }
+  saveProgress();
+  document.getElementById('btnNext').disabled = false;
+  trackEvent('answer_selected', qId, { value: val, label: labels[qId]?.[val] || val });
+
+  // Auto-advance after short delay
+  setTimeout(() => {
+    if (answers[qId] === val) nextStep();
+  }, 350);
+}
+
+function nextStep() {
+  const currentQuestion = questions[step];
+  if (
+    currentQuestion?.id === 'design' &&
+    (answers.design === 'yes' || answers.design === 'wip') &&
+    !designUploadDecision
+  ) {
+    showDesignUploadPrompt();
+    return;
+  }
+
+  if (step < questions.length - 1) {
+    step++;
+    saveProgress();
+    showScreen('screen-q');
+    renderQuestion();
+  } else {
+    // После последнего вопроса — сразу форма с тизером цены
+    showContactWithTeaser();
+  }
+}
+
+function showDesignUploadPrompt() {
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressFill').style.width = '75%';
+  document.getElementById('pct').textContent = '75%';
+  document.getElementById('stepLabel').textContent = 'Дизайн-проект';
+  const statusEl = document.getElementById('designUploadStatus');
+  const file = document.getElementById('designFile')?.files?.[0];
+  statusEl.textContent = file ? `Выбран файл: ${file.name}` : '';
+  document.getElementById('designContinueBtn').disabled = !file;
+  showScreen('screen-design-upload');
+  saveProgress();
+  trackEvent('design_upload_prompt_viewed', 'design', { design_status: answers.design });
+}
+
+function continueAfterDesignUpload() {
+  const file = document.getElementById('designFile')?.files?.[0];
+  if (!file) {
+    document.getElementById('designUploadStatus').textContent = 'Сначала прикрепите файл или нажмите “Пришлю позже в мессенджере”.';
+    return;
+  }
+  designUploadDecision = file ? 'attached_in_quiz' : 'continued_without_file';
+  trackEvent(file ? 'design_file_selected' : 'design_file_not_attached', 'design', {
+    design_status: answers.design,
+    filename: file ? file.name : null
+  });
+  nextStep();
+}
+
+function skipDesignUpload() {
+  designUploadDecision = 'send_later_in_messenger';
+  designProjectFileUrl = '';
+  const input = document.getElementById('designFile');
+  if (input) input.value = '';
+  document.getElementById('designContinueBtn').disabled = true;
+  document.getElementById('designUploadStatus').textContent = 'Ок, попросим проект позже в мессенджере.';
+  trackEvent('design_upload_skipped', 'design', { design_status: answers.design });
+  nextStep();
+}
+
+function backToDesignQuestion() {
+  goingBack = true;
+  const designIndex = questions.findIndex(q => q.id === 'design');
+  step = designIndex >= 0 ? designIndex : step;
+  document.getElementById('progressWrap').style.display = 'block';
+  showScreen('screen-q');
+  renderQuestion();
+}
+
+function handleDesignFileSelected() {
+  const file = document.getElementById('designFile')?.files?.[0];
+  document.getElementById('designUploadStatus').textContent = file ? `Выбран файл: ${file.name}` : '';
+  document.getElementById('designContinueBtn').disabled = !file;
+  if (file) designUploadDecision = 'attached_in_quiz';
+}
+
+function prevStep() {
+  if (step > 0) {
+    goingBack = true;
+    step--;
+    saveProgress();
+    document.getElementById('progressWrap').style.display = 'block';
+    showScreen('screen-q');
+    renderQuestion();
+  } else if (step === 0) {
+    goingBack = true;
+    step = -1;
+    document.getElementById('progressWrap').style.display = 'none';
+    showScreen('screen-start');
+  } else {
+    // Назад с экрана контактов → последний вопрос
+    goingBack = true;
+    step = questions.length - 1;
+    document.getElementById('progressWrap').style.display = 'block';
+    showScreen('screen-q');
+    renderQuestion();
+  }
+}
+
+function showContactWithTeaser() {
+  document.getElementById('progressWrap').style.display = 'none';
+  const { lo, hi } = calcPrice();
+  document.getElementById('teaserRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
+  showScreen('screen-contact');
+  saveProgress();
+  trackEvent('contact_viewed', 'contact', { price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` } });
+  setTimeout(() => document.getElementById('fname').focus(), 400);
+}
+
+function calcPrice() {
+  // Площадь: середина диапазона в м²
+  const areaMid = { xs: 32, sm: 55, md: 85, lg: 125 };
+  const m2 = areaMid[answers.area] || 55;
+
+  // Площадь влажных зон (~15% квартиры для санузла)
+  const wetM2 = Math.round(m2 * 0.15);
+
+  // Базовые ставки (руб/м²): [мин, макс]
+  let rateMin, rateMax;
+
+  if (answers.rooms === 'partial') {
+    // Только санузел/кухня: 40–60 тыс/м² по полу влажных зон
+    rateMin = 40000; rateMax = 60000;
+    const lo = Math.round(wetM2 * rateMin / 50000) * 50000;
+    const hi = Math.round(wetM2 * rateMax / 50000) * 50000;
+    return { lo, hi, m2: wetM2 };
+  } else if (answers.rtype === 'cosm') {
+    // Косметический: 10–15 тыс/м²
+    rateMin = 10000; rateMax = 15000;
+  } else if (answers.rtype === 'finish') {
+    // Чистовая отделка: 18–23 тыс/м²
+    rateMin = 18000; rateMax = 23000;
+  } else {
+    // Под ключ (new build): 25–30 тыс/м²
+    rateMin = 25000; rateMax = 30000;
+  }
+
+  // Коэффициент состояния
+  const stateCoef = { rough: 1.0, lived: 1.15, demo: 1.3 };
+  const sc = stateCoef[answers.state] || 1.0;
+
+  // Коэффициент объёма
+  const roomsCoef = { partial: 1.0, several: 0.7, all: 1.0 };
+  const rc = answers.rooms === 'several' ? 0.7 : 1.0;
+
+  // Коэффициент типа объекта
+  const typeCoef = { flat: 1.0, house: 1.2, commercial: 1.1 };
+  const tc = typeCoef[answers.type] || 1.0;
+
+  const lo = Math.round(m2 * rc * rateMin * sc * tc / 50000) * 50000;
+  const hi = Math.round(m2 * rc * rateMax * sc * tc / 50000) * 50000;
+  return { lo, hi, m2 };
+}
+
+function fmtPrice(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.', ',') + ' млн ₽';
+  return Math.round(n / 1000) + ' тыс. ₽';
+}
+
+function showResult() {
+  document.getElementById('progressWrap').style.display = 'none';
+  const { lo, hi } = calcPrice();
+
+  document.getElementById('resultRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
+
+  const el = document.getElementById('resultItems');
+  el.innerHTML = resultFields.map(([k, title]) => `
+    <div class="result-item">
+      <span class="result-item-label">${title}</span>
+      <span class="result-item-val">${labels[k]?.[answers[k]] || '—'}</span>
+    </div>`).join('');
+
+  showScreen('screen-result');
+}
+
+function showContact() {
+  showScreen('screen-contact');
+  setTimeout(() => document.getElementById('fname').focus(), 400);
+}
+
+async function submitForm() {
+  const name  = document.getElementById('fname').value.trim();
+  if (!name)  { shake('fname');  return; }
+  if (!selectedMessenger) {
+    document.getElementById('submitStatus').textContent = 'Выберите Telegram или WhatsApp.';
+    return;
+  }
+
+  const { lo, hi } = calcPrice();
+  const statusEl = document.getElementById('submitStatus');
+  statusEl.textContent = 'Сохраняем заявку...';
+
+  try {
+    await ensureSession();
+    const file = document.getElementById('designFile').files[0];
+    if (file) {
+      statusEl.textContent = 'Загружаем дизайн-проект...';
+      const form = new FormData();
+      form.append('session_token', sessionToken);
+      form.append('file', file);
+      const uploaded = await apiFetch('/quiz/design-project', { method: 'POST', body: form });
+      designProjectFileUrl = uploaded.url;
+    }
+
+    const result = await apiFetch('/quiz/submit', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        contact: { name, preferred_messenger: selectedMessenger },
+        answers,
+        price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
+        design_project_file_url: designProjectFileUrl || null,
+        ...collectTrackingParams()
+      })
+    });
+    currentLeadId = result.lead_id;
+    sessionToken = result.session_token;
+    localStorage.setItem('isaev_quiz_session_token', sessionToken);
+    localStorage.removeItem('isaev_quiz_progress');
+    measurementSlots = result.measurement_slots || [];
+  } catch (e) {
+    statusEl.textContent = 'Не удалось отправить заявку. Попробуйте ещё раз или напишите нам в мессенджер.';
+    console.error(e);
+    return;
+  }
+
+  // Заполняем экран результата
+  document.getElementById('resultRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
+  document.getElementById('resultItems').innerHTML = resultFields.map(([k, title]) => `
+    <div class="result-item">
+      <span class="result-item-label">${title}</span>
+      <span class="result-item-val">${labels[k]?.[answers[k]] || '—'}</span>
+    </div>`).join('');
+
+  document.getElementById('tyName').textContent  = name;
+  document.getElementById('tyMessenger').textContent = selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
+  document.getElementById('floatGift').style.display = 'none';
+  renderSlots(name);
+  renderMessengerLinks(name);
+  showScreen('screen-result');
+}
+
+function selectMessenger(messenger) {
+  selectedMessenger = messenger;
+  document.querySelectorAll('.messenger-choice-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.messenger === messenger);
+  });
+  document.getElementById('submitStatus').textContent = '';
+  trackEvent('messenger_selected', 'contact', { messenger });
+}
+
+function shouldShowExitPopup() {
+  return !exitPopupShown && step >= 0 && Object.keys(answers).length > 0 && !currentLeadId;
+}
+
+function showExitPopup(reason) {
+  if (!shouldShowExitPopup()) return;
+  exitPopupShown = true;
+  sessionStorage.setItem('isaev_exit_popup_shown', '1');
+  document.getElementById('exitOverlay').classList.add('active');
+  document.getElementById('exitName').value = document.getElementById('fname')?.value || '';
+  trackEvent('quiz_exit_capture_shown', questions[step]?.id || 'unknown', { reason, answers_count: Object.keys(answers).length });
+}
+
+function closeExitPopup() {
+  document.getElementById('exitOverlay').classList.remove('active');
+  trackEvent('quiz_exit_capture_closed', questions[step]?.id || 'unknown');
+}
+
+async function captureExitContact(messenger) {
+  const name = document.getElementById('exitName').value.trim() || 'Клиент квиза';
+  const statusEl = document.getElementById('exitStatus');
+  statusEl.textContent = 'Сохраняем расчет...';
+  try {
+    await ensureSession();
+    const result = await apiFetch('/quiz/capture-contact', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        contact: { name, preferred_messenger: messenger },
+        answers,
+        ...collectTrackingParams(),
+        source: 'quiz_exit_capture'
+      })
+    });
+    currentLeadId = result.lead_id;
+    sessionToken = result.session_token;
+    localStorage.setItem('isaev_quiz_session_token', sessionToken);
+    statusEl.textContent = 'Готово. Открываем мессенджер...';
+    trackEvent(`${messenger}_clicked`, 'exit_capture');
+    setTimeout(() => {
+      document.getElementById('exitOverlay').classList.remove('active');
+      window.open(buildMessengerUrl(messenger, buildMessengerMessage(name)), '_blank', 'noopener');
+    }, 500);
+  } catch (e) {
+    statusEl.textContent = 'Не удалось сохранить. Попробуйте еще раз.';
+    console.error(e);
+  }
+}
+
+function resetInactivityTimer() {
+  clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(() => showExitPopup('inactivity'), 45000);
+}
+
+document.addEventListener('mouseleave', function(event) {
+  if (event.clientY <= 0) showExitPopup('mouse_leave_top');
+});
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && step >= 0 && Object.keys(answers).length > 0 && !currentLeadId) {
+    trackEvent('quiz_abandoned', questions[step]?.id || 'unknown', { answers_count: Object.keys(answers).length });
+  }
+});
+
+['click', 'keydown', 'touchstart', 'mousemove'].forEach(eventName => {
+  document.addEventListener(eventName, resetInactivityTimer, { passive: true });
+});
+
+function renderSlots(name) {
+  const section = document.getElementById('slotsSection');
+  const grid = document.getElementById('slotGrid');
+  if (answers.design === 'yes' || measurementSlots.length === 0) {
+    section.classList.remove('active');
+    return;
+  }
+  section.classList.add('active');
+  grid.innerHTML = measurementSlots.map((slot, index) => `
+    <button class="slot-btn" onclick="chooseSlot(${index}, '${escapeJs(name)}')">
+      ${slot.date_label} · ${slot.label}
+    </button>
+  `).join('');
+}
+
+async function chooseSlot(index, name) {
+  const slot = measurementSlots[index];
+  const statusEl = document.getElementById('slotStatus');
+  statusEl.textContent = `Вы выбрали ${slot.date_label} в ${slot.label}. Открываем мессенджер...`;
+  trackEvent('cal_slot_selected', 'measurement', { start: slot.start, date_label: slot.date_label, label: slot.label });
+  setTimeout(() => {
+    window.open(buildMessengerUrl(selectedMessenger || 'telegram', buildMessengerMessage(name, slot)), '_blank', 'noopener');
+  }, 400);
+}
+
+function renderMessengerLinks(name) {
+  const primary = selectedMessenger || 'telegram';
+  const secondary = primary === 'telegram' ? 'whatsapp' : 'telegram';
+  const primaryEl = document.getElementById('primaryMessengerLink');
+  const secondaryEl = document.getElementById('secondaryMessengerLink');
+  primaryEl.textContent = primary === 'telegram' ? 'Открыть Telegram' : 'Открыть WhatsApp';
+  secondaryEl.textContent = secondary === 'telegram' ? 'Telegram' : 'WhatsApp';
+  primaryEl.href = buildMessengerUrl(primary, buildMessengerMessage(name));
+  secondaryEl.href = buildMessengerUrl(secondary, buildMessengerMessage(name));
+  primaryEl.onclick = () => trackEvent(`${primary}_clicked`, 'messenger');
+  secondaryEl.onclick = () => trackEvent(`${secondary}_clicked`, 'messenger');
+}
+
+function buildMessengerMessage(name, slot = null) {
+  const slotText = slot ? ` Хочу записаться на замер: ${slot.date_label} в ${slot.label}.` : '';
+  return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText} Код заявки: ${sessionToken}`;
+}
+
+function buildMessengerUrl(messenger, message) {
+  const text = encodeURIComponent(message);
+  if (messenger === 'whatsapp') {
+    return WHATSAPP_PHONE
+      ? `https://wa.me/${WHATSAPP_PHONE.replace(/\D/g, '')}?text=${text}`
+      : `https://wa.me/?text=${text}`;
+  }
+  if (telegramBotUsername && sessionToken) {
+    return `https://t.me/${telegramBotUsername}?start=${encodeURIComponent(sessionToken)}`;
+  }
+  const separator = TELEGRAM_URL.includes('?') ? '&' : '?';
+  return `${TELEGRAM_URL}${separator}text=${text}`;
+}
+
+function escapeJs(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+initPostHog();
+ensureSession();
+
+function shake(id) {
+  const el = document.getElementById(id);
+  el.style.animation = 'none';
+  el.offsetHeight;
+  el.style.animation = 'shake 0.4s ease';
+  el.style.borderColor = '#e05555';
+  setTimeout(() => { el.style.borderColor = ''; el.style.animation = ''; }, 600);
+}
+
+// Shake animation
+const style = document.createElement('style');
+style.textContent = `@keyframes shake {
+  0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)}
+  40%{transform:translateX(8px)} 60%{transform:translateX(-5px)}
+  80%{transform:translateX(5px)}}`;
+document.head.appendChild(style);
+showResumeBoxIfNeeded();
+resetInactivityTimer();
+</script>
+</body>
+</html>

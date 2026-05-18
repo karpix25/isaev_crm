@@ -6,6 +6,7 @@ from telethon import TelegramClient, sessions
 
 from src.database import AsyncSessionLocal
 from src.models import TelegramUserBot
+from src.config import settings
 from src.services.user_bot_service import user_bot_service
 
 # Configure logging
@@ -150,6 +151,8 @@ async def main():
                         Lead.source.in_(["userbot", "CRM"])
                     )
                     .options(selectinload(ChatMessage.lead))
+                    .order_by(ChatMessage.created_at.asc())
+                    .limit(max(1, settings.userbot_pending_message_batch_size))
                 )
                 pending_messages = result.scalars().all()
                 

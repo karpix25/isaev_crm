@@ -1,10 +1,21 @@
 export enum LeadStatus {
     NEW = 'NEW',
+    QUIZ_COMPLETED = 'QUIZ_COMPLETED',
+    MESSENGER_PENDING = 'MESSENGER_PENDING',
+    DESIGN_PENDING = 'DESIGN_PENDING',
+    DESIGN_REVIEW = 'DESIGN_REVIEW',
     CONSULTING = 'CONSULTING',
-    FOLLOW_UP = 'FOLLOW_UP',
     QUALIFIED = 'QUALIFIED',
+    MEASUREMENT_PENDING = 'MEASUREMENT_PENDING',
+    MEASUREMENT_BOOKED = 'MEASUREMENT_BOOKED',
     MEASUREMENT = 'MEASUREMENT',
+    MEASUREMENT_DONE = 'MEASUREMENT_DONE',
+    ESTIMATE_PREPARING = 'ESTIMATE_PREPARING',
+    ESTIMATE_REVIEW = 'ESTIMATE_REVIEW',
+    ESTIMATE_SENT = 'ESTIMATE_SENT',
     ESTIMATE = 'ESTIMATE',
+    FOLLOW_UP = 'FOLLOW_UP',
+    CONTRACT_NEGOTIATION = 'CONTRACT_NEGOTIATION',
     CONTRACT = 'CONTRACT',
     WON = 'WON',
     LOST = 'LOST',
@@ -87,6 +98,67 @@ export interface DashboardMetrics {
     activity_chart: ActivityChartItem[];
     conversion_chart: ConversionChartItem[];
     recent_ai_actions: RecentAIAction[];
+}
+
+export interface FunnelStepMetric {
+    key: string
+    label: string
+    count: number
+    conversion_from_previous?: number | null
+    conversion_from_start?: number | null
+}
+
+export interface BreakdownItem {
+    key: string
+    label: string
+    count: number
+}
+
+export interface QuizAnswerBreakdown {
+    step_id: string
+    label: string
+    options: BreakdownItem[]
+}
+
+export interface MessengerMetric {
+    messenger: string
+    label: string
+    clicks: number
+    inbound: number
+    conversion_rate: number
+    lost_after_click: number
+}
+
+export interface AnalyticsEventItem {
+    id: string
+    session_token: string
+    lead_id?: string | null
+    event_type: string
+    step_id?: string | null
+    event_data?: Record<string, any> | null
+    created_at: string
+}
+
+export interface AnalyticsSummary {
+    sessions_total: number
+    sessions_completed: number
+    sessions_abandoned: number
+    leads_linked: number
+    completion_rate: number
+    funnel: FunnelStepMetric[]
+    sources: BreakdownItem[]
+    campaigns: BreakdownItem[]
+    channels: BreakdownItem[]
+    quiz_answers: QuizAnswerBreakdown[]
+    messenger_metrics: MessengerMetric[]
+    recent_events: AnalyticsEventItem[]
+}
+
+export interface AnalyticsSummaryParams {
+    date_from?: string
+    date_to?: string
+    source?: string
+    campaign?: string
 }
 
 export interface User {

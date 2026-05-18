@@ -3,17 +3,26 @@ import logging
 import asyncio
 import contextlib
 from urllib.parse import urlparse
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.config import settings
-from src.database import init_db, close_db
+from src.database import init_db, close_db, check_db_connection
 from src.api import api_router
 from src.bot import bot, dp
 
 logger = logging.getLogger(__name__)
 telegram_polling_task: asyncio.Task | None = None
+
+
+def _telegram_webhook_params(url: str) -> dict:
+    params = {"url": url, "drop_pending_updates": False}
+    secret_token = (settings.telegram_webhook_secret_token or "").strip()
+    if secret_token:
+        params["secret_token"] = secret_token
+    return params
 
 
 app = FastAPI(
@@ -81,7 +90,7 @@ async def startup():
                     await _start_telegram_polling()
                 else:
                     logger.info("Setting webhook to: %s", settings.telegram_webhook_url)
-                    await bot.set_webhook(settings.telegram_webhook_url, drop_pending_updates=False)
+                    await bot.set_webhook(**_telegram_webhook_params(settings.telegram_webhook_url))
                     info = await bot.get_webhook_info()
                     logger.info(
                         "Telegram webhook info: url=%s pending=%s last_error=%s",
@@ -102,7 +111,7 @@ async def startup():
                 else:
                     try:
                         logger.info("Auto mode: setting webhook to %s", webhook_url)
-                        await bot.set_webhook(webhook_url, drop_pending_updates=False)
+                        await bot.set_webhook(**_telegram_webhook_params(webhook_url))
                         info = await bot.get_webhook_info()
                         logger.info(
                             "Telegram webhook info: url=%s pending=%s last_error=%s",
@@ -123,12 +132,6 @@ async def startup():
         elif not settings.telegram_bot_token:
             logger.warning("TELEGRAM_BOT_TOKEN is empty. Bot will not receive updates.")
     
-    # Start follow-up background loop
-    import asyncio
-    from src.services.followup_service import start_followup_loop
-    asyncio.create_task(start_followup_loop())
-    logger.info("Follow-up background loop scheduled")
-
 @app.on_event("shutdown")
 async def shutdown():
     global telegram_polling_task
@@ -151,3 +154,16 @@ app.mount("/media", StaticFiles(directory=media_path), name="media")
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    db_ok = await check_db_connection()
+    status_code = status.HTTP_200_OK if db_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ok" if db_ok else "degraded",
+            "checks": {"database": "ok" if db_ok else "error"},
+        },
+    )
