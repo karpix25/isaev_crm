@@ -323,14 +323,26 @@ async def _handle_regular_start(message: Message) -> None:
         
         # Get or create lead
         avatar_url = await download_user_avatar(bot, message.from_user.id)
-        lead = await lead_service.create_or_get_lead(
+        from src.services.quiz_service import quiz_service
+        lead = await quiz_service.link_telegram_identity(
             db=db,
             org_id=org_id,
             telegram_id=message.from_user.id,
             full_name=message.from_user.full_name,
             username=message.from_user.username,
-            avatar_url=avatar_url
         )
+        if not lead:
+            lead = await lead_service.create_or_get_lead(
+                db=db,
+                org_id=org_id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+                avatar_url=avatar_url
+            )
+        elif avatar_url and not lead.avatar_url:
+            lead.avatar_url = avatar_url
+            await db.flush()
         
         # Save /start command
         await chat_service.save_incoming_message(
@@ -343,7 +355,7 @@ async def _handle_regular_start(message: Message) -> None:
         
         # Get initial message from database or fallback
         config = await prompt_service.get_active_config(db, org_id)
-        
+
         # Get company name from org settings
         from src.models.organization import Organization
         from sqlalchemy import select
@@ -642,14 +654,22 @@ async def process_debounced_message(user_id: int):
         # Get default organization ID
         org_id = await get_default_org_id(db)
         
-        # Get or create lead
-        lead = await lead_service.create_or_get_lead(
+        from src.services.quiz_service import quiz_service
+        lead = await quiz_service.link_telegram_identity(
             db=db,
             org_id=org_id,
             telegram_id=message.from_user.id,
             full_name=message.from_user.full_name,
-            username=message.from_user.username
+            username=message.from_user.username,
         )
+        if not lead:
+            lead = await lead_service.create_or_get_lead(
+                db=db,
+                org_id=org_id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username
+            )
         
         # Save incoming message (using combined text as one entry for AI context)
         metadata = {"is_voice": True} if has_voice else None

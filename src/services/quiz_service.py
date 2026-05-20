@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import FunnelSession, Lead, LeadStatus
+from src.models import ChatMessage, FunnelSession, Lead, LeadStatus
 from src.models.funnel import FunnelEvent
 from src.schemas.analytics import FunnelSessionCreate
 from src.schemas.quiz import QuizContact, QuizContactCaptureRequest, QuizSubmitRequest, MeasurementBookingRequest
@@ -356,6 +356,87 @@ class QuizService:
             event_data={"lead_id": str(lead.id), "telegram_id": telegram_id},
         )
         return lead
+
+    async def link_telegram_identity(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        telegram_id: int,
+        full_name: str | None = None,
+        username: str | None = None,
+    ) -> Lead | None:
+        result = await db.execute(
+            select(Lead).where(Lead.org_id == org_id, Lead.telegram_id == telegram_id)
+        )
+        existing = result.scalar_one_or_none()
+
+        normalized_name = (full_name or "").strip().casefold()
+        normalized_username = self._clean_username(username)
+        result = await db.execute(
+            select(Lead)
+            .where(
+                Lead.org_id == org_id,
+                Lead.telegram_id.is_(None),
+                Lead.source.in_(["quiz", "quiz_exit_capture", "quiz_telegram"]),
+            )
+            .order_by(Lead.created_at.desc())
+            .limit(25)
+        )
+        for lead in result.scalars().all():
+            data = self._parse_extracted_data(lead.extracted_data)
+            quiz = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
+            messengers = data.get("messengers") if isinstance(data.get("messengers"), dict) else {}
+            preferred = str(quiz.get("preferred_messenger") or "").lower()
+            if preferred != "telegram" and not messengers.get("telegram"):
+                continue
+
+            lead_name = (lead.full_name or "").strip().casefold()
+            lead_username = self._clean_username(lead.username)
+            name_matches = bool(normalized_name and lead_name and normalized_name == lead_name)
+            username_matches = bool(normalized_username and lead_username and normalized_username == lead_username)
+            if not name_matches and not username_matches:
+                continue
+
+            if existing and existing.id != lead.id:
+                await db.execute(
+                    update(ChatMessage)
+                    .where(ChatMessage.lead_id == existing.id)
+                    .values(lead_id=lead.id)
+                )
+                if existing.last_message_at and (
+                    not lead.last_message_at or existing.last_message_at > lead.last_message_at
+                ):
+                    lead.last_message_at = existing.last_message_at
+                lead.unread_count = (lead.unread_count or 0) + (existing.unread_count or 0)
+                existing.telegram_id = None
+                existing.telegram_lookup_status = "not_checked"
+
+            lead.telegram_id = telegram_id
+            lead.full_name = full_name or lead.full_name
+            lead.username = normalized_username or lead.username
+            lead.telegram_lookup_status = "active"
+            lead.telegram_lookup_checked_at = datetime.now(timezone.utc)
+            data.setdefault("messengers", {})["telegram"] = True
+            data["telegram_chat"] = {
+                "telegram_id": telegram_id,
+                "username": normalized_username,
+                "linked_at": datetime.now(timezone.utc).isoformat(),
+                "link_method": "identity_match",
+            }
+            lead.extracted_data = json.dumps(data, ensure_ascii=False)
+
+            token = data.get("quiz_session_token")
+            if token:
+                session = await self._get_session(db, token)
+                if session:
+                    session.lead_id = lead.id
+                    session.last_event_at = datetime.now(timezone.utc)
+
+            await db.commit()
+            await db.refresh(lead)
+            return lead
+
+        return existing
 
     async def link_whatsapp_message(
         self,
