@@ -1,15 +1,5 @@
 import React, { useMemo, useState } from 'react'
 import { BarChart3, CheckCircle2, Link2, MessageCircle, MousePointerClick, RefreshCw, TrendingUp, Users } from 'lucide-react'
-import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Cell,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
-} from 'recharts'
 import { useAnalyticsSummary } from '@/hooks/useAnalytics'
 import { formatTimeAgo } from '@/lib/utils'
 import type { AnalyticsEventItem, BreakdownItem, FunnelStepMetric, MessengerMetric, QuizAnswerBreakdown } from '@/types'
@@ -139,35 +129,27 @@ export function Analytics() {
                 <MetricCard title="Замеры" value={measurementBooked} hint="Забронировано" icon={TrendingUp} tone="bg-emerald-700" />
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(380px,1fr)]">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.85fr)]">
                 <section className="rounded-lg border bg-card p-5">
                     <div className="mb-4 flex items-center justify-between gap-3">
                         <div>
                             <h3 className="text-lg font-semibold">Воронка по шагам</h3>
                             <p className="text-sm text-muted-foreground">Где пользователи доходят, а где отваливаются</p>
                         </div>
-                        <div className="text-sm text-muted-foreground">Завершение: {data.completion_rate}%</div>
+                        <div className="rounded-md bg-muted px-3 py-2 text-right">
+                            <div className="text-xs text-muted-foreground">Завершение</div>
+                            <div className="text-lg font-semibold">{data.completion_rate}%</div>
+                        </div>
                     </div>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={data.funnel}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="label" interval={0} angle={-20} textAnchor="end" height={72} tick={{ fontSize: 11 }} />
-                            <YAxis />
-                            <Tooltip formatter={(value) => [value, 'Сессий']} />
-                            <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                                {data.funnel.map((entry, index) => (
-                                    <Cell key={entry.key} fill={index < 3 ? '#2563eb' : index < 6 ? '#059669' : '#7c3aed'} />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <FunnelBars steps={data.funnel} />
                 </section>
 
                 <section className="rounded-lg border bg-card p-5">
-                    <h3 className="mb-4 text-lg font-semibold">Список шагов</h3>
-                    <div className="space-y-2">
-                        {data.funnel.map((step) => <FunnelRow key={step.key} step={step} />)}
+                    <div className="mb-4">
+                        <h3 className="text-lg font-semibold">Список шагов</h3>
+                        <p className="text-sm text-muted-foreground">Конверсия и потери на каждом переходе</p>
                     </div>
+                    <FunnelStepList steps={data.funnel} />
                 </section>
             </div>
 
@@ -260,21 +242,96 @@ function MessengerMetricCard({ metric }: { metric: MessengerMetric }) {
     )
 }
 
-function FunnelRow({ step }: { step: FunnelStepMetric }) {
+function formatPercent(value?: number | null) {
+    if (value === null || value === undefined) return '-'
+    return `${value}%`
+}
+
+function getStepTone(index: number) {
+    if (index < 3) return 'bg-blue-600'
+    if (index < 6) return 'bg-emerald-600'
+    return 'bg-violet-600'
+}
+
+function FunnelBars({ steps }: { steps: FunnelStepMetric[] }) {
+    const maxCount = Math.max(...steps.map((step) => step.count), 1)
+    if (steps.length === 0) {
+        return <p className="py-12 text-center text-sm text-muted-foreground">Нет данных по воронке</p>
+    }
+
     return (
-        <div className="grid grid-cols-[1fr_auto] gap-3 rounded-md border px-3 py-2">
-            <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{step.label}</div>
-                <div className="text-xs text-muted-foreground">
-                    от старта: {step.conversion_from_start ?? 0}%
-                </div>
-            </div>
-            <div className="text-right">
-                <div className="text-sm font-semibold">{step.count}</div>
-                <div className="text-xs text-muted-foreground">
-                    {step.conversion_from_previous === null || step.conversion_from_previous === undefined ? '-' : `${step.conversion_from_previous}%`}
-                </div>
-            </div>
+        <div className="space-y-3">
+            {steps.map((step, index) => {
+                const width = `${Math.max(4, Math.round((step.count / maxCount) * 100))}%`
+                const previous = index > 0 ? steps[index - 1] : null
+                const lost = previous ? Math.max(0, previous.count - step.count) : 0
+                return (
+                    <div key={step.key} className="grid gap-2 md:grid-cols-[190px_1fr_112px] md:items-center">
+                        <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold">{step.label}</div>
+                            <div className="text-xs text-muted-foreground">от старта: {formatPercent(step.conversion_from_start)}</div>
+                        </div>
+                        <div className="relative h-9 overflow-hidden rounded-md bg-muted">
+                            <div className={`h-full rounded-md ${getStepTone(index)}`} style={{ width }} />
+                            <div className="absolute inset-0 flex items-center justify-between px-3 text-xs font-semibold">
+                                <span className="text-white drop-shadow-sm">{step.count}</span>
+                                {lost > 0 ? (
+                                    <span className="rounded bg-background/90 px-2 py-0.5 text-red-600">-{lost}</span>
+                                ) : (
+                                    <span className="rounded bg-background/80 px-2 py-0.5 text-muted-foreground">без потерь</span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-xs md:block md:text-right">
+                            <span className="text-muted-foreground md:block">к пред.</span>
+                            <span className="font-semibold">{formatPercent(step.conversion_from_previous)}</span>
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
+function FunnelStepList({ steps }: { steps: FunnelStepMetric[] }) {
+    if (steps.length === 0) {
+        return <p className="py-12 text-center text-sm text-muted-foreground">Нет данных по шагам</p>
+    }
+
+    return (
+        <div className="space-y-2">
+            {steps.map((step, index) => {
+                const previous = index > 0 ? steps[index - 1] : null
+                const lost = previous ? Math.max(0, previous.count - step.count) : 0
+                const lossRate = previous?.count ? Math.round((lost / previous.count) * 1000) / 10 : 0
+                return (
+                    <div key={step.key} className="rounded-md border bg-background p-3">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted text-xs font-semibold text-muted-foreground">
+                                        {index + 1}
+                                    </span>
+                                    <div className="truncate text-sm font-semibold">{step.label}</div>
+                                </div>
+                                <div className="mt-1 pl-8 text-xs text-muted-foreground">
+                                    от старта: {formatPercent(step.conversion_from_start)}
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-base font-bold">{step.count}</div>
+                                <div className="text-xs text-muted-foreground">сессий</div>
+                            </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3 text-xs">
+                            <span className="text-muted-foreground">к предыдущему: {formatPercent(step.conversion_from_previous)}</span>
+                            <span className={`rounded-full px-2 py-1 font-semibold ${lost > 0 ? 'bg-red-500/10 text-red-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
+                                {lost > 0 ? `Потеря ${lost} (${lossRate}%)` : 'Без потерь'}
+                            </span>
+                        </div>
+                    </div>
+                )
+            })}
         </div>
     )
 }
