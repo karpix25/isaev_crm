@@ -76,80 +76,76 @@ export function Analytics() {
     const messengerInbound = messengerMetrics.reduce((sum, item) => sum + item.inbound, 0)
     const messengerRate = messengerClicks ? Math.round((messengerInbound / messengerClicks) * 1000) / 10 : 0
     const contactRate = started ? Math.round((contactSubmitted / started) * 1000) / 10 : 0
+    const leadRate = data.sessions_total ? Math.round((data.leads_linked / data.sessions_total) * 1000) / 10 : 0
+    const abandonedRate = data.sessions_total ? Math.round((data.sessions_abandoned / data.sessions_total) * 1000) / 10 : 0
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="text-sm">
-                        <span className="mb-1 block text-muted-foreground">Период</span>
-                        <select
-                            value={period}
-                            onChange={(event) => setPeriod(event.target.value)}
-                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                        >
-                            {periodOptions.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="text-sm">
-                        <span className="mb-1 block text-muted-foreground">Источник</span>
-                        <input
-                            value={source}
-                            onChange={(event) => setSource(event.target.value)}
-                            placeholder="telegram, yandex..."
-                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                        />
-                    </label>
-                    <label className="text-sm">
-                        <span className="mb-1 block text-muted-foreground">Кампания</span>
-                        <input
-                            value={campaign}
-                            onChange={(event) => setCampaign(event.target.value)}
-                            placeholder="utm_campaign"
-                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                        />
-                    </label>
-                </div>
-                <button
-                    type="button"
-                    onClick={() => refetch()}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium hover:bg-accent"
-                >
-                    <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-                    Обновить
-                </button>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <MetricCard title="Сессии квиза" value={data.sessions_total} icon={MousePointerClick} tone="bg-blue-600" />
-                <MetricCard title="Дошли до контакта" value={contactSubmitted} icon={Users} tone="bg-emerald-600" />
-                <MetricCard title="Конверсия в контакт" value={`${contactRate}%`} icon={TrendingUp} tone="bg-amber-600" />
-                <MetricCard title="Лиды в CRM" value={data.leads_linked} icon={Link2} tone="bg-sky-700" />
-                <MetricCard title="Нажали слот" value={measurementSlots} icon={CheckCircle2} tone="bg-violet-600" />
-                <MetricCard title="Замер забронирован" value={measurementBooked} icon={CheckCircle2} tone="bg-emerald-600" />
-            </div>
-
-            <section className="rounded-lg border bg-card p-6">
-                <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-5 pb-8">
+            <section className="rounded-lg border bg-card p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                     <div>
-                        <h3 className="text-lg font-semibold">Мессенджеры после квиза</h3>
-                        <p className="text-sm text-muted-foreground">Считаются только сообщения с кодом заявки из квиза</p>
+                        <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Дашборд квиза</div>
+                        <h2 className="mt-1 text-2xl font-semibold">Сводка по воронке и мессенджерам</h2>
                     </div>
-                    <div className="text-sm text-muted-foreground">Клик → сообщение с кодом: {messengerRate}%</div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                    {messengerMetrics.map((metric) => (
-                        <MessengerMetricCard key={metric.messenger} metric={metric} />
-                    ))}
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[620px]">
+                        <label className="text-sm">
+                            <span className="mb-1 block text-muted-foreground">Период</span>
+                            <select
+                                value={period}
+                                onChange={(event) => setPeriod(event.target.value)}
+                                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                            >
+                                {periodOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <label className="text-sm">
+                            <span className="mb-1 block text-muted-foreground">Источник</span>
+                            <input
+                                value={source}
+                                onChange={(event) => setSource(event.target.value)}
+                                placeholder="telegram, yandex..."
+                                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                            />
+                        </label>
+                        <label className="text-sm">
+                            <span className="mb-1 block text-muted-foreground">Кампания</span>
+                            <input
+                                value={campaign}
+                                onChange={(event) => setCampaign(event.target.value)}
+                                placeholder="utm_campaign"
+                                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                            />
+                        </label>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => refetch()}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium hover:bg-accent"
+                    >
+                        <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+                        Обновить
+                    </button>
                 </div>
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,1fr)]">
-                <section className="rounded-lg border bg-card p-6">
-                    <div className="mb-5 flex items-center justify-between gap-3">
-                        <h3 className="text-lg font-semibold">Провалы по шагам</h3>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <MetricCard title="Сессии" value={data.sessions_total} hint={`Потерь: ${abandonedRate}%`} icon={MousePointerClick} tone="bg-blue-600" />
+                <MetricCard title="Контакты" value={contactSubmitted} hint={`${contactRate}% от старта`} icon={Users} tone="bg-emerald-600" />
+                <MetricCard title="Лиды" value={data.leads_linked} hint={`${leadRate}% от сессий`} icon={Link2} tone="bg-sky-700" />
+                <MetricCard title="Мессенджеры" value={`${messengerRate}%`} hint={`${messengerInbound}/${messengerClicks} написали`} icon={MessageCircle} tone="bg-amber-600" />
+                <MetricCard title="Слоты" value={measurementSlots} hint="Нажали время" icon={CheckCircle2} tone="bg-violet-600" />
+                <MetricCard title="Замеры" value={measurementBooked} hint="Забронировано" icon={TrendingUp} tone="bg-emerald-700" />
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(380px,1fr)]">
+                <section className="rounded-lg border bg-card p-5">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                            <h3 className="text-lg font-semibold">Воронка по шагам</h3>
+                            <p className="text-sm text-muted-foreground">Где пользователи доходят, а где отваливаются</p>
+                        </div>
                         <div className="text-sm text-muted-foreground">Завершение: {data.completion_rate}%</div>
                     </div>
                     <ResponsiveContainer width="100%" height={300}>
@@ -167,42 +163,57 @@ export function Analytics() {
                     </ResponsiveContainer>
                 </section>
 
-                <section className="rounded-lg border bg-card p-6">
-                    <h3 className="mb-4 text-lg font-semibold">Воронка</h3>
+                <section className="rounded-lg border bg-card p-5">
+                    <h3 className="mb-4 text-lg font-semibold">Список шагов</h3>
                     <div className="space-y-2">
                         {data.funnel.map((step) => <FunnelRow key={step.key} step={step} />)}
                     </div>
                 </section>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-3">
+            <section className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h3 className="text-lg font-semibold">Мессенджеры после квиза</h3>
+                        <p className="text-sm text-muted-foreground">Считаются только сообщения с кодом заявки из квиза</p>
+                    </div>
+                    <div className="text-sm text-muted-foreground">Клик → сообщение с кодом: {messengerRate}%</div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                    {messengerMetrics.map((metric) => (
+                        <MessengerMetricCard key={metric.messenger} metric={metric} />
+                    ))}
+                </div>
+            </section>
+
+            <div className="grid gap-5 lg:grid-cols-3">
                 <BreakdownPanel title="Источники" items={data.sources} />
                 <BreakdownPanel title="Кампании" items={data.campaigns} />
                 <BreakdownPanel title="Каналы" items={data.channels} />
             </div>
 
-            <section className="rounded-lg border bg-card p-6">
+            <section className="rounded-lg border bg-card p-5">
                 <h3 className="mb-4 text-lg font-semibold">Ответы в квизе</h3>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     {data.quiz_answers.map((answer) => <AnswerPanel key={answer.step_id} answer={answer} />)}
                 </div>
             </section>
 
-            <section className="rounded-lg border bg-card p-6">
-                <h3 className="mb-4 text-lg font-semibold">Последние события</h3>
+            <section className="rounded-lg border bg-card p-5">
                 <RecentEvents events={data.recent_events} />
             </section>
         </div>
     )
 }
 
-function MetricCard({ title, value, icon: Icon, tone }: { title: string; value: string | number; icon: React.ElementType; tone: string }) {
+function MetricCard({ title, value, hint, icon: Icon, tone }: { title: string; value: string | number; hint?: string; icon: React.ElementType; tone: string }) {
     return (
         <div className="rounded-lg border bg-card p-5">
             <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                     <p className="text-sm text-muted-foreground">{title}</p>
                     <p className="mt-2 text-3xl font-bold">{value}</p>
+                    {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
                 </div>
                 <div className={`rounded-md ${tone} p-2.5`}>
                     <Icon className="h-5 w-5 text-white" />
@@ -317,36 +328,100 @@ function AnswerPanel({ answer }: { answer: QuizAnswerBreakdown }) {
 }
 
 function RecentEvents({ events }: { events: AnalyticsEventItem[] }) {
+    const [pageSize, setPageSize] = useState(10)
+    const [page, setPage] = useState(1)
+
     if (events.length === 0) {
-        return <p className="py-8 text-center text-sm text-muted-foreground">Событий пока нет</p>
+        return (
+            <div>
+                <h3 className="mb-4 text-lg font-semibold">Последние события</h3>
+                <p className="py-8 text-center text-sm text-muted-foreground">Событий пока нет</p>
+            </div>
+        )
     }
 
+    const totalPages = Math.max(1, Math.ceil(events.length / pageSize))
+    const currentPage = Math.min(page, totalPages)
+    const start = (currentPage - 1) * pageSize
+    const pagedEvents = events.slice(start, start + pageSize)
+
     return (
-        <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="border-b text-xs uppercase text-muted-foreground">
-                    <tr>
-                        <th className="py-3 pr-4 font-medium">Событие</th>
-                        <th className="py-3 pr-4 font-medium">Шаг</th>
-                        <th className="py-3 pr-4 font-medium">Сессия</th>
-                        <th className="py-3 pr-4 font-medium">Данные</th>
-                        <th className="py-3 font-medium">Время</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y">
-                    {events.map((event) => (
-                        <tr key={event.id}>
-                            <td className="py-3 pr-4 font-medium">{eventLabels[event.event_type] || event.event_type}</td>
-                            <td className="py-3 pr-4 text-muted-foreground">{event.step_id || '-'}</td>
-                            <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">{event.session_token.slice(0, 14)}...</td>
-                            <td className="max-w-[260px] truncate py-3 pr-4 text-muted-foreground">
-                                {formatEventData(event)}
-                            </td>
-                            <td className="whitespace-nowrap py-3 text-muted-foreground">{formatTimeAgo(event.created_at)}</td>
+        <div>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h3 className="text-lg font-semibold">Последние события</h3>
+                    <p className="text-sm text-muted-foreground">Показаны последние {events.length} событий по выбранным фильтрам</p>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    Строк
+                    <select
+                        value={pageSize}
+                        onChange={(event) => {
+                            setPageSize(Number(event.target.value))
+                            setPage(1)
+                        }}
+                        className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
+                    >
+                        {[10, 20, 40].map((size) => (
+                            <option key={size} value={size}>{size}</option>
+                        ))}
+                    </select>
+                </label>
+            </div>
+
+            <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[780px] text-left text-sm">
+                    <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                        <tr>
+                            <th className="px-4 py-3 font-medium">Событие</th>
+                            <th className="px-4 py-3 font-medium">Шаг</th>
+                            <th className="px-4 py-3 font-medium">Сессия</th>
+                            <th className="px-4 py-3 font-medium">Данные</th>
+                            <th className="px-4 py-3 font-medium">Время</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody className="divide-y">
+                        {pagedEvents.map((event) => (
+                            <tr key={event.id} className="hover:bg-muted/30">
+                                <td className="px-4 py-3 font-medium">{eventLabels[event.event_type] || event.event_type}</td>
+                                <td className="px-4 py-3 text-muted-foreground">{event.step_id || '-'}</td>
+                                <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{event.session_token.slice(0, 14)}...</td>
+                                <td className="max-w-[300px] truncate px-4 py-3 text-muted-foreground">
+                                    {formatEventData(event)}
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatTimeAgo(event.created_at)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-muted-foreground">
+                    {start + 1}-{Math.min(start + pageSize, events.length)} из {events.length}
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setPage((value) => Math.max(1, value - 1))}
+                        disabled={currentPage === 1}
+                        className="h-9 rounded-md border px-3 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Назад
+                    </button>
+                    <span className="min-w-20 text-center text-sm text-muted-foreground">
+                        {currentPage} / {totalPages}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+                        disabled={currentPage === totalPages}
+                        className="h-9 rounded-md border px-3 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Вперед
+                    </button>
+                </div>
+            </div>
         </div>
     )
 }
