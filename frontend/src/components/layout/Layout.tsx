@@ -13,7 +13,7 @@ export function Layout({ title }: LayoutProps) {
             <Sidebar />
             <div className="flex flex-1 flex-col overflow-hidden">
                 <Header title={title} />
-                <main className="flex-1 overflow-hidden bg-background p-6">
+                <main className="flex-1 overflow-y-auto bg-background p-6">
                     <Outlet />
                 </main>
             </div>
