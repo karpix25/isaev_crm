@@ -915,7 +915,7 @@
         </div>
       </div>
 
-      <button class="btn-next" onclick="submitForm()">Перейти в мессенджер →</button>
+      <button class="btn-next" onclick="submitForm()">Сохранить и открыть мессенджер →</button>
       <button class="btn-back" onclick="prevStep()">← Назад</button>
       <div class="inline-status" id="submitStatus"></div>
       <div class="disclaimer">Нажимая кнопку, вы соглашаетесь на обработку персональных данных</div>
@@ -963,10 +963,7 @@
           <div class="inline-status" id="slotStatus"></div>
         </div>
 
-        <div class="messenger-actions">
-          <a class="messenger-link" id="primaryMessengerLink" href="#" target="_blank" rel="noopener">Открыть мессенджер</a>
-          <a class="messenger-link" id="secondaryMessengerLink" href="#" target="_blank" rel="noopener">Другой способ</a>
-        </div>
+        <div class="messenger-actions" id="resultMessengerActions" style="display:none"></div>
       </div>
     </div>
 
@@ -1561,7 +1558,9 @@ async function submitForm() {
   document.getElementById('tyMessenger').textContent = selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
   document.getElementById('floatGift').style.display = 'none';
   renderSlots(name);
-  renderMessengerLinks(name);
+  const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(name));
+  trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
+  window.location.href = messengerUrl;
   showScreen('screen-result');
 }
 
@@ -1665,19 +1664,6 @@ async function chooseSlot(index, name) {
   setTimeout(() => {
     window.open(buildMessengerUrl(selectedMessenger || 'telegram', buildMessengerMessage(name, slot)), '_blank', 'noopener');
   }, 400);
-}
-
-function renderMessengerLinks(name) {
-  const primary = selectedMessenger || 'telegram';
-  const secondary = primary === 'telegram' ? 'whatsapp' : 'telegram';
-  const primaryEl = document.getElementById('primaryMessengerLink');
-  const secondaryEl = document.getElementById('secondaryMessengerLink');
-  primaryEl.textContent = primary === 'telegram' ? 'Открыть Telegram' : 'Открыть WhatsApp';
-  secondaryEl.textContent = secondary === 'telegram' ? 'Telegram' : 'WhatsApp';
-  primaryEl.href = buildMessengerUrl(primary, buildMessengerMessage(name));
-  secondaryEl.href = buildMessengerUrl(secondary, buildMessengerMessage(name));
-  primaryEl.onclick = () => trackEvent(`${primary}_clicked`, 'messenger');
-  secondaryEl.onclick = () => trackEvent(`${secondary}_clicked`, 'messenger');
 }
 
 function buildMessengerMessage(name, slot = null) {

@@ -581,6 +581,28 @@ const BASE_EXTRACTED_FIELDS: ExtractedFieldDescriptor[] = [
     { key: 'deadline', label: 'Сроки', icon: <Clock className="h-3 w-3" /> },
 ]
 
+const QUIZ_FIELD_LABELS: Record<string, string> = {
+    type: 'Объект',
+    area: 'Площадь',
+    rtype: 'Тип ремонта',
+    state: 'Состояние',
+    rooms: 'Объем',
+    design: 'Дизайн',
+    deadline: 'Срок',
+    budget: 'Бюджет',
+}
+
+const QUIZ_VALUE_LABELS: Record<string, Record<string, string>> = {
+    type: { flat: 'Квартира', house: 'Дом', commercial: 'Коммерция' },
+    area: { xs: 'до 40 м²', sm: '40-70 м²', md: '70-100 м²', lg: '100+ м²' },
+    rtype: { cosm: 'Косметический', finish: 'Чистовая отделка', full: 'Под ключ' },
+    state: { rough: 'Черновая отделка', lived: 'Жилое, требует обновления', demo: 'Нужен полный снос' },
+    rooms: { partial: 'Только санузел / кухня', several: 'Несколько комнат', all: 'Вся квартира целиком' },
+    design: { yes: 'Да, уже готов', wip: 'В процессе разработки', no: 'Нет, хочу в подарок' },
+    deadline: { asap: 'Как можно скорее', soon: 'В течение 1-3 месяцев', later: 'Не спешу' },
+    budget: { b1: 'До 1 млн ₽', b2: '1-2 млн ₽', b3: '2-4 млн ₽', b4: 'От 4 млн ₽' },
+}
+
 function parseExtractedData(raw: Lead['extracted_data']): Record<string, any> {
     try {
         return typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {})
@@ -608,6 +630,19 @@ function getDefaultTransport(lead: Lead): MessageTransport {
     const available = getLeadAvailableTransports(lead)
     if (available.includes(MessageTransport.TELEGRAM)) return MessageTransport.TELEGRAM
     return available[0]
+}
+
+function getQuizAnswerRows(extractedData: Record<string, any>): Array<{ key: string; label: string; value: string }> {
+    const answers = extractedData?.quiz?.answers
+    if (!answers || typeof answers !== 'object') return []
+
+    return Object.entries(answers)
+        .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+        .map(([key, value]) => ({
+            key,
+            label: QUIZ_FIELD_LABELS[key] || key,
+            value: QUIZ_VALUE_LABELS[key]?.[String(value)] || String(value),
+        }))
 }
 
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
@@ -780,6 +815,9 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const isSelectedTransportSendAvailable = true
     const telegramChatUrl = getTelegramChatUrl(lead)
     const whatsappChatUrl = getWhatsAppChatUrl(lead)
+    const quizAnswerRows = getQuizAnswerRows(savedExtractedData)
+    const quizPrice = savedExtractedData?.quiz?.price
+    const quizPreferredMessenger = savedExtractedData?.quiz?.preferred_messenger
 
     useEffect(() => {
         const nextAvailable = getLeadAvailableTransports(lead)
@@ -1027,6 +1065,29 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                     </div>
                                 )}
                             </section>
+
+                            {quizAnswerRows.length > 0 && (
+                                <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                                    <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                                        <ClipboardList className="h-3.5 w-3.5" /> Ответы квиза
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-y-5 gap-x-4">
+                                        {quizAnswerRows.map((row) => (
+                                            <DataField key={row.key} label={row.label} value={row.value} />
+                                        ))}
+                                        {quizPrice?.label && (
+                                            <DataField label="Расчет" value={String(quizPrice.label)} icon={<Wallet className="h-3 w-3" />} />
+                                        )}
+                                        {quizPreferredMessenger && (
+                                            <DataField
+                                                label="Мессенджер"
+                                                value={String(quizPreferredMessenger) === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                                                icon={<MessageCircle className="h-3 w-3" />}
+                                            />
+                                        )}
+                                    </div>
+                                </section>
+                            )}
 
                             <section className="rounded-2xl border bg-white p-5 shadow-sm">
                                 <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">

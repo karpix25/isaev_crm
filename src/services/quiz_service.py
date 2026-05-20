@@ -488,6 +488,9 @@ class QuizService:
                 "preferred_messenger": payload.contact.preferred_messenger,
                 "submitted_at": datetime.now(timezone.utc).isoformat(),
             },
+            "messengers": {
+                payload.contact.preferred_messenger: True,
+            } if payload.contact.preferred_messenger else {},
             "utm": {
                 "source": payload.utm_source,
                 "medium": payload.utm_medium,
