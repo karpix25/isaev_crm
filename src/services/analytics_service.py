@@ -22,20 +22,12 @@ from src.services.posthog_service import posthog_service
 FUNNEL_STEPS: list[tuple[str, str]] = [
     ("quiz_opened", "Открыл квиз"),
     ("quiz_started", "Начал квиз"),
-    ("answer_selected", "Ответил на вопрос"),
+    ("answer_selected", "Ответил на вопросы"),
     ("contact_viewed", "Дошел до контактов"),
     ("contact_submitted", "Оставил контакты"),
     ("lead_created", "Создан лид"),
-    ("telegram_clicked", "Нажал Telegram"),
-    ("telegram_bot_started", "Запустил Telegram-бота"),
-    ("telegram_message_received", "Написал в Telegram с кодом"),
-    ("whatsapp_clicked", "Нажал WhatsApp"),
-    ("whatsapp_message_received", "Написал в WhatsApp с кодом"),
-    ("design_file_uploaded", "Загрузил проект"),
-    ("design_upload_skipped", "Пришлю позже в мессенджере"),
-    ("cal_slot_selected", "Нажал слот"),
-    ("measurement_booked", "Замер забронирован"),
-    ("quiz_completed", "Завершил квиз"),
+    ("messenger_clicked", "Нажал мессенджер"),
+    ("messenger_message_received", "Написал в мессенджер"),
 ]
 
 QUIZ_STEP_LABELS = {
@@ -227,9 +219,15 @@ class AnalyticsService:
         start = None
         rows: list[FunnelStepMetric] = []
         for event_type, label in FUNNEL_STEPS:
+            if event_type == "messenger_clicked":
+                event_filter = FunnelEvent.event_type.in_(["telegram_clicked", "whatsapp_clicked"])
+            elif event_type == "messenger_message_received":
+                event_filter = FunnelEvent.event_type.in_(["telegram_message_received", "whatsapp_message_received"])
+            else:
+                event_filter = FunnelEvent.event_type == event_type
             count = await self._scalar_count(
                 db,
-                select(func.count(distinct(FunnelEvent.session_id))).where(*filters, FunnelEvent.event_type == event_type),
+                select(func.count(distinct(FunnelEvent.session_id))).where(*filters, event_filter),
             )
             if start is None:
                 start = count

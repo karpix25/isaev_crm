@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { BarChart3, CheckCircle2, Link2, MessageCircle, MousePointerClick, RefreshCw, TrendingUp, Users } from 'lucide-react'
+import { Link2, MessageCircle, MousePointerClick, RefreshCw, TrendingUp } from 'lucide-react'
 import { useAnalyticsSummary } from '@/hooks/useAnalytics'
 import { formatTimeAgo } from '@/lib/utils'
 import type { AnalyticsEventItem, BreakdownItem, FunnelStepMetric, MessengerMetric, QuizAnswerBreakdown } from '@/types'
@@ -57,15 +57,12 @@ export function Analytics() {
         return <div className="text-sm text-muted-foreground">Загрузка аналитики...</div>
     }
 
-    const started = data.funnel.find((step) => step.key === 'quiz_started')?.count || 0
     const contactSubmitted = data.funnel.find((step) => step.key === 'contact_submitted')?.count || 0
-    const measurementSlots = data.funnel.find((step) => step.key === 'cal_slot_selected')?.count || 0
-    const measurementBooked = data.funnel.find((step) => step.key === 'measurement_booked')?.count || 0
     const messengerMetrics = data.messenger_metrics || []
     const messengerClicks = messengerMetrics.reduce((sum, item) => sum + item.clicks, 0)
     const messengerInbound = messengerMetrics.reduce((sum, item) => sum + item.inbound, 0)
+    const messengerWritten = data.funnel.find((step) => step.key === 'messenger_message_received')?.count || messengerInbound
     const messengerRate = messengerClicks ? Math.round((messengerInbound / messengerClicks) * 1000) / 10 : 0
-    const contactRate = started ? Math.round((contactSubmitted / started) * 1000) / 10 : 0
     const leadRate = data.sessions_total ? Math.round((data.leads_linked / data.sessions_total) * 1000) / 10 : 0
     const abandonedRate = data.sessions_total ? Math.round((data.sessions_abandoned / data.sessions_total) * 1000) / 10 : 0
 
@@ -120,13 +117,11 @@ export function Analytics() {
                 </div>
             </section>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-                <MetricCard title="Сессии" value={data.sessions_total} hint={`Потерь: ${abandonedRate}%`} icon={MousePointerClick} tone="bg-blue-600" />
-                <MetricCard title="Контакты" value={contactSubmitted} hint={`${contactRate}% от старта`} icon={Users} tone="bg-emerald-600" />
-                <MetricCard title="Лиды" value={data.leads_linked} hint={`${leadRate}% от сессий`} icon={Link2} tone="bg-sky-700" />
-                <MetricCard title="Мессенджеры" value={`${messengerRate}%`} hint={`${messengerInbound}/${messengerClicks} написали`} icon={MessageCircle} tone="bg-amber-600" />
-                <MetricCard title="Слоты" value={measurementSlots} hint="Нажали время" icon={CheckCircle2} tone="bg-violet-600" />
-                <MetricCard title="Замеры" value={measurementBooked} hint="Забронировано" icon={TrendingUp} tone="bg-emerald-700" />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <MetricCard title="Сессии" value={data.sessions_total} hint={`Потери: ${abandonedRate}%`} icon={MousePointerClick} tone="bg-blue-600" />
+                <MetricCard title="Лиды" value={data.leads_linked} hint={`${leadRate}% от сессий`} icon={Link2} tone="bg-emerald-600" />
+                <MetricCard title="Мессенджер" value={`${messengerRate}%`} hint={`${messengerWritten}/${messengerClicks} написали`} icon={MessageCircle} tone="bg-amber-600" />
+                <MetricCard title="Завершение" value={`${data.completion_rate}%`} hint={`${contactSubmitted} оставили контакты`} icon={TrendingUp} tone="bg-violet-600" />
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.85fr)]">
@@ -176,9 +171,7 @@ export function Analytics() {
 
             <section className="rounded-lg border bg-card p-5">
                 <h3 className="mb-4 text-lg font-semibold">Ответы в квизе</h3>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {data.quiz_answers.map((answer) => <AnswerPanel key={answer.step_id} answer={answer} />)}
-                </div>
+                <QuizAnswersTable answers={data.quiz_answers} />
             </section>
 
             <section className="rounded-lg border bg-card p-5">
@@ -363,23 +356,47 @@ function BreakdownPanel({ title, items }: { title: string; items: BreakdownItem[
     )
 }
 
-function AnswerPanel({ answer }: { answer: QuizAnswerBreakdown }) {
+function QuizAnswersTable({ answers }: { answers: QuizAnswerBreakdown[] }) {
+    const rows = answers.map((answer) => {
+        const total = answer.options.reduce((sum, option) => sum + option.count, 0)
+        const top = answer.options[0]
+        const share = top && total ? Math.round((top.count / total) * 1000) / 10 : 0
+        return { answer, total, top, share }
+    })
+
+    if (rows.length === 0) {
+        return <p className="py-8 text-center text-sm text-muted-foreground">Ответов пока нет</p>
+    }
+
     return (
-        <div className="rounded-md border p-4">
-            <div className="mb-3 flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                <h4 className="truncate text-sm font-semibold">{answer.label}</h4>
-            </div>
-            <div className="space-y-2">
-                {answer.options.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-muted-foreground">Нет ответов</p>
-                ) : answer.options.map((option) => (
-                    <div key={option.key} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="min-w-0 truncate text-muted-foreground">{option.label}</span>
-                        <span className="font-medium">{option.count}</span>
-                    </div>
-                ))}
-            </div>
+        <div className="overflow-x-auto rounded-md border">
+            <table className="w-full min-w-[680px] text-left text-sm">
+                <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                    <tr>
+                        <th className="px-4 py-3 font-medium">Вопрос</th>
+                        <th className="px-4 py-3 font-medium">Топ-ответ</th>
+                        <th className="px-4 py-3 font-medium">Доля</th>
+                        <th className="px-4 py-3 font-medium">Всего ответов</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y">
+                    {rows.map(({ answer, total, top, share }) => (
+                        <tr key={answer.step_id} className="hover:bg-muted/30">
+                            <td className="px-4 py-3 font-semibold">{answer.label}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{top?.label || 'Нет данных'}</td>
+                            <td className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-2 w-28 overflow-hidden rounded-full bg-muted">
+                                        <div className="h-full rounded-full bg-primary" style={{ width: `${share}%` }} />
+                                    </div>
+                                    <span className="w-12 text-sm font-medium">{share}%</span>
+                                </div>
+                            </td>
+                            <td className="px-4 py-3 font-medium">{total}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
     )
 }
