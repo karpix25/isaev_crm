@@ -56,7 +56,7 @@ class QuizService:
             session = await analytics_service.create_session(db=db, org_id=org_id, data=session_data)
             session_token = session.session_token
 
-        lead = await self._create_or_update_lead(db, org_id, payload)
+        lead = await self._create_or_update_lead(db, org_id, payload, session_lead_id=session.lead_id)
 
         session.lead_id = lead.id
         session.status = "completed"
@@ -147,7 +147,7 @@ class QuizService:
                 "quiz_completed": False,
             },
         )
-        lead = await self._create_or_update_lead(db, org_id, submit_payload)
+        lead = await self._create_or_update_lead(db, org_id, submit_payload, session_lead_id=session.lead_id)
 
         session.lead_id = lead.id
         session.last_event_at = datetime.now(timezone.utc)
@@ -562,11 +562,27 @@ class QuizService:
         db: AsyncSession,
         org_id: uuid.UUID,
         payload: QuizSubmitRequest,
+        session_lead_id: uuid.UUID | None = None,
     ) -> Lead:
         phone = payload.contact.phone.strip() if payload.contact.phone else None
         lead = None
         if payload.lead_id:
             result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.id == payload.lead_id))
+            lead = result.scalar_one_or_none()
+        if not lead and session_lead_id:
+            result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.id == session_lead_id))
+            lead = result.scalar_one_or_none()
+        if not lead and payload.session_token:
+            result = await db.execute(
+                select(Lead)
+                .where(
+                    Lead.org_id == org_id,
+                    Lead.extracted_data.is_not(None),
+                    Lead.extracted_data.contains(payload.session_token),
+                )
+                .order_by(Lead.created_at.desc())
+                .limit(1)
+            )
             lead = result.scalar_one_or_none()
         if not lead and payload.telegram_id:
             result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.telegram_id == payload.telegram_id))

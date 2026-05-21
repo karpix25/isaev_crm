@@ -217,6 +217,55 @@ class LeadService:
         messenger_presence = resolved["messenger_presence"]
         whatsapp_wa_id = resolved["whatsapp_wa_id"]
 
+        conditions = []
+        if resolved_telegram_id:
+            conditions.append(Lead.telegram_id == resolved_telegram_id)
+        if phone:
+            conditions.append(Lead.phone == phone)
+        if conditions:
+            result = await db.execute(
+                select(Lead)
+                .where(Lead.org_id == org_id, or_(*conditions))
+                .order_by(Lead.created_at.desc())
+                .limit(1)
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                updated = False
+                if resolved_telegram_id and not existing.telegram_id:
+                    existing.telegram_id = resolved_telegram_id
+                    updated = True
+                if clean_username and not existing.username:
+                    existing.username = clean_username
+                    updated = True
+                if resolved_full_name and not existing.full_name:
+                    existing.full_name = resolved_full_name
+                    updated = True
+                if phone and not existing.phone:
+                    existing.phone = phone
+                    updated = True
+                if messenger_presence or whatsapp_wa_id:
+                    data = {}
+                    if existing.extracted_data:
+                        try:
+                            parsed = json.loads(existing.extracted_data)
+                            data = parsed if isinstance(parsed, dict) else {}
+                        except json.JSONDecodeError:
+                            data = {}
+                    if messenger_presence:
+                        data["messengers"] = {
+                            **(data.get("messengers") or {}),
+                            **messenger_presence,
+                        }
+                    if whatsapp_wa_id and not data.get("whatsapp_wa_id"):
+                        data["whatsapp_wa_id"] = whatsapp_wa_id
+                    existing.extracted_data = json.dumps(data, ensure_ascii=False)
+                    updated = True
+                if updated:
+                    await db.commit()
+                    await db.refresh(existing)
+                return existing
+
         extracted_data = {}
         if messenger_presence:
             extracted_data["messengers"] = messenger_presence

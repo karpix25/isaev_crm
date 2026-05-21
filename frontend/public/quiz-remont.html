@@ -1079,6 +1079,8 @@ let measurementSlots = [];
 let designProjectFileUrl = '';
 let designUploadDecision = '';
 let selectedMessenger = '';
+let isSubmittingQuiz = false;
+let isCapturingExitContact = false;
 let exitPopupShown = sessionStorage.getItem('isaev_exit_popup_shown') === '1';
 let inactivityTimer = null;
 
@@ -1501,6 +1503,7 @@ function showContact() {
 }
 
 async function submitForm() {
+  if (isSubmittingQuiz) return;
   const name  = document.getElementById('fname').value.trim();
   if (!name)  { shake('fname');  return; }
   if (!selectedMessenger) {
@@ -1511,6 +1514,7 @@ async function submitForm() {
   const { lo, hi } = calcPrice();
   const statusEl = document.getElementById('submitStatus');
   statusEl.textContent = 'Сохраняем заявку...';
+  isSubmittingQuiz = true;
 
   try {
     await ensureSession();
@@ -1543,6 +1547,7 @@ async function submitForm() {
   } catch (e) {
     statusEl.textContent = 'Не удалось отправить заявку. Попробуйте ещё раз или напишите нам в мессенджер.';
     console.error(e);
+    isSubmittingQuiz = false;
     return;
   }
 
@@ -1592,9 +1597,11 @@ function closeExitPopup() {
 }
 
 async function captureExitContact(messenger) {
+  if (isCapturingExitContact) return;
   const name = document.getElementById('exitName').value.trim() || 'Клиент квиза';
   const statusEl = document.getElementById('exitStatus');
   statusEl.textContent = 'Сохраняем расчет...';
+  isCapturingExitContact = true;
   try {
     await ensureSession();
     const result = await apiFetch('/quiz/capture-contact', {
@@ -1619,6 +1626,7 @@ async function captureExitContact(messenger) {
   } catch (e) {
     statusEl.textContent = 'Не удалось сохранить. Попробуйте еще раз.';
     console.error(e);
+    isCapturingExitContact = false;
   }
 }
 
