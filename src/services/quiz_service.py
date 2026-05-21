@@ -294,12 +294,26 @@ class QuizService:
             result = await db.execute(select(Lead).where(Lead.id == session.lead_id))
             quiz_lead = result.scalar_one_or_none()
 
-        if quiz_lead and (not telegram_lead or telegram_lead.id == quiz_lead.id):
+        if quiz_lead:
             lead = quiz_lead
+            if telegram_lead and telegram_lead.id != quiz_lead.id:
+                await db.execute(
+                    update(ChatMessage)
+                    .where(ChatMessage.lead_id == telegram_lead.id)
+                    .values(lead_id=quiz_lead.id)
+                )
+                if telegram_lead.last_message_at and (
+                    not quiz_lead.last_message_at or telegram_lead.last_message_at > quiz_lead.last_message_at
+                ):
+                    quiz_lead.last_message_at = telegram_lead.last_message_at
+                quiz_lead.unread_count = (quiz_lead.unread_count or 0) + (telegram_lead.unread_count or 0)
+                telegram_lead.telegram_id = None
+                telegram_lead.telegram_lookup_status = "not_checked"
+                telegram_lead.telegram_lookup_error = "merged_into_quiz_lead"
+                self._merge_quiz_data(source=telegram_lead, target=quiz_lead, overwrite_quiz=False)
+                await db.flush()
         elif telegram_lead:
             lead = telegram_lead
-            if quiz_lead and quiz_lead.id != telegram_lead.id:
-                self._merge_quiz_data(source=quiz_lead, target=lead)
         else:
             lead = Lead(
                 org_id=org_id,
@@ -581,6 +595,8 @@ class QuizService:
             },
             "metadata": payload.metadata or {},
         }
+        if payload.session_token:
+            extracted["quiz_session_token"] = payload.session_token
 
         if lead:
             data = self._parse_extracted_data(lead.extracted_data)
@@ -645,11 +661,22 @@ class QuizService:
         clean = username.strip()
         return clean[1:] if clean.startswith("@") else clean
 
-    def _merge_quiz_data(self, source: Lead, target: Lead) -> None:
+    def _merge_quiz_data(self, source: Lead, target: Lead, overwrite_quiz: bool = True) -> None:
         source_data = self._parse_extracted_data(source.extracted_data)
         target_data = self._parse_extracted_data(target.extracted_data)
-        if source_data.get("quiz"):
+        if source_data.get("quiz") and (overwrite_quiz or not target_data.get("quiz")):
             target_data["quiz"] = source_data["quiz"]
+        if source_data.get("messengers"):
+            target_data["messengers"] = {
+                **(target_data.get("messengers") or {}),
+                **source_data["messengers"],
+            }
+        if source_data.get("quiz_session_token") and not target_data.get("quiz_session_token"):
+            target_data["quiz_session_token"] = source_data["quiz_session_token"]
+        if source_data.get("telegram_chat") and not target_data.get("telegram_chat"):
+            target_data["telegram_chat"] = source_data["telegram_chat"]
+        if source_data.get("whatsapp_chat") and not target_data.get("whatsapp_chat"):
+            target_data["whatsapp_chat"] = source_data["whatsapp_chat"]
         if source_data.get("utm"):
             target_data["utm"] = source_data["utm"]
         if source_data.get("metadata"):

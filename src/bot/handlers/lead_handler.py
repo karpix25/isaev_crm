@@ -655,13 +655,22 @@ async def process_debounced_message(user_id: int):
         org_id = await get_default_org_id(db)
         
         from src.services.quiz_service import quiz_service
-        lead = await quiz_service.link_telegram_identity(
+        lead = await quiz_service.link_telegram_message(
             db=db,
             org_id=org_id,
+            text=combined_text,
             telegram_id=message.from_user.id,
             full_name=message.from_user.full_name,
             username=message.from_user.username,
         )
+        if not lead:
+            lead = await quiz_service.link_telegram_identity(
+                db=db,
+                org_id=org_id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+            )
         if not lead:
             lead = await lead_service.create_or_get_lead(
                 db=db,
