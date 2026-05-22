@@ -39,9 +39,9 @@ services:
       - "8000"
     labels:
       - "traefik.docker.network=hzxkc651dtomqyna2ibeuaxl"
-      - "traefik.http.routers.http-0-hzxkc651dtomqyna2ibeuaxl-app.service=app"
-      - "traefik.http.routers.https-0-hzxkc651dtomqyna2ibeuaxl-app.service=app"
-      - "traefik.http.services.app.loadbalancer.server.port=8000"
+      - "traefik.http.routers.http-0-hzxkc651dtomqyna2ibeuaxl-app.service=isaev-crm-app"
+      - "traefik.http.routers.https-0-hzxkc651dtomqyna2ibeuaxl-app.service=isaev-crm-app"
+      - "traefik.http.services.isaev-crm-app.loadbalancer.server.port=8000"
     networks:
       - default
     depends_on:
@@ -94,9 +94,9 @@ services:
       - "80"
     labels:
       - "traefik.docker.network=hzxkc651dtomqyna2ibeuaxl"
-      - "traefik.http.routers.http-0-hzxkc651dtomqyna2ibeuaxl-frontend.service=frontend"
-      - "traefik.http.routers.https-0-hzxkc651dtomqyna2ibeuaxl-frontend.service=frontend"
-      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.http-0-hzxkc651dtomqyna2ibeuaxl-frontend.service=isaev-crm-frontend"
+      - "traefik.http.routers.https-0-hzxkc651dtomqyna2ibeuaxl-frontend.service=isaev-crm-frontend"
+      - "traefik.http.services.isaev-crm-frontend.loadbalancer.server.port=80"
     depends_on:
       app:
         condition: service_healthy
