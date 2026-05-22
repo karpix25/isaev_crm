@@ -37,6 +37,8 @@ services:
     env_file: .env
     expose:
       - "8000"
+    labels:
+      - "traefik.http.services.app.loadbalancer.server.port=8000"
     networks:
       - default
     depends_on:
@@ -87,6 +89,8 @@ services:
     restart: always
     expose:
       - "80"
+    labels:
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
     depends_on:
       app:
         condition: service_healthy
