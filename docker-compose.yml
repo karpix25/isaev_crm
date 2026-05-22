@@ -38,6 +38,7 @@ services:
     expose:
       - "8000"
     labels:
+      - "traefik.docker.network=hzxkc651dtomqyna2ibeuaxl"
       - "traefik.http.services.app.loadbalancer.server.port=8000"
     networks:
       - default
@@ -90,6 +91,7 @@ services:
     expose:
       - "80"
     labels:
+      - "traefik.docker.network=hzxkc651dtomqyna2ibeuaxl"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
     depends_on:
       app:
