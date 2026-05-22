@@ -39,6 +39,8 @@ services:
       - "8000"
     labels:
       - "traefik.docker.network=hzxkc651dtomqyna2ibeuaxl"
+      - "traefik.http.routers.http-0-hzxkc651dtomqyna2ibeuaxl-app.service=app"
+      - "traefik.http.routers.https-0-hzxkc651dtomqyna2ibeuaxl-app.service=app"
       - "traefik.http.services.app.loadbalancer.server.port=8000"
     networks:
       - default
@@ -92,6 +94,8 @@ services:
       - "80"
     labels:
       - "traefik.docker.network=hzxkc651dtomqyna2ibeuaxl"
+      - "traefik.http.routers.http-0-hzxkc651dtomqyna2ibeuaxl-frontend.service=frontend"
+      - "traefik.http.routers.https-0-hzxkc651dtomqyna2ibeuaxl-frontend.service=frontend"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
     depends_on:
       app:
