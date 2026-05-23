@@ -5,6 +5,7 @@ Integrates AI-powered lead qualification using OpenRouter API.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 import uuid
 from aiogram import Router, F
