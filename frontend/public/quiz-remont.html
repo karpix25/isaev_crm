@@ -1470,6 +1470,7 @@ function showContactWithTeaser() {
   document.getElementById('contactStepLabel').textContent = 'Последний шаг';
   document.getElementById('contactTitle').textContent = 'Куда удобнее отправить расчёт?';
   document.getElementById('contactSubmitBtn').textContent = 'Получить расчет →';
+  document.getElementById('messengerChoice').style.display = 'grid';
   showScreen('screen-contact');
   saveProgress();
   trackEvent('contact_viewed', 'contact', { price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` } });
@@ -1486,8 +1487,9 @@ function showContactGate() {
   document.getElementById('teaserRange').textContent = labels.area?.[answers.area] || '—';
   document.getElementById('contactPriceNote').textContent = 'Сохраним результат и продолжим расчет без потери данных';
   document.getElementById('contactStepLabel').textContent = 'Куда прислать результат?';
-  document.getElementById('contactTitle').textContent = 'Оставьте контакт — если закроете страницу, мы пришлем расчет в мессенджер';
+  document.getElementById('contactTitle').textContent = 'Оставьте телефон — если закроете страницу, менеджер сможет прислать расчет';
   document.getElementById('contactSubmitBtn').textContent = 'Сохранить и продолжить расчет →';
+  document.getElementById('messengerChoice').style.display = 'none';
   showScreen('screen-contact');
   saveProgress();
   trackEvent('contact_gate_viewed', 'contact_gate', {
@@ -1587,11 +1589,15 @@ function readContactForm() {
   const phone = document.getElementById('phone').value.trim();
   const normalizedPhone = normalizePhone(phone);
   if (!normalizedPhone) { shake('phone'); return null; }
-  if (!selectedMessenger) {
+  if (contactGateMode !== 'early' && !selectedMessenger) {
     document.getElementById('submitStatus').textContent = 'Выберите Telegram или WhatsApp.';
     return null;
   }
-  return { name, phone: normalizedPhone, preferred_messenger: selectedMessenger };
+  return {
+    name,
+    phone: normalizedPhone,
+    preferred_messenger: contactGateMode === 'early' ? null : selectedMessenger
+  };
 }
 
 async function submitContactGate(contact) {
@@ -1647,7 +1653,10 @@ async function submitContactGate(contact) {
 
 async function submitFinalQuiz(contactOverride = null) {
   if (isSubmittingQuiz) return;
-  const contact = contactOverride || submittedContact;
+  const baseContact = contactOverride || submittedContact;
+  const contact = baseContact
+    ? { ...baseContact, preferred_messenger: selectedMessenger || baseContact.preferred_messenger || null }
+    : null;
   if (!contact) {
     showContactWithTeaser();
     return;
@@ -1705,13 +1714,13 @@ async function submitFinalQuiz(contactOverride = null) {
   document.getElementById('tyName').textContent  = contact.name;
   document.getElementById('tyMessenger').textContent = selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
   document.getElementById('resultSubtitle').innerHTML = shouldOfferInlineMeasurement()
-    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — мы закрепим слот и откроем ${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'} для подтверждения адреса.`
-    : `<strong>${escapeHtml(contact.name)}</strong>, нажмите кнопку ниже — откроется<br><strong>${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}</strong> с готовым сообщением.`;
+    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — мы закрепим слот и откроем мессенджер для подтверждения адреса.`
+    : `<strong>${escapeHtml(contact.name)}</strong>, расчет готов.<br>Выберите удобный мессенджер, чтобы продолжить по вашей заявке.`;
   document.getElementById('floatGift').style.display = 'none';
   renderSlots(contact.name);
   renderMessengerActions(contact.name);
   showScreen('screen-result');
-  if (!shouldOfferInlineMeasurement()) {
+  if (!shouldOfferInlineMeasurement() && selectedMessenger) {
     const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
     trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
     setTimeout(() => { window.location.href = messengerUrl; }, 450);
@@ -1845,12 +1854,16 @@ async function chooseSlot(index, name) {
       })
     });
     selectedMeasurementSlot = slot;
-    statusEl.textContent = `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Сейчас откроем ${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'} для подтверждения адреса.`;
+    statusEl.textContent = selectedMessenger
+      ? `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Сейчас откроем ${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'} для подтверждения адреса.`
+      : `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Выберите мессенджер ниже, чтобы подтвердить адрес.`;
     renderMessengerActions(name);
     trackEvent('cal_slot_booked', 'measurement', { start: slot.start, date_label: slot.date_label, label: slot.label });
-    setTimeout(() => {
-      window.location.href = buildMessengerUrl(selectedMessenger || 'telegram', buildMessengerMessage(name, slot));
-    }, 900);
+    if (selectedMessenger) {
+      setTimeout(() => {
+        window.location.href = buildMessengerUrl(selectedMessenger, buildMessengerMessage(name, slot));
+      }, 900);
+    }
   } catch (e) {
     console.error(e);
     statusEl.textContent = 'Не удалось закрепить слот. Выберите другое время или продолжите в мессенджер — менеджер поможет записаться.';
@@ -1861,18 +1874,18 @@ async function chooseSlot(index, name) {
 
 function renderMessengerActions(name) {
   const actions = document.getElementById('resultMessengerActions');
-  const selected = selectedMessenger || 'telegram';
   const slot = selectedMeasurementSlot;
-  const url = buildMessengerUrl(selected, buildMessengerMessage(name, slot));
-  const secondary = selected === 'telegram' ? 'whatsapp' : 'telegram';
+  const primary = selectedMessenger || 'whatsapp';
+  const secondary = primary === 'telegram' ? 'whatsapp' : 'telegram';
+  const primaryUrl = buildMessengerUrl(primary, buildMessengerMessage(name, slot));
   const secondaryUrl = buildMessengerUrl(secondary, buildMessengerMessage(name, slot));
   actions.style.display = 'grid';
   actions.innerHTML = `
-    <a class="messenger-link" href="${url}" onclick="trackEvent('${selected}_clicked_from_result', 'messenger')">
-      Открыть ${selected === 'telegram' ? 'Telegram' : 'WhatsApp'}
+    <a class="messenger-link" href="${primaryUrl}" onclick="trackEvent('${primary}_clicked_from_result', 'messenger')">
+      Открыть ${primary === 'telegram' ? 'Telegram' : 'WhatsApp'}
     </a>
     <a class="messenger-link" href="${secondaryUrl}" onclick="trackEvent('${secondary}_clicked_from_result', 'messenger')">
-      ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
+      Открыть ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
     </a>
   `;
 }
