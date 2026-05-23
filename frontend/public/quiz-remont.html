@@ -875,21 +875,24 @@
       <div class="inline-status" id="designUploadStatus"></div>
     </div>
 
-    <!-- CONTACT (показывается сразу после вопросов, ДО результата) -->
+    <!-- CONTACT -->
     <div class="screen" id="screen-contact">
-      <!-- тизер цены -->
       <div class="price-box" style="margin-bottom:20px">
-        <div class="price-label">Ваш предварительный расчёт готов 🎉</div>
+        <div class="price-label" id="contactPriceLabel">Ваш предварительный расчёт готов 🎉</div>
         <div class="price-value" id="teaserRange">—</div>
-        <div class="price-note">Стоимость работ (без материалов) · уточняется после замера</div>
+        <div class="price-note" id="contactPriceNote">Стоимость работ (без материалов) · уточняется после замера</div>
       </div>
 
-      <div class="question-num">Последний шаг</div>
-      <div class="question-text" style="font-size:18px">Куда удобнее отправить расчёт?</div>
+      <div class="question-num" id="contactStepLabel">Последний шаг</div>
+      <div class="question-text" id="contactTitle" style="font-size:18px">Куда удобнее отправить расчёт?</div>
 
       <div class="form-group">
         <label>Ваше имя</label>
         <input type="text" id="fname" placeholder="Александра">
+      </div>
+      <div class="form-group">
+        <label>Телефон для подтверждения замера</label>
+        <input type="tel" id="phone" placeholder="+7 999 123-45-67">
       </div>
       <div class="messenger-choice" id="messengerChoice">
         <button type="button" class="messenger-choice-btn" data-messenger="telegram" onclick="selectMessenger('telegram')">
@@ -915,7 +918,7 @@
         </div>
       </div>
 
-      <button class="btn-next" onclick="submitForm()">Сохранить и открыть мессенджер →</button>
+      <button class="btn-next" id="contactSubmitBtn" onclick="submitForm()">Получить расчет →</button>
       <button class="btn-back" onclick="prevStep()">← Назад</button>
       <div class="inline-status" id="submitStatus"></div>
       <div class="disclaimer">Нажимая кнопку, вы соглашаетесь на обработку персональных данных</div>
@@ -927,7 +930,7 @@
         <div style="text-align:center;margin-bottom:20px">
           <span class="ty-anim">🎉</span>
           <div class="ty-title">Заявка принята!</div>
-          <div class="ty-sub" style="margin-bottom:20px">
+          <div class="ty-sub" id="resultSubtitle" style="margin-bottom:20px">
             <strong id="tyName"></strong>, нажмите кнопку ниже — откроется<br>
             <strong id="tyMessenger"></strong> с готовым сообщением
           </div>
@@ -1079,10 +1082,14 @@ let measurementSlots = [];
 let designProjectFileUrl = '';
 let designUploadDecision = '';
 let selectedMessenger = '';
+let submittedContact = null;
+let selectedMeasurementSlot = null;
+let contactGateMode = 'final';
 let isSubmittingQuiz = false;
 let isCapturingExitContact = false;
 let exitPopupShown = sessionStorage.getItem('isaev_exit_popup_shown') === '1';
 let inactivityTimer = null;
+const CONTACT_GATE_AFTER_STEP = 1;
 
 const labels = {
   type:  { flat: 'Квартира', house: 'Дом', commercial: 'Коммерция' },
@@ -1184,6 +1191,9 @@ function saveProgress() {
     step,
     answers,
     sessionToken,
+    currentLeadId,
+    selectedMessenger,
+    submittedContact,
     updatedAt: new Date().toISOString()
   }));
 }
@@ -1213,6 +1223,9 @@ function resumeQuiz() {
   answers = saved.answers || {};
   step = Math.min(Math.max(saved.step, 0), questions.length - 1);
   sessionToken = saved.sessionToken || sessionToken;
+  currentLeadId = saved.currentLeadId || currentLeadId;
+  selectedMessenger = saved.selectedMessenger || selectedMessenger;
+  submittedContact = saved.submittedContact || submittedContact;
   if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
   document.getElementById('progressWrap').style.display = 'block';
   showScreen('screen-q');
@@ -1224,9 +1237,14 @@ function resetSavedQuiz() {
   localStorage.removeItem('isaev_quiz_progress');
   localStorage.removeItem('isaev_quiz_session_token');
   sessionToken = '';
+  currentLeadId = '';
   answers = {};
   designProjectFileUrl = '';
   designUploadDecision = '';
+  selectedMessenger = '';
+  submittedContact = null;
+  selectedMeasurementSlot = null;
+  contactGateMode = 'final';
   step = -1;
   document.getElementById('resumeBox').classList.remove('active');
   showScreen('screen-start');
@@ -1261,8 +1279,13 @@ function showScreen(id) {
 function startQuiz() {
   localStorage.removeItem('isaev_quiz_progress');
   answers = {};
+  currentLeadId = '';
   designProjectFileUrl = '';
   designUploadDecision = '';
+  selectedMessenger = '';
+  submittedContact = null;
+  selectedMeasurementSlot = null;
+  contactGateMode = 'final';
   step = 0;
   document.getElementById('progressWrap').style.display = 'block';
   showScreen('screen-q');
@@ -1323,6 +1346,11 @@ function selectOption(qId, val, el) {
 
 function nextStep() {
   const currentQuestion = questions[step];
+  if (step === CONTACT_GATE_AFTER_STEP && !submittedContact && !currentLeadId) {
+    showContactGate();
+    return;
+  }
+
   if (
     currentQuestion?.id === 'design' &&
     (answers.design === 'yes' || answers.design === 'wip') &&
@@ -1338,8 +1366,11 @@ function nextStep() {
     showScreen('screen-q');
     renderQuestion();
   } else {
-    // После последнего вопроса — сразу форма с тизером цены
-    showContactWithTeaser();
+    if (submittedContact) {
+      submitFinalQuiz();
+    } else {
+      showContactWithTeaser();
+    }
   }
 }
 
@@ -1399,6 +1430,14 @@ function handleDesignFileSelected() {
 }
 
 function prevStep() {
+  if (contactGateMode === 'early') {
+    goingBack = true;
+    document.getElementById('progressWrap').style.display = 'block';
+    showScreen('screen-q');
+    renderQuestion();
+    return;
+  }
+
   if (step > 0) {
     goingBack = true;
     step--;
@@ -1422,12 +1461,39 @@ function prevStep() {
 }
 
 function showContactWithTeaser() {
+  contactGateMode = 'final';
   document.getElementById('progressWrap').style.display = 'none';
   const { lo, hi } = calcPrice();
+  document.getElementById('contactPriceLabel').textContent = 'Ваш предварительный расчёт готов 🎉';
   document.getElementById('teaserRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
+  document.getElementById('contactPriceNote').textContent = 'Стоимость работ (без материалов) · уточняется после замера';
+  document.getElementById('contactStepLabel').textContent = 'Последний шаг';
+  document.getElementById('contactTitle').textContent = 'Куда удобнее отправить расчёт?';
+  document.getElementById('contactSubmitBtn').textContent = 'Получить расчет →';
   showScreen('screen-contact');
   saveProgress();
   trackEvent('contact_viewed', 'contact', { price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` } });
+  setTimeout(() => document.getElementById('fname').focus(), 400);
+}
+
+function showContactGate() {
+  contactGateMode = 'early';
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressFill').style.width = '25%';
+  document.getElementById('pct').textContent = '25%';
+  document.getElementById('stepLabel').textContent = 'Сохранение расчета';
+  document.getElementById('contactPriceLabel').textContent = 'Расчет уже формируется';
+  document.getElementById('teaserRange').textContent = labels.area?.[answers.area] || '—';
+  document.getElementById('contactPriceNote').textContent = 'Сохраним результат и продолжим расчет без потери данных';
+  document.getElementById('contactStepLabel').textContent = 'Куда прислать результат?';
+  document.getElementById('contactTitle').textContent = 'Оставьте контакт — если закроете страницу, мы пришлем расчет в мессенджер';
+  document.getElementById('contactSubmitBtn').textContent = 'Сохранить и продолжить расчет →';
+  showScreen('screen-contact');
+  saveProgress();
+  trackEvent('contact_gate_viewed', 'contact_gate', {
+    after_step: questions[step]?.id || null,
+    answers_count: Object.keys(answers).length
+  });
   setTimeout(() => document.getElementById('fname').focus(), 400);
 }
 
@@ -1504,23 +1570,99 @@ function showContact() {
 
 async function submitForm() {
   if (isSubmittingQuiz) return;
+  const contact = readContactForm();
+  if (!contact) return;
+
+  if (contactGateMode === 'early') {
+    await submitContactGate(contact);
+    return;
+  }
+
+  await submitFinalQuiz(contact);
+}
+
+function readContactForm() {
   const name  = document.getElementById('fname').value.trim();
-  if (!name)  { shake('fname');  return; }
+  if (!name)  { shake('fname');  return null; }
+  const phone = document.getElementById('phone').value.trim();
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) { shake('phone'); return null; }
   if (!selectedMessenger) {
     document.getElementById('submitStatus').textContent = 'Выберите Telegram или WhatsApp.';
+    return null;
+  }
+  return { name, phone: normalizedPhone, preferred_messenger: selectedMessenger };
+}
+
+async function submitContactGate(contact) {
+  const statusEl = document.getElementById('submitStatus');
+  statusEl.textContent = 'Сохраняем контакт...';
+  isSubmittingQuiz = true;
+
+  try {
+    await ensureSession();
+    const result = await apiFetch('/quiz/capture-contact', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        contact,
+        answers,
+        ...collectTrackingParams(),
+        source: 'quiz_contact_gate',
+        metadata: {
+          ...collectTrackingParams().metadata,
+          capture_type: 'contact_gate_after_area',
+          contact_gate_step: questions[step]?.id || null,
+          quiz_completed: false
+        }
+      })
+    });
+    currentLeadId = result.lead_id;
+    sessionToken = result.session_token;
+    submittedContact = contact;
+    localStorage.setItem('isaev_quiz_session_token', sessionToken);
+    trackEvent('contact_gate_submitted', 'contact_gate', {
+      lead_id: currentLeadId,
+      preferred_messenger: contact.preferred_messenger,
+      answers_count: Object.keys(answers).length
+    });
+
+    statusEl.textContent = 'Готово. Продолжаем расчет...';
+    isSubmittingQuiz = false;
+    contactGateMode = 'final';
+    step++;
+    saveProgress();
+    setTimeout(() => {
+      document.getElementById('submitStatus').textContent = '';
+      document.getElementById('progressWrap').style.display = 'block';
+      showScreen('screen-q');
+      renderQuestion();
+    }, 350);
+  } catch (e) {
+    statusEl.textContent = 'Не удалось сохранить контакт. Проверьте номер и попробуйте еще раз.';
+    console.error(e);
+    isSubmittingQuiz = false;
+  }
+}
+
+async function submitFinalQuiz(contactOverride = null) {
+  if (isSubmittingQuiz) return;
+  const contact = contactOverride || submittedContact;
+  if (!contact) {
+    showContactWithTeaser();
     return;
   }
 
   const { lo, hi } = calcPrice();
   const statusEl = document.getElementById('submitStatus');
-  statusEl.textContent = 'Сохраняем заявку...';
+  if (statusEl) statusEl.textContent = 'Сохраняем заявку...';
   isSubmittingQuiz = true;
 
   try {
     await ensureSession();
     const file = document.getElementById('designFile').files[0];
     if (file) {
-      statusEl.textContent = 'Загружаем дизайн-проект...';
+      if (statusEl) statusEl.textContent = 'Загружаем дизайн-проект...';
       const form = new FormData();
       form.append('session_token', sessionToken);
       form.append('file', file);
@@ -1532,7 +1674,7 @@ async function submitForm() {
       method: 'POST',
       body: JSON.stringify({
         session_token: sessionToken,
-        contact: { name, preferred_messenger: selectedMessenger },
+        contact,
         answers,
         price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
         design_project_file_url: designProjectFileUrl || null,
@@ -1544,8 +1686,9 @@ async function submitForm() {
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     localStorage.removeItem('isaev_quiz_progress');
     measurementSlots = result.measurement_slots || [];
+    submittedContact = contact;
   } catch (e) {
-    statusEl.textContent = 'Не удалось отправить заявку. Попробуйте ещё раз или напишите нам в мессенджер.';
+    if (statusEl) statusEl.textContent = 'Не удалось отправить заявку. Попробуйте ещё раз или напишите нам в мессенджер.';
     console.error(e);
     isSubmittingQuiz = false;
     return;
@@ -1559,14 +1702,20 @@ async function submitForm() {
       <span class="result-item-val">${labels[k]?.[answers[k]] || '—'}</span>
     </div>`).join('');
 
-  document.getElementById('tyName').textContent  = name;
+  document.getElementById('tyName').textContent  = contact.name;
   document.getElementById('tyMessenger').textContent = selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
+  document.getElementById('resultSubtitle').innerHTML = shouldOfferInlineMeasurement()
+    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — мы закрепим слот и откроем ${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'} для подтверждения адреса.`
+    : `<strong>${escapeHtml(contact.name)}</strong>, нажмите кнопку ниже — откроется<br><strong>${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}</strong> с готовым сообщением.`;
   document.getElementById('floatGift').style.display = 'none';
-  renderSlots(name);
-  const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(name));
-  trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
-  window.location.href = messengerUrl;
+  renderSlots(contact.name);
+  renderMessengerActions(contact.name);
   showScreen('screen-result');
+  if (!shouldOfferInlineMeasurement()) {
+    const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
+    trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
+    setTimeout(() => { window.location.href = messengerUrl; }, 450);
+  }
 }
 
 function selectMessenger(messenger) {
@@ -1652,7 +1801,9 @@ document.addEventListener('visibilitychange', function() {
 function renderSlots(name) {
   const section = document.getElementById('slotsSection');
   const grid = document.getElementById('slotGrid');
-  if (answers.design === 'yes' || measurementSlots.length === 0) {
+  const statusEl = document.getElementById('slotStatus');
+  statusEl.textContent = '';
+  if (!shouldOfferInlineMeasurement()) {
     section.classList.remove('active');
     return;
   }
@@ -1664,19 +1815,78 @@ function renderSlots(name) {
   `).join('');
 }
 
+function shouldOfferInlineMeasurement() {
+  return answers.design !== 'yes' && Array.isArray(measurementSlots) && measurementSlots.length > 0;
+}
+
 async function chooseSlot(index, name) {
   const slot = measurementSlots[index];
+  if (!slot || !submittedContact || !currentLeadId || !sessionToken) return;
   const statusEl = document.getElementById('slotStatus');
-  statusEl.textContent = `Вы выбрали ${slot.date_label} в ${slot.label}. Открываем мессенджер...`;
+  const buttons = document.querySelectorAll('.slot-btn');
+  buttons.forEach(btn => btn.disabled = true);
+  statusEl.textContent = `Бронируем ${slot.date_label} в ${slot.label}...`;
   trackEvent('cal_slot_selected', 'measurement', { start: slot.start, date_label: slot.date_label, label: slot.label });
-  setTimeout(() => {
-    window.open(buildMessengerUrl(selectedMessenger || 'telegram', buildMessengerMessage(name, slot)), '_blank', 'noopener');
-  }, 400);
+
+  try {
+    await apiFetch('/quiz/book-measurement', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        lead_id: currentLeadId,
+        start: slot.start,
+        contact: submittedContact,
+        answers,
+        metadata: {
+          selected_slot_label: `${slot.date_label} ${slot.label}`,
+          selected_messenger: selectedMessenger,
+          source: 'quiz_inline_slots'
+        }
+      })
+    });
+    selectedMeasurementSlot = slot;
+    statusEl.textContent = `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Сейчас откроем ${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'} для подтверждения адреса.`;
+    renderMessengerActions(name);
+    trackEvent('cal_slot_booked', 'measurement', { start: slot.start, date_label: slot.date_label, label: slot.label });
+    setTimeout(() => {
+      window.location.href = buildMessengerUrl(selectedMessenger || 'telegram', buildMessengerMessage(name, slot));
+    }, 900);
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = 'Не удалось закрепить слот. Выберите другое время или продолжите в мессенджер — менеджер поможет записаться.';
+    buttons.forEach(btn => btn.disabled = false);
+    trackEvent('cal_slot_booking_failed', 'measurement', { start: slot.start });
+  }
+}
+
+function renderMessengerActions(name) {
+  const actions = document.getElementById('resultMessengerActions');
+  const selected = selectedMessenger || 'telegram';
+  const slot = selectedMeasurementSlot;
+  const url = buildMessengerUrl(selected, buildMessengerMessage(name, slot));
+  const secondary = selected === 'telegram' ? 'whatsapp' : 'telegram';
+  const secondaryUrl = buildMessengerUrl(secondary, buildMessengerMessage(name, slot));
+  actions.style.display = 'grid';
+  actions.innerHTML = `
+    <a class="messenger-link" href="${url}" onclick="trackEvent('${selected}_clicked_from_result', 'messenger')">
+      Открыть ${selected === 'telegram' ? 'Telegram' : 'WhatsApp'}
+    </a>
+    <a class="messenger-link" href="${secondaryUrl}" onclick="trackEvent('${secondary}_clicked_from_result', 'messenger')">
+      ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
+    </a>
+  `;
 }
 
 function buildMessengerMessage(name, slot = null) {
-  const slotText = slot ? ` Хочу записаться на замер: ${slot.date_label} в ${slot.label}.` : '';
+  const slotText = slot ? ` Записался на замер: ${slot.date_label} в ${slot.label}.` : '';
   return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText} Код заявки: ${sessionToken}`;
+}
+
+function normalizePhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 11 && digits[0] === '8') return `7${digits.slice(1)}`;
+  if (digits.length === 10) return `7${digits}`;
+  return digits.length >= 10 ? digits : '';
 }
 
 function buildMessengerUrl(messenger, message) {
@@ -1695,6 +1905,15 @@ function buildMessengerUrl(messenger, message) {
 
 function escapeJs(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 initPostHog();
