@@ -616,7 +616,7 @@ class QuizService:
 
         if lead:
             data = self._parse_extracted_data(lead.extracted_data)
-            data.update(extracted)
+            self._merge_extracted_payload(data, extracted)
             lead.full_name = payload.contact.name or lead.full_name
             if phone:
                 lead.phone = phone
@@ -641,7 +641,7 @@ class QuizService:
             source=payload.source or "quiz",
         )
         data = self._parse_extracted_data(lead.extracted_data)
-        data.update(extracted)
+        self._merge_extracted_payload(data, extracted)
         lead.extracted_data = json.dumps(data, ensure_ascii=False)
         lead.status = self._derive_quiz_status(payload).value
         await db.commit()
@@ -670,6 +670,18 @@ class QuizService:
             return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
             return {}
+
+    def _merge_extracted_payload(self, target: dict[str, Any], payload: dict[str, Any]) -> None:
+        messengers = payload.get("messengers")
+        for key, value in payload.items():
+            if key == "messengers":
+                continue
+            target[key] = value
+        if isinstance(messengers, dict) and messengers:
+            target["messengers"] = {
+                **(target.get("messengers") or {}),
+                **messengers,
+            }
 
     def _clean_username(self, username: str | None) -> str | None:
         if not username:
