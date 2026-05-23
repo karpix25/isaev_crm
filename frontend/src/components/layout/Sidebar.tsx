@@ -40,8 +40,7 @@ export function Sidebar() {
                     <Building2 className="h-6 w-6 text-primary-foreground" />
                 </div>
                 <div>
-                    <div className="font-semibold">RenovaCRM</div>
-                    <div className="text-xs text-muted-foreground">ERP SOLUTION</div>
+                    <div className="font-semibold">IsaevCRM</div>
                 </div>
             </div>
 
