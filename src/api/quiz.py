@@ -19,6 +19,7 @@ from src.schemas.quiz import (
 from src.services.cal_pro_service import cal_pro_service
 from src.services.posthog_service import posthog_service
 from src.services.quiz_service import quiz_service
+from src.bot import bot
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
@@ -26,10 +27,18 @@ router = APIRouter(prefix="/quiz", tags=["Quiz"])
 @router.get("/config")
 async def get_quiz_public_config():
     """Public browser config for optional quiz integrations."""
+    bot_username = (settings.telegram_bot_username or "").replace("@", "").strip()
+    if not bot_username and bot:
+        try:
+            me = await bot.get_me()
+            bot_username = (getattr(me, "username", None) or "").replace("@", "").strip()
+        except Exception:
+            bot_username = ""
+
     return {
         "posthog": posthog_service.public_config(),
         "telegram": {
-            "bot_username": (settings.telegram_bot_username or "").replace("@", "").strip(),
+            "bot_username": bot_username,
         },
     }
 

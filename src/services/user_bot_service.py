@@ -4,7 +4,9 @@ import random
 import uuid
 import re
 import time
+import json
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 from typing import Dict, Optional, List
 from urllib.parse import urlencode, urlparse
 import httpx
@@ -23,6 +25,50 @@ from src.services.business_hours import is_business_hours, get_business_now
 
 import logging
 logger = logging.getLogger(__name__)
+
+PROTECTED_EXTRACTED_DATA_KEYS = {
+    "quiz",
+    "messengers",
+    "utm",
+    "metadata",
+    "measurement",
+    "telegram_chat",
+    "whatsapp_chat",
+    "quiz_session_token",
+}
+
+
+def _parse_extracted_data(value: str | None) -> dict:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _merge_ai_extracted_data(existing_value: str | None, ai_data: dict) -> str:
+    existing = _parse_extracted_data(existing_value)
+    merged = dict(existing)
+    current_ai = merged.get("ai_extracted")
+    if not isinstance(current_ai, dict):
+        current_ai = {}
+
+    clean_ai = {key: value for key, value in ai_data.items() if value is not None}
+    merged["ai_extracted"] = {
+        **current_ai,
+        **clean_ai,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    for key, value in clean_ai.items():
+        if key in PROTECTED_EXTRACTED_DATA_KEYS:
+            continue
+        merged[key] = value
+
+    return json.dumps(merged, ensure_ascii=False)
+
 
 class UserBotService:
     """
@@ -464,7 +510,7 @@ class UserBotService:
                         if lead.ai_qualification_status != "qualified":
                             ai_metadata["qualification_changed_to"] = "qualified"
                     
-                    update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
+                    update_fields["extracted_data"] = _merge_ai_extracted_data(lead.extracted_data, extracted_data)
 
                 # 10. Save outbound message WITH ai_metadata and mark as SENT to prevent duplicate queue send
                 from src.models import MessageStatus

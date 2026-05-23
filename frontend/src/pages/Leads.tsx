@@ -614,7 +614,7 @@ function parseExtractedData(raw: Lead['extracted_data']): Record<string, any> {
 function getLeadAvailableTransports(lead: Lead): MessageTransport[] {
     const transports: MessageTransport[] = []
     const presence = getMessengerPresence(lead)
-    if (lead.telegram_id || presence.telegram) {
+    if (lead.telegram_id) {
         transports.push(MessageTransport.TELEGRAM)
     }
     if (presence.whatsapp) {
@@ -812,7 +812,10 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const messengerPresence = getMessengerPresence(lead)
     const availableTransports = getLeadAvailableTransports(lead)
     const isWhatsappTransport = selectedTransport === MessageTransport.WHATSAPP
-    const isSelectedTransportSendAvailable = true
+    const isSelectedTransportSendAvailable =
+        selectedTransport === MessageTransport.TELEGRAM
+            ? Boolean(lead.telegram_id)
+            : Boolean(messengerPresence.whatsapp || lead.phone)
     const telegramChatUrl = getTelegramChatUrl(lead)
     const whatsappChatUrl = getWhatsAppChatUrl(lead)
     const quizAnswerRows = getQuizAnswerRows(savedExtractedData)

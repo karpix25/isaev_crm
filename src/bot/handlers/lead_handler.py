@@ -38,6 +38,52 @@ router = Router()
 pending_updates = {}
 
 AUTH_SESSION_TTL_SECONDS = 5 * 60
+PROTECTED_EXTRACTED_DATA_KEYS = {
+    "quiz",
+    "messengers",
+    "utm",
+    "metadata",
+    "measurement",
+    "telegram_chat",
+    "whatsapp_chat",
+    "quiz_session_token",
+}
+
+
+def _parse_extracted_data(value: str | None) -> dict:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _merge_ai_extracted_data(existing_value: str | None, ai_data: dict) -> str:
+    """
+    Preserve durable CRM/quiz context while letting the AI update qualification fields.
+    The quiz block is the source of truth for already answered quiz questions.
+    """
+    existing = _parse_extracted_data(existing_value)
+    merged = dict(existing)
+    current_ai = merged.get("ai_extracted")
+    if not isinstance(current_ai, dict):
+        current_ai = {}
+
+    clean_ai = {key: value for key, value in ai_data.items() if value is not None}
+    merged["ai_extracted"] = {
+        **current_ai,
+        **clean_ai,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    for key, value in clean_ai.items():
+        if key in PROTECTED_EXTRACTED_DATA_KEYS:
+            continue
+        merged[key] = value
+
+    return json.dumps(merged, ensure_ascii=False)
 
 
 def _normalize_username(username: str | None) -> str | None:
@@ -756,6 +802,10 @@ async def process_debounced_message(user_id: int):
             technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
             identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
             system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
+
+            from src.services.lead_stage_context_service import lead_stage_context_service
+            stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+            system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}"
             
             # Perform RAG (Retrieval)
             trace_id = f"lead_{lead.id}_{len(messages)}" # Unique per turn
@@ -771,6 +821,7 @@ async def process_debounced_message(user_id: int):
             )
             
             ai_metadata = {}
+            ai_metadata["stage_context"] = stage_context.metadata
             if relevant_docs:
                 context_str = "\n\n".join([f"Source: {d.title}\nContent: {d.content}" for d in relevant_docs])
                 system_prompt = f"{system_prompt}\n\nRELEVANT KNOWLEDGE:\n{context_str}\n\nUse this context to answer accurately."
@@ -836,8 +887,8 @@ async def process_debounced_message(user_id: int):
                 if readiness_score in ["A", "B", "C"]:
                     update_fields["readiness_score"] = readiness_score
                 
-                # Save extracted data as JSON string
-                update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
+                # Save extracted data without erasing quiz answers and messenger links.
+                update_fields["extracted_data"] = _merge_ai_extracted_data(lead.extracted_data, extracted_data)
                 
                 # Execute update
                 if update_fields:
@@ -1032,31 +1083,30 @@ async def handle_lead_photo(message: Message):
                 lead.id
             )
             return
+
+        from src.models.organization import Organization
+        org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+        org = org_result.scalar_one_or_none()
+        company_name = org.name if org else "наша компания"
         
         if config and config.system_prompt:
             base_prompt = config.system_prompt
             if "{company_name}" in base_prompt:
-                from src.models.organization import Organization
-                from sqlalchemy import select
-                org_result = await db.execute(select(Organization).where(Organization.id == org_id))
-                org = org_result.scalar_one_or_none()
-                company_name = org.name if org else "наша компания"
                 base_prompt = base_prompt.replace("{company_name}", company_name)
             
             from src.services.custom_field_service import enrich_system_prompt
             system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
         else:
-            from src.models.organization import Organization
-            from sqlalchemy import select
-            org_result = await db.execute(select(Organization).where(Organization.id == org_id))
-            org = org_result.scalar_one_or_none()
-            company_name = org.name if org else "наша компания"
             system_prompt = await build_system_prompt(db, org_id, company_name)
         
         system_prompt = normalize_system_prompt_template(system_prompt)
         technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
         identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
         system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
+
+        from src.services.lead_stage_context_service import lead_stage_context_service
+        stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+        system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}"
         
         # Get conversation history (exclude the photo message we just saved — it's sent separately via vision)
         history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
@@ -1107,7 +1157,11 @@ async def handle_lead_photo(message: Message):
         
         # Extract data and save
         extracted_data = ai_response.get("extracted_data")
-        ai_metadata = {"usage": ai_response.get("usage"), "has_vision": bool(image_base64)}
+        ai_metadata = {
+            "usage": ai_response.get("usage"),
+            "has_vision": bool(image_base64),
+            "stage_context": stage_context.metadata,
+        }
         update_fields = {}
         if extracted_data:
             if extracted_data.get("client_name") and not lead.full_name:
@@ -1126,7 +1180,7 @@ async def handle_lead_photo(message: Message):
             if readiness_score in ["A", "B", "C"]:
                 update_fields["readiness_score"] = readiness_score
             
-            update_fields["extracted_data"] = json.dumps(extracted_data, ensure_ascii=False)
+            update_fields["extracted_data"] = _merge_ai_extracted_data(lead.extracted_data, extracted_data)
         
         await chat_service.send_outbound_message(
             db, lead_id=lead.id, content=reply_text,

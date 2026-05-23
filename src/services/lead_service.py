@@ -150,7 +150,7 @@ class LeadService:
         """
         # Try to find existing lead
         result = await db.execute(
-            select(Lead).where(Lead.telegram_id == telegram_id)
+            select(Lead).where(Lead.org_id == org_id, Lead.telegram_id == telegram_id)
         )
         lead = result.scalar_one_or_none()
         
@@ -182,7 +182,7 @@ class LeadService:
             telegram_id=telegram_id,
             full_name=full_name,
             username=username,
-            status=LeadStatus.NEW,
+            status=LeadStatus.NEW.value,
             source=source,
             avatar_url=avatar_url
         )
@@ -334,6 +334,42 @@ class LeadService:
         await db.refresh(lead)
         
         return lead
+
+    @staticmethod
+    async def sync_telegram_identity_from_extracted(db: AsyncSession, lead: Lead) -> bool:
+        """Backfill lead.telegram_id from durable quiz/bot metadata if it exists."""
+        if lead.telegram_id or not lead.extracted_data:
+            return bool(lead.telegram_id)
+
+        try:
+            data = json.loads(lead.extracted_data)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(data, dict):
+            return False
+
+        telegram_chat = data.get("telegram_chat")
+        if not isinstance(telegram_chat, dict):
+            return False
+
+        raw_telegram_id = telegram_chat.get("telegram_id")
+        if not raw_telegram_id:
+            return False
+
+        try:
+            telegram_id = int(raw_telegram_id)
+        except (TypeError, ValueError):
+            return False
+
+        lead.telegram_id = telegram_id
+        username = telegram_chat.get("username")
+        if username and not lead.username:
+            lead.username = str(username).replace("@", "").strip() or None
+        lead.telegram_lookup_status = "active"
+        lead.telegram_lookup_checked_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(lead)
+        return True
     
     @staticmethod
     async def get_leads_by_org(

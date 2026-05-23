@@ -111,6 +111,8 @@ async def send_message_to_lead(
         )
     
     if message_data.transport == MessageTransport.TELEGRAM and not lead.telegram_id:
+        await lead_service.sync_telegram_identity_from_extracted(db, lead)
+    if message_data.transport == MessageTransport.TELEGRAM and not lead.telegram_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot send message: This lead has no associated Telegram account."
@@ -211,6 +213,8 @@ async def send_business_card_to_lead(
             detail="Access denied"
         )
 
+    if not lead.telegram_id:
+        await lead_service.sync_telegram_identity_from_extracted(db, lead)
     if not lead.telegram_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
