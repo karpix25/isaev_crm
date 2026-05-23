@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import json
 import re
@@ -171,6 +171,7 @@ class QuizService:
             step_id="crm",
             event_data={"lead_id": str(lead.id), "capture_type": "exit_or_pause"},
         )
+        await self._enqueue_abandoned_telegram_followup(db=db, session=session, lead=lead)
         return lead, session_token
 
     async def book_measurement(
@@ -682,6 +683,43 @@ class QuizService:
                 **(target.get("messengers") or {}),
                 **messengers,
             }
+
+    async def _enqueue_abandoned_telegram_followup(
+        self,
+        db: AsyncSession,
+        session: FunnelSession,
+        lead: Lead,
+    ) -> None:
+        if not lead.telegram_id:
+            return
+        try:
+            from src.config import settings
+
+            if not settings.quiz_abandoned_telegram_followup_enabled:
+                return
+
+            from src.services.background_job_service import background_job_service
+
+            delay = max(1, int(settings.quiz_abandoned_telegram_followup_delay_minutes))
+            await background_job_service.enqueue(
+                db=db,
+                job_type="quiz_abandoned_telegram_followup",
+                payload={
+                    "session_token": session.session_token,
+                    "lead_id": str(lead.id),
+                    "org_id": str(lead.org_id),
+                },
+                max_attempts=2,
+                run_at=datetime.now(timezone.utc) + timedelta(minutes=delay),
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Failed to enqueue abandoned quiz follow-up for lead %s",
+                lead.id,
+                exc_info=True,
+            )
 
     def _clean_username(self, username: str | None) -> str | None:
         if not username:

@@ -120,6 +120,9 @@ class BackgroundJobService:
         if job.job_type == "knowledge_index":
             await self._process_knowledge_index(db, job.payload)
             return
+        if job.job_type == "quiz_abandoned_telegram_followup":
+            await self._process_quiz_abandoned_telegram_followup(db, job.payload)
+            return
         raise ValueError(f"Unknown background job type: {job.job_type}")
 
     async def _process_knowledge_index(self, db: AsyncSession, payload: dict[str, Any]) -> None:
@@ -133,6 +136,84 @@ class BackgroundJobService:
             category=payload.get("category") or "chat_history",
             title=payload.get("title"),
         )
+
+    async def _process_quiz_abandoned_telegram_followup(self, db: AsyncSession, payload: dict[str, Any]) -> None:
+        from src.models import ChatMessage, FunnelEvent, FunnelSession, Lead, MessageStatus, MessageTransport
+        from src.services.chat_service import chat_service
+        from src.services.user_bot_service import user_bot_service
+
+        session_token = str(payload.get("session_token") or "")
+        lead_id = uuid.UUID(str(payload["lead_id"]))
+
+        session_result = await db.execute(select(FunnelSession).where(FunnelSession.session_token == session_token))
+        session = session_result.scalar_one_or_none()
+        if not session:
+            logger.info("Skipping quiz abandoned follow-up: session %s not found", session_token)
+            return
+        if session.status == "completed" or session.completed_at:
+            logger.info("Skipping quiz abandoned follow-up: session %s already completed", session_token)
+            return
+
+        lead_result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = lead_result.scalar_one_or_none()
+        if not lead or not lead.telegram_id:
+            logger.info("Skipping quiz abandoned follow-up: lead %s is not contactable in Telegram", lead_id)
+            return
+
+        event_result = await db.execute(
+            select(FunnelEvent.event_type).where(
+                FunnelEvent.session_id == session.id,
+                FunnelEvent.event_type.in_(
+                    [
+                        "quiz_completed",
+                        "telegram_bot_started",
+                        "telegram_message_received",
+                        "telegram_linked",
+                    ]
+                ),
+            )
+        )
+        if event_result.first():
+            logger.info("Skipping quiz abandoned follow-up: session %s already reached Telegram/completion", session_token)
+            return
+
+        history_result = await db.execute(select(ChatMessage).where(ChatMessage.lead_id == lead.id))
+        for message in history_result.scalars().all():
+            metadata = message.ai_metadata if isinstance(message.ai_metadata, dict) else {}
+            if metadata.get("type") == "quiz_abandoned_telegram_followup" and metadata.get("session_token") == session_token:
+                logger.info("Skipping quiz abandoned follow-up: already sent for session %s", session_token)
+                return
+
+        client_name = (lead.full_name or "").strip()
+        greeting = f"{client_name}, здравствуйте!" if client_name else "Здравствуйте!"
+        text = (
+            f"{greeting} Вы начали расчет ремонта на сайте ISAEV GROUP, но не дошли до конца. "
+            "Могу прислать предварительный расчет сюда и помочь продолжить с того места, где остановились?"
+        )
+
+        await user_bot_service.send_message(
+            db=db,
+            org_id=lead.org_id,
+            telegram_id=int(lead.telegram_id),
+            text=text,
+            username=lead.username,
+        )
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            sender_name="AI Agent",
+            ai_metadata={
+                "type": "quiz_abandoned_telegram_followup",
+                "session_token": session_token,
+                "source": "background_job",
+                "skip_knowledge_index": True,
+            },
+            status=MessageStatus.SENT,
+            transport=MessageTransport.TELEGRAM,
+        )
+        await db.commit()
+        logger.info("Sent quiz abandoned Telegram follow-up to lead %s", lead.id)
 
 
 background_job_service = BackgroundJobService()

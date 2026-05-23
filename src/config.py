@@ -117,6 +117,8 @@ class Settings(BaseSettings):
     whatsapp_lookup_max_per_minute: int = 20
     whatsapp_lookup_cache_ttl_seconds: int = 3600
     userbot_pending_message_batch_size: int = 100
+    quiz_abandoned_telegram_followup_enabled: bool = True
+    quiz_abandoned_telegram_followup_delay_minutes: int = 10
 
     # Cal.com / Cal Pro measurement scheduling
     cal_pro_enabled: bool = False
