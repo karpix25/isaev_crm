@@ -143,6 +143,9 @@ class OperatorAccessRejectRequest(BaseModel):
     reason: str | None = None
 
 
+MANAGEABLE_USER_ROLES = {UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER}
+
+
 def _normalize_username(username: str | None) -> str | None:
     return (username or "").replace("@", "").strip() or None
 
@@ -681,8 +684,8 @@ async def approve_operator_access_request(
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
-    if payload.role not in {UserRole.MANAGER, UserRole.WORKER}:
-        raise HTTPException(status_code=400, detail="Для оператора доступны только роли MANAGER или WORKER.")
+    if payload.role not in MANAGEABLE_USER_ROLES:
+        raise HTTPException(status_code=400, detail="Доступны только роли ADMIN, MANAGER или WORKER.")
 
     request_result = await db.execute(select(OperatorAccessRequest).where(OperatorAccessRequest.id == request_id))
     access_request = request_result.scalar_one_or_none()
@@ -711,8 +714,6 @@ async def approve_operator_access_request(
         )
         db.add(operator)
     else:
-        if operator.role == UserRole.ADMIN:
-            raise HTTPException(status_code=400, detail="Нельзя изменять роль ADMIN через этот сценарий.")
         operator.role = payload.role
         if normalized_full_name:
             operator.full_name = normalized_full_name
@@ -795,7 +796,7 @@ async def list_operators(
         select(User)
         .where(
             User.org_id == current_user.org_id,
-            User.role.in_([UserRole.MANAGER, UserRole.WORKER]),
+            User.role.in_([UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER]),
         )
         .order_by(User.created_at.desc())
     )
@@ -808,8 +809,8 @@ async def create_operator(
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
-    if data.role not in {UserRole.MANAGER, UserRole.WORKER}:
-        raise HTTPException(status_code=400, detail="Для оператора доступны только роли MANAGER или WORKER.")
+    if data.role not in MANAGEABLE_USER_ROLES:
+        raise HTTPException(status_code=400, detail="Доступны только роли ADMIN, MANAGER или WORKER.")
     if data.telegram_id <= 0:
         raise HTTPException(status_code=400, detail="Telegram ID должен быть положительным числом.")
 
@@ -869,12 +870,14 @@ async def update_operator(
     if not operator or str(operator.org_id) != str(current_user.org_id):
         raise HTTPException(status_code=404, detail="Оператор не найден.")
 
-    if operator.role not in {UserRole.MANAGER, UserRole.WORKER}:
-        raise HTTPException(status_code=400, detail="Можно редактировать только MANAGER/WORKER.")
+    if operator.role not in MANAGEABLE_USER_ROLES:
+        raise HTTPException(status_code=400, detail="Можно редактировать только ADMIN/MANAGER/WORKER.")
 
     payload = data.model_dump(exclude_unset=True)
-    if "role" in payload and payload["role"] is not None and payload["role"] not in {UserRole.MANAGER, UserRole.WORKER}:
-        raise HTTPException(status_code=400, detail="Для оператора доступны только роли MANAGER или WORKER.")
+    if "role" in payload and payload["role"] is not None and payload["role"] not in MANAGEABLE_USER_ROLES:
+        raise HTTPException(status_code=400, detail="Доступны только роли ADMIN, MANAGER или WORKER.")
+    if str(operator.id) == str(current_user.id) and "role" in payload and payload["role"] != current_user.role:
+        raise HTTPException(status_code=400, detail="Нельзя изменить собственную роль.")
 
     for field_name in ("full_name", "phone", "email", "role"):
         if field_name in payload:
@@ -908,8 +911,8 @@ async def delete_operator(
     operator = result.scalar_one_or_none()
     if not operator or str(operator.org_id) != str(current_user.org_id):
         raise HTTPException(status_code=404, detail="Оператор не найден.")
-    if operator.role not in {UserRole.MANAGER, UserRole.WORKER}:
-        raise HTTPException(status_code=400, detail="Можно удалить только MANAGER/WORKER.")
+    if operator.role not in MANAGEABLE_USER_ROLES:
+        raise HTTPException(status_code=400, detail="Можно удалить только ADMIN/MANAGER/WORKER.")
 
     await db.delete(operator)
     await db.commit()

@@ -183,6 +183,8 @@ export interface TokenResponse {
     token_type: string
 }
 
+export type ManagedUserRole = 'ADMIN' | 'MANAGER' | 'WORKER'
+
 export interface OperatorUser {
     id: string
     telegram_id?: number | null
@@ -190,7 +192,7 @@ export interface OperatorUser {
     username?: string | null
     phone?: string | null
     email?: string | null
-    role: 'MANAGER' | 'WORKER'
+    role: ManagedUserRole
 }
 
 export interface OperatorCreatePayload {
@@ -199,7 +201,7 @@ export interface OperatorCreatePayload {
     username?: string
     phone?: string
     email?: string
-    role?: 'MANAGER' | 'WORKER'
+    role?: ManagedUserRole
 }
 
 export interface OperatorUpdatePayload {
@@ -207,7 +209,7 @@ export interface OperatorUpdatePayload {
     username?: string
     phone?: string
     email?: string
-    role?: 'MANAGER' | 'WORKER'
+    role?: ManagedUserRole
 }
 
 export type OperatorAccessRequestStatus = 'pending' | 'approved' | 'rejected'
@@ -227,7 +229,7 @@ export interface OperatorAccessRequest {
 }
 
 export interface OperatorAccessApprovePayload {
-    role?: 'MANAGER' | 'WORKER'
+    role?: ManagedUserRole
     full_name?: string
     username?: string
     phone?: string

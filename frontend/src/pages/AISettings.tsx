@@ -16,6 +16,7 @@ import type {
     OperatorCreatePayload,
     OperatorUpdatePayload,
     OperatorAccessRequest,
+    ManagedUserRole,
     TelegramBusinessCardTemplateSettings,
 } from '@/types'
 import {
@@ -664,7 +665,7 @@ function OperatorsPanel({
     onCreate: (payload: OperatorCreatePayload) => void
     onUpdate: (id: string, payload: OperatorUpdatePayload) => void
     onDelete: (id: string) => void
-    onApproveRequest: (id: string, payload: { role: 'MANAGER' | 'WORKER' }) => void
+    onApproveRequest: (id: string, payload: { role: ManagedUserRole }) => void
     onRejectRequest: (id: string, reason?: string) => void
 }) {
     const [createForm, setCreateForm] = useState({
@@ -673,10 +674,10 @@ function OperatorsPanel({
         username: '',
         phone: '',
         email: '',
-        role: 'MANAGER' as 'MANAGER' | 'WORKER',
+        role: 'MANAGER' as ManagedUserRole,
     })
     const [drafts, setDrafts] = useState<Record<string, any>>({})
-    const [requestRoles, setRequestRoles] = useState<Record<string, 'MANAGER' | 'WORKER'>>({})
+    const [requestRoles, setRequestRoles] = useState<Record<string, ManagedUserRole>>({})
 
     React.useEffect(() => {
         const nextDrafts: Record<string, any> = {}
@@ -696,7 +697,7 @@ function OperatorsPanel({
 
     React.useEffect(() => {
         setRequestRoles((prev) => {
-            const next: Record<string, 'MANAGER' | 'WORKER'> = {}
+            const next: Record<string, ManagedUserRole> = {}
             for (const request of accessRequests) {
                 next[request.id] = prev[request.id] || 'MANAGER'
             }
@@ -734,10 +735,11 @@ function OperatorsPanel({
                                         onChange={(e) =>
                                             setRequestRoles((prev) => ({
                                                 ...prev,
-                                                [request.id]: e.target.value as 'MANAGER' | 'WORKER',
+                                                [request.id]: e.target.value as ManagedUserRole,
                                             }))
                                         }
                                     >
+                                        <option value="ADMIN">ADMIN</option>
                                         <option value="MANAGER">MANAGER</option>
                                         <option value="WORKER">WORKER</option>
                                     </select>
@@ -784,9 +786,9 @@ function OperatorsPanel({
                     <FormField
                         label="Роль"
                         value={createForm.role}
-                        onChange={(v) => setCreateForm((prev) => ({ ...prev, role: v as 'MANAGER' | 'WORKER' }))}
+                        onChange={(v) => setCreateForm((prev) => ({ ...prev, role: v as ManagedUserRole }))}
                         isSelect
-                        options={['MANAGER', 'WORKER']}
+                        options={['ADMIN', 'MANAGER', 'WORKER']}
                     />
                     <FormField
                         label="ФИО"
@@ -886,6 +888,7 @@ function OperatorsPanel({
                                             value={draft.role || 'MANAGER'}
                                             onChange={(e) => setDrafts((prev) => ({ ...prev, [user.id]: { ...prev[user.id], role: e.target.value } }))}
                                         >
+                                            <option value="ADMIN">ADMIN</option>
                                             <option value="MANAGER">MANAGER</option>
                                             <option value="WORKER">WORKER</option>
                                         </select>
