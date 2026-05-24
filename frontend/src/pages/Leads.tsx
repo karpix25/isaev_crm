@@ -419,7 +419,7 @@ export function Leads() {
                     return (
                         <div
                             key={column.id}
-                            className={`flex flex-col rounded-lg border bg-card min-width-[320px] w-[320px] shrink-0 transition-colors duration-200 ${draggedOverColumn === column.id ? 'ring-2 ring-primary bg-primary/5 border-primary/50' : ''
+                            className={`flex w-[320px] min-w-[320px] shrink-0 flex-col rounded-lg border bg-card transition-colors duration-200 ${draggedOverColumn === column.id ? 'ring-2 ring-primary bg-primary/5 border-primary/50' : ''
                                 }`}
                             onDragOver={handleDragOver}
                             onDragEnter={(e) => handleDragEnter(e, column.id)}
@@ -436,7 +436,7 @@ export function Leads() {
                                 </span>
                             </div>
 
-                            <div className="flex-1 space-y-2 overflow-y-auto p-4" onScroll={handleColumnScroll}>
+                            <div className="flex-1 space-y-2 overflow-x-hidden overflow-y-auto p-4" onScroll={handleColumnScroll}>
                                 {columnLeads.map((lead) => (
                                     <LeadCard
                                         key={lead.id}
@@ -1298,10 +1298,10 @@ function LeadCard({
             draggable={!selectionMode}
             onDragStart={onDragStart}
             onClick={onClick}
-            className={`group cursor-pointer rounded-lg border bg-background p-3 shadow-sm transition-all hover:border-primary hover:shadow-md ${selected ? 'ring-2 ring-primary border-primary' : ''}`}
+            className={`group w-full min-w-0 cursor-pointer rounded-lg border bg-background p-3 shadow-sm transition-all hover:border-primary hover:shadow-md ${selected ? 'ring-2 ring-primary border-primary' : ''}`}
         >
-            <div className="mb-2 flex items-start justify-between">
-                <div className="flex items-center gap-2">
+            <div className="mb-2 flex min-w-0 items-start justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                     {lead.avatar_url ? (
                         <img
                             src={`${API_URL}${lead.avatar_url}`}
@@ -1313,9 +1313,9 @@ function LeadCard({
                             {lead.full_name?.[0] || lead.username?.[0] || 'U'}
                         </div>
                     )}
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <div className="font-medium group-hover:text-primary transition-colors text-[13px]">{lead.full_name || lead.username || 'Неизвестно'}</div>
+                    <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <div className="truncate text-[13px] font-medium transition-colors group-hover:text-primary">{lead.full_name || lead.username || 'Неизвестно'}</div>
                             {lead.readiness_score && (
                                 <span className={`inline-flex items-center justify-center h-4 w-4 rounded text-[10px] font-bold ${lead.readiness_score === 'A' ? 'bg-emerald-100 text-emerald-700' :
                                         lead.readiness_score === 'B' ? 'bg-yellow-100 text-yellow-700' :
@@ -1326,11 +1326,11 @@ function LeadCard({
                             )}
                         </div>
                         {lead.username && (
-                            <div className="text-[10px] text-muted-foreground">@{lead.username}</div>
+                            <div className="truncate text-[10px] text-muted-foreground">@{lead.username}</div>
                         )}
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                     {selectionMode && (
                         <div className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? 'bg-primary border-primary text-primary-foreground' : 'bg-background border-slate-300 text-transparent'}`}>
                             <CheckSquare className="h-3 w-3" />
@@ -1350,14 +1350,14 @@ function LeadCard({
                 </p>
             )}
 
-            <div className="flex items-center justify-between border-t pt-2">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                         <MessageSquare className="h-3 w-3" />
-                        {lead.source || 'TG'}
+                        <span className="min-w-0 truncate">{lead.source || 'TG'}</span>
                     </div>
                     <div
-                        className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${getTelegramLookupBadgeClass(lead.telegram_lookup_status || 'not_checked')}`}
+                        className={`max-w-full rounded-full px-1.5 py-0.5 text-[9px] font-semibold leading-tight ${getTelegramLookupBadgeClass(lead.telegram_lookup_status || 'not_checked')}`}
                         title={lead.telegram_lookup_error || ''}
                     >
                         {telegramLookupStatusLabels[lead.telegram_lookup_status || 'not_checked'] || (lead.telegram_lookup_status || 'not_checked')}
@@ -1399,14 +1399,14 @@ function LeadCard({
                         )
                     )}
                     {lead.phone && (
-                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             <Phone className="h-3 w-3" />
                             OK
                         </div>
                     )}
                 </div>
                 {lead.last_message_at && (
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <div className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
                         <Clock className="h-2.5 w-2.5" />
                         {formatTimeAgo(lead.last_message_at)}
                     </div>
