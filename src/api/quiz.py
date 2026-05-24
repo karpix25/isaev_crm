@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
+import json
 import os
 import uuid
 
@@ -22,6 +23,30 @@ from src.services.quiz_service import quiz_service
 from src.bot import bot
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
+
+
+def _lead_messenger_presence(lead) -> dict[str, bool]:
+    data = {}
+    if lead.extracted_data:
+        try:
+            parsed = json.loads(lead.extracted_data)
+            data = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            data = {}
+    messengers = data.get("messengers") if isinstance(data.get("messengers"), dict) else {}
+    presence = {
+        "telegram": bool(lead.telegram_id or messengers.get("telegram")),
+        "whatsapp": bool(messengers.get("whatsapp")),
+    }
+    return {key: value for key, value in presence.items() if value}
+
+
+def _recommended_messenger(presence: dict[str, bool]) -> str | None:
+    if presence.get("telegram"):
+        return "telegram"
+    if presence.get("whatsapp"):
+        return "whatsapp"
+    return None
 
 
 @router.get("/config")
@@ -66,12 +91,15 @@ async def submit_quiz(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
+    presence = _lead_messenger_presence(lead)
     return QuizSubmitResponse(
         lead_id=lead.id,
         session_token=session_token,
         status="ok",
         should_offer_measurement=quiz_service.should_offer_measurement(payload.answers),
         measurement_slots=slots,
+        messenger_presence=presence,
+        recommended_messenger=_recommended_messenger(presence),
     )
 
 
@@ -87,7 +115,14 @@ async def capture_quiz_contact(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    return QuizContactCaptureResponse(lead_id=lead.id, session_token=session_token, status="ok")
+    presence = _lead_messenger_presence(lead)
+    return QuizContactCaptureResponse(
+        lead_id=lead.id,
+        session_token=session_token,
+        status="ok",
+        messenger_presence=presence,
+        recommended_messenger=_recommended_messenger(presence),
+    )
 
 
 @router.post("/design-project")

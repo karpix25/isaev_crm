@@ -540,6 +540,22 @@
     border-color: var(--gold);
     background: #1e1708;
   }
+  .messenger-choice-btn.recommended {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 1px var(--gold)33;
+  }
+  .messenger-choice-badge {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #2a2108;
+    color: var(--gold);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
   .messenger-choice-icon { font-size: 24px; }
   .messenger-choice-title { font-size: 14px; font-weight: 800; }
   .messenger-choice-sub { color: #777; font-size: 11px; margin-top: 2px; }
@@ -672,6 +688,20 @@
     text-decoration: none;
     font-weight: 700;
     background: #101010;
+  }
+  .messenger-link.recommended {
+    border-color: var(--gold);
+    background: #1e1708;
+    color: #fff;
+  }
+  .messenger-link-badge {
+    display: block;
+    margin-top: 5px;
+    color: var(--gold);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
   }
   .messenger-link:hover { border-color: var(--gold); color: #fff; }
 
@@ -819,9 +849,9 @@
         <div class="gift-tag">Дар</div>
       </div>
 
-      <div class="start-tag">Бесплатный расчёт · 2 минуты</div>
-      <div class="start-title">Узнайте стоимость ремонта<br>за <em>8 вопросов</em></div>
-      <div class="start-sub">Ответьте — и мы подготовим предварительную смету специально для вашего объекта. Бесплатно и без обязательств.</div>
+      <div class="start-tag">Бесплатный расчёт · около 2 минут</div>
+      <div class="start-title">Узнайте стоимость ремонта<br>без долгих созвонов</div>
+      <div class="start-sub">Сначала зададим 2 быстрых вопроса и сохраним расчёт, дальше уточним детали объекта. Бесплатно и без обязательств.</div>
 
       <div class="start-points">
         <div class="start-point">
@@ -843,7 +873,7 @@
       </div>
 
       <button class="btn-next" onclick="startQuiz()">Рассчитать стоимость →</button>
-      <div class="start-time">⏱ Займёт около 2 минут</div>
+      <div class="start-time">⏱ Первые 2 вопроса — меньше минуты</div>
     </div>
 
     <!-- QUESTION -->
@@ -914,7 +944,7 @@
         <div class="gift-result-icon">🎁</div>
         <div>
           <div class="gift-result-title">Дизайн-проект в подарок</div>
-          <div class="gift-result-sub">При заключении договора — профессиональный дизайн за наш счёт</div>
+          <div class="gift-result-sub">Если проект уже есть, попросим прислать его в мессенджере после расчета</div>
         </div>
       </div>
 
@@ -976,9 +1006,10 @@
 <div class="exit-overlay" id="exitOverlay">
   <div class="exit-modal">
     <div class="exit-title">Сохранить расчет?</div>
-    <div class="exit-sub">Вы уже начали квиз. Выберите удобный мессенджер — мы откроем готовое сообщение с кодом расчета.</div>
+    <div class="exit-sub">Вы уже начали квиз. Оставьте телефон — закрепим расчет за вами и откроем удобный мессенджер.</div>
     <div class="exit-grid">
       <input type="text" id="exitName" placeholder="Ваше имя">
+      <input type="tel" id="exitPhone" placeholder="+7 999 123-45-67">
       <button class="btn-next" style="margin-top:0" onclick="captureExitContact('telegram')">Продолжить в Telegram</button>
       <button class="btn-small" onclick="captureExitContact('whatsapp')">Продолжить в WhatsApp</button>
     </div>
@@ -1048,7 +1079,7 @@ const questions = [
     text: 'Есть ли дизайн-проект?',
     options: [
       { icon: '✅', label: 'Да, уже готов', sub: 'Чертежи, планы, визуализация', val: 'yes', coef: 1.0 },
-      { icon: '📝', label: 'В процессе разработки', sub: 'Только эскизы или идеи', val: 'wip', coef: 1.05 },
+      { icon: '📝', label: 'В процессе разработки', sub: 'Попросим прислать позже в чат', val: 'wip', coef: 1.05 },
       { icon: '🎁', label: 'Нет — хочу в подарок!', sub: 'Получите дизайн-проект бесплатно', val: 'no', coef: 1.1 },
     ],
   },
@@ -1082,6 +1113,8 @@ let measurementSlots = [];
 let designProjectFileUrl = '';
 let designUploadDecision = '';
 let selectedMessenger = '';
+let messengerPresence = {};
+let recommendedMessenger = '';
 let submittedContact = null;
 let selectedMeasurementSlot = null;
 let contactGateMode = 'final';
@@ -1194,6 +1227,8 @@ function saveProgress() {
     currentLeadId,
     selectedMessenger,
     submittedContact,
+    messengerPresence,
+    recommendedMessenger,
     updatedAt: new Date().toISOString()
   }));
 }
@@ -1225,6 +1260,8 @@ function resumeQuiz() {
   sessionToken = saved.sessionToken || sessionToken;
   currentLeadId = saved.currentLeadId || currentLeadId;
   selectedMessenger = saved.selectedMessenger || selectedMessenger;
+  messengerPresence = saved.messengerPresence || messengerPresence;
+  recommendedMessenger = saved.recommendedMessenger || recommendedMessenger;
   submittedContact = saved.submittedContact || submittedContact;
   if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
   document.getElementById('progressWrap').style.display = 'block';
@@ -1242,6 +1279,8 @@ function resetSavedQuiz() {
   designProjectFileUrl = '';
   designUploadDecision = '';
   selectedMessenger = '';
+  messengerPresence = {};
+  recommendedMessenger = '';
   submittedContact = null;
   selectedMeasurementSlot = null;
   contactGateMode = 'final';
@@ -1260,6 +1299,19 @@ async function trackEvent(event_type, step_id, event_data = null) {
   } catch (e) {
     console.warn('Analytics event failed', e);
   }
+}
+
+function rememberLeadContactHints(result) {
+  messengerPresence = result?.messenger_presence || {};
+  recommendedMessenger = result?.recommended_messenger || getRecommendedMessenger();
+  saveProgress();
+}
+
+function getRecommendedMessenger() {
+  if (recommendedMessenger) return recommendedMessenger;
+  if (messengerPresence.telegram) return 'telegram';
+  if (messengerPresence.whatsapp) return 'whatsapp';
+  return '';
 }
 
 function showScreen(id) {
@@ -1283,6 +1335,8 @@ function startQuiz() {
   designProjectFileUrl = '';
   designUploadDecision = '';
   selectedMessenger = '';
+  messengerPresence = {};
+  recommendedMessenger = '';
   submittedContact = null;
   selectedMeasurementSlot = null;
   contactGateMode = 'final';
@@ -1348,15 +1402,6 @@ function nextStep() {
   const currentQuestion = questions[step];
   if (step === CONTACT_GATE_AFTER_STEP && !submittedContact && !currentLeadId) {
     showContactGate();
-    return;
-  }
-
-  if (
-    currentQuestion?.id === 'design' &&
-    (answers.design === 'yes' || answers.design === 'wip') &&
-    !designUploadDecision
-  ) {
-    showDesignUploadPrompt();
     return;
   }
 
@@ -1483,11 +1528,11 @@ function showContactGate() {
   document.getElementById('progressFill').style.width = '25%';
   document.getElementById('pct').textContent = '25%';
   document.getElementById('stepLabel').textContent = 'Сохранение расчета';
-  document.getElementById('contactPriceLabel').textContent = 'Расчет уже формируется';
+  document.getElementById('contactPriceLabel').textContent = 'Сохраним ваш расчет';
   document.getElementById('teaserRange').textContent = labels.area?.[answers.area] || '—';
-  document.getElementById('contactPriceNote').textContent = 'Сохраним результат и продолжим расчет без потери данных';
+  document.getElementById('contactPriceNote').textContent = 'После этого продолжим вопросы без потери данных';
   document.getElementById('contactStepLabel').textContent = 'Куда прислать результат?';
-  document.getElementById('contactTitle').textContent = 'Оставьте телефон — если закроете страницу, менеджер сможет прислать расчет';
+  document.getElementById('contactTitle').textContent = 'Оставьте телефон — закрепим расчет за вами и пришлем результат, если отвлечетесь';
   document.getElementById('contactSubmitBtn').textContent = 'Сохранить и продолжить расчет →';
   document.getElementById('messengerChoice').style.display = 'none';
   showScreen('screen-contact');
@@ -1625,6 +1670,7 @@ async function submitContactGate(contact) {
     });
     currentLeadId = result.lead_id;
     sessionToken = result.session_token;
+    rememberLeadContactHints(result);
     submittedContact = contact;
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     trackEvent('contact_gate_submitted', 'contact_gate', {
@@ -1692,6 +1738,7 @@ async function submitFinalQuiz(contactOverride = null) {
     });
     currentLeadId = result.lead_id;
     sessionToken = result.session_token;
+    rememberLeadContactHints(result);
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     localStorage.removeItem('isaev_quiz_progress');
     measurementSlots = result.measurement_slots || [];
@@ -1712,7 +1759,8 @@ async function submitFinalQuiz(contactOverride = null) {
     </div>`).join('');
 
   document.getElementById('tyName').textContent  = contact.name;
-  document.getElementById('tyMessenger').textContent = selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
+  const visibleMessenger = selectedMessenger || getRecommendedMessenger() || 'whatsapp';
+  document.getElementById('tyMessenger').textContent = visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
   document.getElementById('resultSubtitle').innerHTML = shouldOfferInlineMeasurement()
     ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — мы закрепим слот и откроем мессенджер для подтверждения адреса.`
     : `<strong>${escapeHtml(contact.name)}</strong>, расчет готов.<br>Выберите удобный мессенджер, чтобы продолжить по вашей заявке.`;
@@ -1757,6 +1805,13 @@ function closeExitPopup() {
 async function captureExitContact(messenger) {
   if (isCapturingExitContact) return;
   const name = document.getElementById('exitName').value.trim() || 'Клиент квиза';
+  const phone = document.getElementById('exitPhone').value.trim();
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    shake('exitPhone');
+    document.getElementById('exitStatus').textContent = 'Оставьте телефон, чтобы мы сохранили расчет.';
+    return;
+  }
   const statusEl = document.getElementById('exitStatus');
   statusEl.textContent = 'Сохраняем расчет...';
   isCapturingExitContact = true;
@@ -1766,7 +1821,7 @@ async function captureExitContact(messenger) {
       method: 'POST',
       body: JSON.stringify({
         session_token: sessionToken,
-        contact: { name, preferred_messenger: messenger },
+        contact: { name, phone: normalizedPhone, preferred_messenger: messenger },
         answers,
         ...collectTrackingParams(),
         source: 'quiz_exit_capture'
@@ -1774,6 +1829,7 @@ async function captureExitContact(messenger) {
     });
     currentLeadId = result.lead_id;
     sessionToken = result.session_token;
+    rememberLeadContactHints(result);
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     statusEl.textContent = 'Готово. Открываем мессенджер...';
     trackEvent(`${messenger}_clicked`, 'exit_capture');
@@ -1875,24 +1931,32 @@ async function chooseSlot(index, name) {
 function renderMessengerActions(name) {
   const actions = document.getElementById('resultMessengerActions');
   const slot = selectedMeasurementSlot;
-  const primary = selectedMessenger || 'whatsapp';
+  const primary = selectedMessenger || getRecommendedMessenger() || 'whatsapp';
   const secondary = primary === 'telegram' ? 'whatsapp' : 'telegram';
   const primaryUrl = buildMessengerUrl(primary, buildMessengerMessage(name, slot));
   const secondaryUrl = buildMessengerUrl(secondary, buildMessengerMessage(name, slot));
+  const recommended = getRecommendedMessenger();
   actions.style.display = 'grid';
   actions.innerHTML = `
-    <a class="messenger-link" href="${primaryUrl}" onclick="trackEvent('${primary}_clicked_from_result', 'messenger')">
+    <a class="messenger-link ${recommended === primary ? 'recommended' : ''}" href="${primaryUrl}" onclick="trackEvent('${primary}_clicked_from_result', 'messenger')">
       Открыть ${primary === 'telegram' ? 'Telegram' : 'WhatsApp'}
+      ${recommended === primary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
-    <a class="messenger-link" href="${secondaryUrl}" onclick="trackEvent('${secondary}_clicked_from_result', 'messenger')">
+    <a class="messenger-link ${recommended === secondary ? 'recommended' : ''}" href="${secondaryUrl}" onclick="trackEvent('${secondary}_clicked_from_result', 'messenger')">
       Открыть ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
+      ${recommended === secondary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
   `;
 }
 
 function buildMessengerMessage(name, slot = null) {
   const slotText = slot ? ` Записался на замер: ${slot.date_label} в ${slot.label}.` : '';
-  return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText} Код заявки: ${sessionToken}`;
+  const designText = answers.design === 'yes'
+    ? ' Дизайн-проект готов, могу прислать его сюда.'
+    : answers.design === 'wip'
+      ? ' Дизайн-проект в работе, пришлю материалы сюда, когда будут под рукой.'
+      : '';
+  return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText}${designText} Код заявки: ${sessionToken}`;
 }
 
 function normalizePhone(value) {

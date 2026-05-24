@@ -61,6 +61,8 @@ class QuizContactCaptureResponse(BaseModel):
     lead_id: uuid.UUID
     session_token: str
     status: str
+    messenger_presence: dict[str, bool] = Field(default_factory=dict)
+    recommended_messenger: str | None = None
 
 
 class MeasurementSlot(BaseModel):
@@ -77,6 +79,8 @@ class QuizSubmitResponse(BaseModel):
     status: str
     should_offer_measurement: bool
     measurement_slots: list[MeasurementSlot] = Field(default_factory=list)
+    messenger_presence: dict[str, bool] = Field(default_factory=dict)
+    recommended_messenger: str | None = None
 
 
 class MeasurementSlotsResponse(BaseModel):

@@ -23,6 +23,8 @@ FUNNEL_STEPS: list[tuple[str, str]] = [
     ("quiz_opened", "Открыл квиз"),
     ("quiz_started", "Начал квиз"),
     ("answer_selected", "Ответил на вопросы"),
+    ("contact_gate_viewed", "Увидел сохранение расчета"),
+    ("contact_gate_submitted", "Сохранил контакт в квизе"),
     ("contact_viewed", "Дошел до контактов"),
     ("contact_submitted", "Оставил контакты"),
     ("lead_created", "Создан лид"),
