@@ -31,6 +31,7 @@ class CalProService:
 
     async def get_slots(self, days_ahead: int | None = None, limit: int | None = None) -> list[MeasurementSlot]:
         if not self.is_configured():
+            logger.info("Cal Pro slots skipped: %s", self.missing_reason())
             return []
 
         now = datetime.now(timezone.utc)
@@ -49,6 +50,13 @@ class CalProService:
             headers["Authorization"] = f"Bearer {settings.cal_pro_api_key}"
 
         try:
+            logger.info(
+                "Fetching Cal Pro slots: event_type=%s start=%s end=%s timezone=%s",
+                self._event_type_log_label(),
+                params["start"],
+                params["end"],
+                settings.cal_pro_time_zone,
+            )
             async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=5.0)) as client:
                 response = await client.get(
                     f"{settings.cal_pro_api_base_url.rstrip('/')}/v2/slots",
@@ -57,11 +65,21 @@ class CalProService:
                 )
                 response.raise_for_status()
                 payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            body = exc.response.text[:1000] if exc.response is not None else ""
+            logger.error(
+                "Failed to fetch Cal Pro slots: status=%s body=%s",
+                exc.response.status_code if exc.response is not None else "unknown",
+                body,
+            )
+            return []
         except httpx.HTTPError as exc:
             logger.error("Failed to fetch Cal Pro slots: %s", exc)
             return []
 
-        return self._flatten_slots(payload.get("data") or {}, limit or settings.cal_pro_max_slots)
+        slots = self._flatten_slots(payload.get("data") or {}, limit or settings.cal_pro_max_slots)
+        logger.info("Fetched Cal Pro slots: count=%s", len(slots))
+        return slots
 
     async def create_booking(
         self,
@@ -110,14 +128,36 @@ class CalProService:
         if settings.cal_pro_api_key:
             headers["Authorization"] = f"Bearer {settings.cal_pro_api_key}"
 
+        logger.info(
+            "Creating Cal Pro booking: event_type=%s start=%s name=%s phone_present=%s address_present=%s",
+            self._event_type_log_label(),
+            body["start"],
+            contact.name,
+            bool(contact.phone),
+            bool(address),
+        )
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
             response = await client.post(
                 f"{settings.cal_pro_api_base_url.rstrip('/')}/v2/bookings",
                 json=body,
                 headers=headers,
             )
-            response.raise_for_status()
-            return response.json()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.error(
+                    "Cal Pro booking failed: status=%s body=%s",
+                    response.status_code,
+                    response.text[:2000],
+                )
+                raise exc
+            payload = response.json()
+            logger.info(
+                "Cal Pro booking created: status=%s uid=%s",
+                payload.get("status"),
+                self._extract_booking_uid(payload),
+            )
+            return payload
 
     def _to_utc_iso(self, value: str) -> str:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -162,6 +202,18 @@ class CalProService:
         if settings.cal_pro_organization_slug:
             params["organizationSlug"] = settings.cal_pro_organization_slug
         return params
+
+    def _event_type_log_label(self) -> str:
+        if settings.cal_pro_event_type_id:
+            return f"id:{settings.cal_pro_event_type_id}"
+        owner = settings.cal_pro_team_slug or settings.cal_pro_username or "unknown-owner"
+        return f"slug:{settings.cal_pro_event_type_slug}@{owner}"
+
+    def _extract_booking_uid(self, payload: dict[str, Any]) -> str | None:
+        data = payload.get("data") if isinstance(payload, dict) else None
+        source = data if isinstance(data, dict) else payload
+        value = source.get("uid") or source.get("bookingUid") or source.get("id")
+        return str(value) if value else None
 
     def _fallback_email(self, metadata: dict[str, Any] | None = None) -> str:
         source = str((metadata or {}).get("lead_id") or (metadata or {}).get("session_token") or "quiz")

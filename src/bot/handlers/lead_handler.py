@@ -8,6 +8,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 import uuid
+from zoneinfo import ZoneInfo
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.filters import CommandStart
@@ -34,6 +35,29 @@ logger = logging.getLogger(__name__)
 
 # Create router for lead handlers
 router = Router()
+
+
+def _format_measurement_start(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y в %H:%M")
+    except Exception:
+        return str(value)
+
+
+def _lead_measurement_data(lead) -> dict:
+    if not getattr(lead, "extracted_data", None):
+        return {}
+    try:
+        data = json.loads(lead.extracted_data)
+    except json.JSONDecodeError:
+        return {}
+    measurement = data.get("measurement") if isinstance(data, dict) else None
+    return measurement if isinstance(measurement, dict) else {}
 
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
@@ -499,10 +523,26 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
                 "Для точного расчета лучше записаться на замер. Напишите, какой день вам удобен?"
             )
         elif next_action == "confirm_measurement":
-            welcome_text = (
-                "Здравствуйте! Вижу выбранный слот замера. "
-                "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
-            )
+            measurement = _lead_measurement_data(lead)
+            measurement_date = _format_measurement_start(measurement.get("start"))
+            measurement_address = str(measurement.get("address") or "").strip()
+            if measurement_date and measurement_address:
+                status_label = "замер записан" if measurement.get("status") == "booked" else "слот замера выбран"
+                welcome_text = (
+                    f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
+                    f"Адрес: {measurement_address}\n\n"
+                    "Менеджер подтвердит детали выезда."
+                )
+            elif measurement_date:
+                welcome_text = (
+                    f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}. "
+                    "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+                )
+            else:
+                welcome_text = (
+                    "Здравствуйте! Вижу выбранный слот замера. "
+                    "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+                )
         else:
             welcome_text = (
                 "Здравствуйте! Вижу вашу заявку по квизу. "

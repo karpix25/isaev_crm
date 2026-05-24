@@ -667,10 +667,37 @@
   .measurement-form .form-group { margin-bottom: 0; }
   .measurement-form label { font-size: 12px; }
   .measurement-form input { background: #101010; }
-  .slot-grid { display: grid; gap: 12px; max-height: 420px; overflow: auto; padding-right: 4px; }
-  .slot-day { display: grid; gap: 8px; }
-  .slot-day-title { color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
-  .slot-day-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .slot-picker { display: grid; gap: 14px; }
+  .slot-date-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 8px;
+  }
+  .slot-date-btn {
+    background: #101010;
+    color: #d6d6d6;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 800;
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
+  }
+  .slot-date-btn:hover,
+  .slot-date-btn.active {
+    color: #fff;
+    border-color: var(--gold);
+    background: #1e1708;
+  }
+  .slot-time-head {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .slot-time-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .slot-btn {
     background: #101010;
     color: #fff;
@@ -802,7 +829,8 @@
     .price-value { font-size: 32px; }
     .float-gift { display: none; }
     .messenger-actions { grid-template-columns: 1fr; }
-    .slot-day-times { grid-template-columns: 1fr; }
+    .slot-date-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .slot-time-grid { grid-template-columns: 1fr; }
     .messenger-choice { grid-template-columns: 1fr; }
     .resume-actions { grid-template-columns: 1fr; }
   }
@@ -1135,6 +1163,7 @@ let messengerPresence = {};
 let recommendedMessenger = '';
 let submittedContact = null;
 let selectedMeasurementSlot = null;
+let selectedSlotDateLabel = '';
 let contactGateMode = 'final';
 let isSubmittingQuiz = false;
 let isCapturingExitContact = false;
@@ -1301,6 +1330,7 @@ function resetSavedQuiz() {
   recommendedMessenger = '';
   submittedContact = null;
   selectedMeasurementSlot = null;
+  selectedSlotDateLabel = '';
   contactGateMode = 'final';
   step = -1;
   document.getElementById('resumeBox').classList.remove('active');
@@ -1357,6 +1387,7 @@ function startQuiz() {
   recommendedMessenger = '';
   submittedContact = null;
   selectedMeasurementSlot = null;
+  selectedSlotDateLabel = '';
   contactGateMode = 'final';
   step = 0;
   document.getElementById('progressWrap').style.display = 'block';
@@ -1760,6 +1791,7 @@ async function submitFinalQuiz(contactOverride = null) {
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     localStorage.removeItem('isaev_quiz_progress');
     measurementSlots = result.measurement_slots || [];
+    selectedSlotDateLabel = '';
     submittedContact = contact;
   } catch (e) {
     if (statusEl) statusEl.textContent = 'Не удалось отправить заявку. Попробуйте ещё раз или напишите нам в мессенджер.';
@@ -1901,18 +1933,42 @@ function renderSlots(name) {
     acc[key].push({ slot, index });
     return acc;
   }, {});
-  grid.innerHTML = Object.entries(grouped).map(([dateLabel, items]) => `
-    <div class="slot-day">
-      <div class="slot-day-title">${escapeHtml(dateLabel)}</div>
-      <div class="slot-day-times">
-        ${items.map(({ slot, index }) => `
+  const dateGroups = Object.entries(grouped);
+  if (!dateGroups.length) {
+    grid.innerHTML = '';
+    return;
+  }
+  if (!selectedSlotDateLabel || !grouped[selectedSlotDateLabel]) {
+    selectedSlotDateLabel = dateGroups[0][0];
+  }
+  const selectedSlots = grouped[selectedSlotDateLabel] || [];
+  grid.innerHTML = `
+    <div class="slot-picker">
+      <div class="slot-date-list">
+        ${dateGroups.map(([dateLabel]) => `
+          <button
+            class="slot-date-btn ${dateLabel === selectedSlotDateLabel ? 'active' : ''}"
+            onclick="selectSlotDate('${escapeJs(dateLabel)}', '${escapeJs(name)}')"
+          >
+            ${escapeHtml(dateLabel)}
+          </button>
+        `).join('')}
+      </div>
+      <div class="slot-time-head">${escapeHtml(selectedSlotDateLabel)}</div>
+      <div class="slot-time-grid">
+        ${selectedSlots.map(({ slot, index }) => `
           <button class="slot-btn" onclick="chooseSlot(${index}, '${escapeJs(name)}')">
-            ${slot.label}
+            ${escapeHtml(slot.label)}
           </button>
         `).join('')}
       </div>
     </div>
-  `).join('');
+  `;
+}
+
+function selectSlotDate(dateLabel, name) {
+  selectedSlotDateLabel = dateLabel;
+  renderSlots(name);
 }
 
 function shouldOfferInlineMeasurement() {

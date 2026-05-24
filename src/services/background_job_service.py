@@ -225,7 +225,11 @@ class BackgroundJobService:
 
         manager_id = getattr(settings, "manager_telegram_id", None)
         if not manager_id or not bot:
-            logger.info("Skipping measurement reminder: manager Telegram is not configured")
+            logger.info(
+                "Skipping measurement reminder: manager_id_present=%s bot_present=%s",
+                bool(manager_id),
+                bool(bot),
+            )
             return
 
         lead_id = uuid.UUID(str(payload["lead_id"]))
@@ -250,6 +254,7 @@ class BackgroundJobService:
         if booking_uid:
             text += f"\n🔖 Booking: {booking_uid}"
         await bot.send_message(chat_id=manager_id, text=text)
+        logger.info("Measurement reminder sent: manager_id=%s lead_id=%s", manager_id, lead.id)
 
     def _format_measurement_start(self, value: str) -> str:
         try:

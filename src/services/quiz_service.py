@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import json
+import logging
 import re
 import uuid
 from zoneinfo import ZoneInfo
@@ -16,6 +17,8 @@ from src.schemas.quiz import QuizContact, QuizContactCaptureRequest, QuizSubmitR
 from src.services.analytics_service import analytics_service
 from src.services.cal_pro_service import cal_pro_service
 from src.services.lead_service import lead_service
+
+logger = logging.getLogger(__name__)
 
 
 class QuizService:
@@ -198,6 +201,14 @@ class QuizService:
         if not measurement_address:
             raise ValueError("Measurement address is required")
 
+        logger.info(
+            "Measurement booking requested: lead_id=%s start=%s address_present=%s contact_phone_present=%s",
+            lead_id,
+            payload.start,
+            bool(measurement_address),
+            bool(getattr(contact, "phone", None)),
+        )
+
         lead = None
         data: dict[str, Any] = {}
         if lead_id:
@@ -251,6 +262,13 @@ class QuizService:
                 metadata=booking_metadata,
             )
         except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "Measurement calendar booking failed: lead_id=%s start=%s error=%s",
+                lead_id,
+                payload.start,
+                exc,
+                exc_info=True,
+            )
             if lead:
                 data = self._parse_extracted_data(lead.extracted_data)
                 measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
@@ -302,6 +320,12 @@ class QuizService:
                 "message": "Measurement request saved for manager confirmation.",
             }, lead_id
 
+        logger.info(
+            "Measurement calendar booking succeeded: lead_id=%s start=%s booking_uid=%s",
+            lead_id,
+            payload.start,
+            self.extract_booking_uid(booking),
+        )
         if lead:
             data = self._parse_extracted_data(lead.extracted_data)
             measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
@@ -700,6 +724,12 @@ class QuizService:
 
             manager_id = getattr(settings, "manager_telegram_id", None)
             if not manager_id or not bot:
+                logger.warning(
+                    "Skipping measurement Telegram notification: manager_id_present=%s bot_present=%s lead_id=%s",
+                    bool(manager_id),
+                    bool(bot),
+                    getattr(lead, "id", None),
+                )
                 return
 
             status_label = "✅ Замер записан в календарь" if status == "booked" else "🟡 Клиент выбрал слот замера"
@@ -714,10 +744,14 @@ class QuizService:
             if booking_uid:
                 text += f"\n🔖 Booking: {booking_uid}"
             await bot.send_message(chat_id=manager_id, text=text)
+            logger.info(
+                "Measurement Telegram notification sent: manager_id=%s lead_id=%s status=%s",
+                manager_id,
+                lead.id,
+                status,
+            )
         except Exception:
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Failed to send measurement Telegram notification for lead %s",
                 getattr(lead, "id", None),
                 exc_info=True,
@@ -756,10 +790,14 @@ class QuizService:
                 max_attempts=2,
                 run_at=run_at,
             )
+            logger.info(
+                "Measurement Telegram reminder enqueued: lead_id=%s run_at=%s booking_uid=%s",
+                lead.id,
+                run_at.isoformat(),
+                booking_uid,
+            )
         except Exception:
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Failed to enqueue measurement reminder for lead %s",
                 getattr(lead, "id", None),
                 exc_info=True,

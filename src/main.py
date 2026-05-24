@@ -78,6 +78,19 @@ async def _start_telegram_polling() -> None:
 @app.on_event("startup")
 async def startup():
     await init_db()
+    logger.info(
+        "Cal Pro config: enabled=%s event_type_id=%s event_type_slug=%s api_key_present=%s",
+        settings.cal_pro_enabled,
+        settings.cal_pro_event_type_id,
+        settings.cal_pro_event_type_slug or "",
+        bool(settings.cal_pro_api_key),
+    )
+    logger.info(
+        "Telegram notification config: bot_present=%s manager_telegram_id_present=%s update_mode=%s",
+        bool(bot),
+        bool(settings.manager_telegram_id),
+        settings.telegram_update_mode,
+    )
     
     mode = settings.telegram_update_mode
     if bot and settings.telegram_bot_token:
