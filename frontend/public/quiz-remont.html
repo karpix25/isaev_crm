@@ -559,6 +559,13 @@
   .messenger-choice-icon { font-size: 24px; }
   .messenger-choice-title { font-size: 14px; font-weight: 800; }
   .messenger-choice-sub { color: #777; font-size: 11px; margin-top: 2px; }
+  .contact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .contact-grid .form-group { margin-bottom: 0; }
 
   /* RESULT */
   .result-header { text-align: center; margin-bottom: 28px; }
@@ -618,31 +625,32 @@
   .result-item-val   { font-weight: 600; }
 
   .messenger-estimate-box {
-    padding: 22px;
+    padding: 18px 20px;
     text-align: left;
+    margin-bottom: 14px;
   }
-  .messenger-estimate-box .price-label { margin-bottom: 10px; color: var(--gold); }
+  .messenger-estimate-box .price-label { margin-bottom: 8px; color: var(--gold); }
   .messenger-estimate-box .price-value {
     display: block;
     -webkit-text-fill-color: #fff;
     background: none;
-    font-size: 26px;
+    font-size: 24px;
     line-height: 1.15;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   .messenger-estimate-box .price-note { color: #a0a0a0; line-height: 1.55; }
   .contact-summary {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    margin: 14px 0 16px;
+    margin: 10px 0 14px;
   }
   .contact-summary-item {
     min-width: 0;
     background: var(--card2);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 12px;
+    border-radius: 999px;
+    padding: 8px 10px;
   }
   .contact-summary-label {
     color: #777;
@@ -650,21 +658,23 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin-bottom: 4px;
+    margin-right: 6px;
+    display: inline;
   }
   .contact-summary-val {
     color: #fff;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
     line-height: 1.25;
     overflow-wrap: anywhere;
+    display: inline;
   }
   .messenger-next-note {
     background: #171717;
     border: 1px solid var(--gold)33;
     border-radius: 12px;
-    padding: 14px 16px;
-    margin-bottom: 14px;
+    padding: 11px 14px;
+    margin-bottom: 12px;
   }
   .messenger-next-title { color: #fff; font-size: 14px; font-weight: 900; margin-bottom: 4px; }
   .messenger-next-sub { color: #999; font-size: 12px; line-height: 1.45; }
@@ -879,9 +889,12 @@
     .start-title { font-size: 24px; }
     .question-text { font-size: 18px; }
     .price-value { font-size: 32px; }
+    .messenger-estimate-box .price-value { font-size: 24px; }
     .float-gift { display: none; }
     .messenger-actions { grid-template-columns: 1fr; }
-    .contact-summary { grid-template-columns: 1fr; }
+    .contact-grid { grid-template-columns: 1fr; }
+    .contact-summary { display: grid; grid-template-columns: 1fr; }
+    .contact-summary-item { border-radius: 10px; }
     .slot-date-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .slot-time-grid { grid-template-columns: 1fr; }
     .messenger-choice { grid-template-columns: 1fr; }
@@ -1002,17 +1015,18 @@
         <div class="price-note" id="contactPriceNote">Стоимость работ (без материалов) · уточняется после замера</div>
       </div>
 
-      <div class="question-num" id="contactStepLabel">Последний шаг</div>
       <div class="question-text" id="contactTitle" style="font-size:18px">Куда удобнее отправить расчёт?</div>
       <div class="contact-summary" id="contactSummary"></div>
 
-      <div class="form-group">
-        <label>Ваше имя</label>
-        <input type="text" id="fname" placeholder="Александра">
-      </div>
-      <div class="form-group">
-        <label id="phoneLabel">Телефон для отправки расчета</label>
-        <input type="tel" id="phone" placeholder="+7 999 123-45-67">
+      <div class="contact-grid">
+        <div class="form-group">
+          <label>Ваше имя</label>
+          <input type="text" id="fname" placeholder="Александра">
+        </div>
+        <div class="form-group">
+          <label id="phoneLabel">Телефон для отправки расчета</label>
+          <input type="tel" id="phone" placeholder="+7 999 123-45-67">
+        </div>
       </div>
       <div class="messenger-choice" id="messengerChoice">
         <button type="button" class="messenger-choice-btn" data-messenger="telegram" onclick="selectMessenger('telegram')">
@@ -1035,7 +1049,6 @@
         <div class="messenger-next-sub" id="contactNextStepSub">Отправим расчет и подскажем, что нужно для точной сметы</div>
       </div>
 
-      <button class="btn-next" id="contactSubmitBtn" onclick="submitForm()">Получить расчет →</button>
       <button class="btn-back" onclick="prevStep()">← Назад</button>
       <div class="inline-status" id="submitStatus"></div>
       <div class="disclaimer">Нажимая кнопку, вы соглашаетесь на обработку персональных данных</div>
@@ -1601,13 +1614,11 @@ function showContactWithTeaser() {
   document.getElementById('teaserRange').textContent = copy.hero;
   document.getElementById('teaserRange').style.display = 'block';
   document.getElementById('contactPriceNote').textContent = copy.note;
-  document.getElementById('contactStepLabel').textContent = 'Последний шаг';
   document.getElementById('contactTitle').textContent = copy.title;
   renderContactSummary();
   document.getElementById('phoneLabel').textContent = 'Телефон для отправки расчета';
   document.getElementById('contactNextStepTitle').textContent = copy.nextTitle;
   document.getElementById('contactNextStepSub').textContent = copy.nextSub;
-  document.getElementById('contactSubmitBtn').textContent = 'Получить расчет →';
   document.getElementById('messengerChoice').style.display = 'grid';
   document.getElementById('submitStatus').textContent = '';
   showScreen('screen-contact');
@@ -1627,13 +1638,11 @@ function showContactGate() {
   document.getElementById('teaserRange').textContent = labels.area?.[answers.area] || '—';
   document.getElementById('teaserRange').style.display = 'block';
   document.getElementById('contactPriceNote').textContent = 'После этого продолжим вопросы без потери данных';
-  document.getElementById('contactStepLabel').textContent = 'Куда прислать результат?';
   document.getElementById('contactTitle').textContent = 'Оставьте телефон — закрепим расчет за вами и пришлем результат, если отвлечетесь';
   document.getElementById('contactSummary').innerHTML = '';
   document.getElementById('phoneLabel').textContent = 'Телефон';
   document.getElementById('contactNextStepTitle').textContent = 'Не потеряем ваш расчет';
   document.getElementById('contactNextStepSub').textContent = 'Если отвлечетесь, сможем продолжить с того же места';
-  document.getElementById('contactSubmitBtn').textContent = 'Сохранить и продолжить расчет →';
   document.getElementById('messengerChoice').style.display = 'none';
   document.getElementById('submitStatus').textContent = '';
   showScreen('screen-contact');
@@ -1704,8 +1713,8 @@ function getFinalContactCopy() {
     return {
       label: 'Предварительный просчет уже готов',
       hero: 'Получите его в мессенджере',
-      title: 'Выберите удобный мессенджер, куда отправить просчет',
-      note: 'Получите ориентир бюджета в переписке. Для точного расчета попросим прислать дизайн-проект.',
+      title: 'Куда отправить просчет?',
+      note: 'В переписке покажем ориентир бюджета и попросим дизайн-проект для точной сметы.',
       nextTitle: 'Точный расчет по проекту',
       nextSub: 'В мессенджере попросим прислать проект или материалы, чтобы подготовить смету точнее.'
     };
@@ -1714,8 +1723,8 @@ function getFinalContactCopy() {
   return {
     label: 'Предварительный просчет готов',
     hero: 'Отправим в удобный мессенджер',
-    title: 'Выберите удобный мессенджер, куда отправить данные',
-    note: 'Отправим ориентир бюджета и подскажем следующий шаг для точной сметы.',
+    title: 'Куда отправить данные?',
+    note: 'Покажем ориентир бюджета и предложим следующий шаг для точной сметы.',
     nextTitle: 'Точная смета после замера',
     nextSub: 'Если проекта нет, в мессенджере предложим выбрать удобное время бесплатного замера.'
   };
@@ -1724,7 +1733,7 @@ function getFinalContactCopy() {
 function renderContactSummary() {
   const summary = document.getElementById('contactSummary');
   if (!summary) return;
-  const compactFields = resultFields.filter(([key]) => ['type', 'area', 'rtype', 'design', 'deadline', 'budget'].includes(key));
+  const compactFields = resultFields.filter(([key]) => ['type', 'area', 'rtype', 'design'].includes(key));
   summary.innerHTML = compactFields.map(([key, title]) => `
     <div class="contact-summary-item">
       <div class="contact-summary-label">${escapeHtml(title)}</div>
@@ -1764,6 +1773,23 @@ async function submitForm() {
     return;
   }
 
+  await submitFinalQuiz(contact);
+}
+
+async function submitWithMessenger(messenger) {
+  if (isSubmittingQuiz || contactGateMode === 'early') return;
+  selectedMessenger = messenger;
+  document.querySelectorAll('.messenger-choice-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.messenger === messenger);
+  });
+  document.getElementById('submitStatus').textContent = '';
+  trackEvent('messenger_selected', 'contact', { messenger });
+  const contact = readContactForm();
+  if (!contact) {
+    selectedMessenger = '';
+    document.querySelectorAll('.messenger-choice-btn').forEach(btn => btn.classList.remove('active'));
+    return;
+  }
   await submitFinalQuiz(contact);
 }
 
@@ -1918,16 +1944,18 @@ async function submitFinalQuiz(contactOverride = null) {
 }
 
 function selectMessenger(messenger) {
-  selectedMessenger = messenger;
-  document.querySelectorAll('.messenger-choice-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.messenger === messenger);
-  });
-  document.getElementById('submitStatus').textContent = '';
-  trackEvent('messenger_selected', 'contact', { messenger });
+  submitWithMessenger(messenger);
 }
 
 function shouldShowExitPopup() {
-  return !exitPopupShown && step >= 0 && Object.keys(answers).length > 0 && !currentLeadId;
+  const contactScreen = document.getElementById('screen-contact');
+  const isFinalContactScreen = contactGateMode === 'final' && contactScreen?.classList.contains('active');
+  return !exitPopupShown
+    && !isFinalContactScreen
+    && !selectedMessenger
+    && step >= 0
+    && Object.keys(answers).length > 0
+    && !currentLeadId;
 }
 
 function showExitPopup(reason) {
