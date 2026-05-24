@@ -140,7 +140,18 @@ class LeadStageEngineService:
         design_later = "design_upload_skipped" in event_types
         has_inbound = bool(event_types & {"telegram_message_received", "whatsapp_message_received"})
         has_messenger_click = bool(event_types & {"telegram_clicked", "whatsapp_clicked"})
-        measurement_booked = bool(measurement.get("booking_uid") or measurement.get("start")) or "measurement_booked" in event_types
+        measurement_status = str(measurement.get("status") or "").lower()
+        measurement_booked = (
+            bool(measurement.get("booking_uid"))
+            or measurement_status == "booked"
+            or "measurement_booked" in event_types
+        )
+        measurement_requested = (
+            bool(measurement.get("start"))
+            or measurement_status == "requested"
+            or "measurement_booking_requested" in event_types
+            or "measurement_booking_failed" in event_types
+        )
         measurement_clicked = "cal_slot_selected" in event_types
         quiz_completed = bool(session and session.status == "completed") or "quiz_completed" in event_types
 
@@ -160,6 +171,8 @@ class LeadStageEngineService:
             return StageDecision(LeadStatus.MEASUREMENT_DONE, "measurement_done")
         if measurement_booked:
             return StageDecision(LeadStatus.MEASUREMENT_BOOKED, "measurement_booked")
+        if measurement_requested:
+            return StageDecision(LeadStatus.MEASUREMENT_PENDING, "measurement_requested")
         if has_design_file:
             return StageDecision(LeadStatus.DESIGN_REVIEW, "design_file_uploaded")
         if has_quiz and design_later and design_answer in {"yes", "wip"}:

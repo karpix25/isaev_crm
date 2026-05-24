@@ -28,6 +28,8 @@ FUNNEL_STEPS: list[tuple[str, str]] = [
     ("contact_viewed", "Дошел до контактов"),
     ("contact_submitted", "Оставил контакты"),
     ("lead_created", "Создан лид"),
+    ("measurement_booking_requested", "Выбрал время замера"),
+    ("measurement_booked", "Замер записан"),
     ("messenger_clicked", "Нажал мессенджер"),
     ("messenger_message_received", "Написал в мессенджер"),
 ]

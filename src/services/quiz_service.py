@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 
+import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -192,17 +193,117 @@ class QuizService:
                 contact = QuizContact(name=lead.full_name, phone=lead.phone)
         if not contact:
             raise ValueError("Booking contact is required")
+        measurement_address = (payload.address or (payload.metadata or {}).get("measurement_address") or "").strip()
+        if not measurement_address:
+            raise ValueError("Measurement address is required")
 
-        booking = await cal_pro_service.create_booking(
-            start=payload.start,
-            contact=contact,
-            answers=payload.answers,
-            metadata={
+        lead = None
+        data: dict[str, Any] = {}
+        if lead_id:
+            result = await db.execute(select(Lead).where(Lead.id == lead_id))
+            lead = result.scalar_one_or_none()
+            if lead:
+                data = self._parse_extracted_data(lead.extracted_data)
+                measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+                if measurement.get("booking_uid") and measurement.get("start") == payload.start:
+                    return measurement.get("booking") or {"status": "ok", "data": measurement}, lead_id
+
+                data["measurement"] = {
+                    **measurement,
+                    "start": payload.start,
+                    "status": "requested",
+                    "requested_at": datetime.now(timezone.utc).isoformat(),
+                    "address": measurement_address,
+                    "phone": contact.phone,
+                    "selected_slot_label": (payload.metadata or {}).get("selected_slot_label"),
+                    "source": (payload.metadata or {}).get("source") or "quiz_inline_slots",
+                }
+                lead.extracted_data = json.dumps(data, ensure_ascii=False)
+                if lead.status in self.AUTO_QUIZ_STATUSES:
+                    lead.status = LeadStatus.MEASUREMENT_PENDING.value
+                await db.commit()
+
+        await analytics_service.record_event(
+            db=db,
+            session_token=payload.session_token,
+            event_type="measurement_booking_requested",
+            step_id="measurement",
+            event_data={
+                "start": payload.start,
                 "lead_id": str(lead_id) if lead_id else None,
-                "session_token": payload.session_token,
-                **(payload.metadata or {}),
+                "selected_slot_label": (payload.metadata or {}).get("selected_slot_label"),
+                "address": measurement_address,
             },
         )
+
+        booking_metadata = {
+            "lead_id": str(lead_id) if lead_id else None,
+            "session_token": payload.session_token,
+            "measurement_address": measurement_address,
+            **(payload.metadata or {}),
+        }
+        try:
+            booking = await cal_pro_service.create_booking(
+                start=payload.start,
+                contact=contact,
+                answers=payload.answers,
+                metadata=booking_metadata,
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            if lead:
+                data = self._parse_extracted_data(lead.extracted_data)
+                measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+                measurement.update(
+                    {
+                        "start": payload.start,
+                        "status": "requested",
+                        "address": measurement_address,
+                        "phone": contact.phone,
+                        "booking_error": str(exc)[:500],
+                    }
+                )
+                data["measurement"] = measurement
+                lead.extracted_data = json.dumps(data, ensure_ascii=False)
+                if lead.status in self.AUTO_QUIZ_STATUSES:
+                    lead.status = LeadStatus.MEASUREMENT_PENDING.value
+                await db.commit()
+            await analytics_service.record_event(
+                db=db,
+                session_token=payload.session_token,
+                event_type="measurement_booking_failed",
+                step_id="measurement",
+                event_data={
+                    "start": payload.start,
+                    "lead_id": str(lead_id) if lead_id else None,
+                    "address": measurement_address,
+                    "error": str(exc)[:500],
+                },
+            )
+            return {
+                "status": "requested",
+                "reason": "calendar_booking_failed",
+                "start": payload.start,
+                "message": "Measurement request saved for manager confirmation.",
+            }, lead_id
+
+        if lead:
+            data = self._parse_extracted_data(lead.extracted_data)
+            measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+            measurement.update(
+                {
+                    "start": payload.start,
+                    "status": "booked",
+                    "address": measurement_address,
+                    "phone": contact.phone,
+                    "booking_uid": self.extract_booking_uid(booking),
+                    "booking": booking.get("data") or booking,
+                    "booked_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            data["measurement"] = measurement
+            lead.extracted_data = json.dumps(data, ensure_ascii=False)
+            lead.status = LeadStatus.MEASUREMENT_BOOKED.value
+            await db.commit()
 
         await analytics_service.record_event(
             db=db,
@@ -213,22 +314,9 @@ class QuizService:
                 "start": payload.start,
                 "booking_uid": self.extract_booking_uid(booking),
                 "lead_id": str(lead_id) if lead_id else None,
+                "address": measurement_address,
             },
         )
-
-        if lead_id:
-            result = await db.execute(select(Lead).where(Lead.id == lead_id))
-            lead = result.scalar_one_or_none()
-            if lead:
-                data = self._parse_extracted_data(lead.extracted_data)
-                data["measurement"] = {
-                    "start": payload.start,
-                    "booking_uid": self.extract_booking_uid(booking),
-                    "booking": booking.get("data") or booking,
-                }
-                lead.extracted_data = json.dumps(data, ensure_ascii=False)
-                lead.status = LeadStatus.MEASUREMENT_BOOKED.value
-                await db.commit()
 
         return booking, lead_id
 
@@ -546,7 +634,7 @@ class QuizService:
         return lead
 
     def should_offer_measurement(self, answers: dict[str, Any]) -> bool:
-        return answers.get("design") in {"no", "wip", None, ""}
+        return bool(answers)
 
     def extract_booking_uid(self, booking: dict[str, Any]) -> str | None:
         data = booking.get("data") if isinstance(booking, dict) else None

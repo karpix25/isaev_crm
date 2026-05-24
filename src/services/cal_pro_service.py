@@ -87,17 +87,27 @@ class CalProService:
         }
         if contact.email:
             body["attendee"]["email"] = str(contact.email)
+        else:
+            body["attendee"]["email"] = self._fallback_email(metadata)
         if contact.phone:
             body["attendee"]["phoneNumber"] = contact.phone
         body.update(self._event_type_params())
         if settings.cal_pro_duration_minutes:
             body["lengthInMinutes"] = settings.cal_pro_duration_minutes
+        booking_fields = {}
         if answers:
-            body["bookingFieldsResponses"] = {
+            booking_fields.update({
                 key: str(value)[:500]
                 for key, value in answers.items()
                 if value is not None
-            }
+            })
+        address = str((metadata or {}).get("measurement_address") or "").strip()
+        if address:
+            booking_fields["Адрес замера"] = address[:500]
+        if contact.phone:
+            booking_fields["Телефон"] = contact.phone[:100]
+        if booking_fields:
+            body["bookingFieldsResponses"] = booking_fields
 
         headers = {
             "Content-Type": "application/json",
@@ -127,6 +137,11 @@ class CalProService:
         if settings.cal_pro_organization_slug:
             params["organizationSlug"] = settings.cal_pro_organization_slug
         return params
+
+    def _fallback_email(self, metadata: dict[str, Any] | None = None) -> str:
+        source = str((metadata or {}).get("lead_id") or (metadata or {}).get("session_token") or "quiz")
+        safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in source).strip("-")[:64] or "quiz"
+        return f"lead-{safe}@isaev-crm.local"
 
     def _flatten_slots(self, data: dict[str, Any], limit: int) -> list[MeasurementSlot]:
         slots: list[MeasurementSlot] = []

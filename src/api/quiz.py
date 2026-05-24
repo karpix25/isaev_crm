@@ -176,7 +176,7 @@ async def book_measurement(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
     return MeasurementBookingResponse(
-        status="ok",
+        status=str(booking.get("status") or ("ok" if quiz_service.extract_booking_uid(booking) else "requested")),
         booking_uid=quiz_service.extract_booking_uid(booking),
         booking=booking,
         lead_id=lead_id,

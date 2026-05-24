@@ -663,6 +663,10 @@
   .slots-section.active { display: block; }
   .slots-title { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
   .slots-sub { color: #888; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+  .measurement-form { display: grid; gap: 10px; margin-bottom: 14px; }
+  .measurement-form .form-group { margin-bottom: 0; }
+  .measurement-form label { font-size: 12px; }
+  .measurement-form input { background: #101010; }
   .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .slot-btn {
     background: #101010;
@@ -991,7 +995,17 @@
 
         <div class="slots-section" id="slotsSection">
           <div class="slots-title">Выберите время бесплатного замера</div>
-          <div class="slots-sub">Если дизайн-проекта нет или он в работе, лучше сразу закрепить удобное время замерщика.</div>
+          <div class="slots-sub">Проверьте телефон, укажите адрес объекта и выберите удобное время.</div>
+          <div class="measurement-form">
+            <div class="form-group">
+              <label>Телефон для подтверждения</label>
+              <input type="tel" id="measurementPhone" placeholder="+7 999 123-45-67">
+            </div>
+            <div class="form-group">
+              <label>Адрес квартиры / объекта</label>
+              <input type="text" id="measurementAddress" placeholder="Город, улица, дом, квартира">
+            </div>
+          </div>
           <div class="slot-grid" id="slotGrid"></div>
           <div class="inline-status" id="slotStatus"></div>
         </div>
@@ -1762,7 +1776,7 @@ async function submitFinalQuiz(contactOverride = null) {
   const visibleMessenger = selectedMessenger || getRecommendedMessenger() || 'whatsapp';
   document.getElementById('tyMessenger').textContent = visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
   document.getElementById('resultSubtitle').innerHTML = shouldOfferInlineMeasurement()
-    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — мы закрепим слот и откроем мессенджер для подтверждения адреса.`
+    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — это главный шаг для точной сметы.`
     : `<strong>${escapeHtml(contact.name)}</strong>, расчет готов.<br>Выберите удобный мессенджер, чтобы продолжить по вашей заявке.`;
   document.getElementById('floatGift').style.display = 'none';
   renderSlots(contact.name);
@@ -1873,6 +1887,10 @@ function renderSlots(name) {
     return;
   }
   section.classList.add('active');
+  const phoneInput = document.getElementById('measurementPhone');
+  if (phoneInput && submittedContact?.phone && !phoneInput.value.trim()) {
+    phoneInput.value = submittedContact.phone;
+  }
   grid.innerHTML = measurementSlots.map((slot, index) => `
     <button class="slot-btn" onclick="chooseSlot(${index}, '${escapeJs(name)}')">
       ${slot.date_label} · ${slot.label}
@@ -1881,40 +1899,68 @@ function renderSlots(name) {
 }
 
 function shouldOfferInlineMeasurement() {
-  return answers.design !== 'yes' && Array.isArray(measurementSlots) && measurementSlots.length > 0;
+  return Array.isArray(measurementSlots) && measurementSlots.length > 0;
 }
 
 async function chooseSlot(index, name) {
   const slot = measurementSlots[index];
   if (!slot || !submittedContact || !currentLeadId || !sessionToken) return;
   const statusEl = document.getElementById('slotStatus');
+  const phoneInput = document.getElementById('measurementPhone');
+  const addressInput = document.getElementById('measurementAddress');
+  const normalizedPhone = normalizePhone(phoneInput?.value || submittedContact.phone || '');
+  const address = (addressInput?.value || '').trim();
+  if (!normalizedPhone) {
+    shake('measurementPhone');
+    statusEl.textContent = 'Проверьте телефон для подтверждения замера.';
+    return;
+  }
+  if (address.length < 5) {
+    shake('measurementAddress');
+    statusEl.textContent = 'Укажите адрес объекта, куда приехать на замер.';
+    return;
+  }
+  submittedContact = { ...submittedContact, phone: normalizedPhone };
   const buttons = document.querySelectorAll('.slot-btn');
   buttons.forEach(btn => btn.disabled = true);
   statusEl.textContent = `Бронируем ${slot.date_label} в ${slot.label}...`;
-  trackEvent('cal_slot_selected', 'measurement', { start: slot.start, date_label: slot.date_label, label: slot.label });
+  trackEvent('cal_slot_selected', 'measurement', {
+    start: slot.start,
+    date_label: slot.date_label,
+    label: slot.label,
+    has_address: true
+  });
 
   try {
-    await apiFetch('/quiz/book-measurement', {
+    const bookingResult = await apiFetch('/quiz/book-measurement', {
       method: 'POST',
       body: JSON.stringify({
         session_token: sessionToken,
         lead_id: currentLeadId,
         start: slot.start,
+        address,
         contact: submittedContact,
         answers,
         metadata: {
           selected_slot_label: `${slot.date_label} ${slot.label}`,
           selected_messenger: selectedMessenger,
+          measurement_address: address,
           source: 'quiz_inline_slots'
         }
       })
     });
     selectedMeasurementSlot = slot;
-    statusEl.textContent = selectedMessenger
-      ? `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Сейчас откроем ${selectedMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'} для подтверждения адреса.`
-      : `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Выберите мессенджер ниже, чтобы подтвердить адрес.`;
+    const isCalendarBooked = bookingResult.status === 'ok' || Boolean(bookingResult.booking_uid);
+    statusEl.textContent = isCalendarBooked
+      ? `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Выберите мессенджер ниже, чтобы подтвердить детали.`
+      : `Заявку на слот ${slot.date_label} в ${slot.label} сохранили. Менеджер подтвердит время, если календарь не успел закрепить его автоматически.`;
     renderMessengerActions(name);
-    trackEvent('cal_slot_booked', 'measurement', { start: slot.start, date_label: slot.date_label, label: slot.label });
+    trackEvent(isCalendarBooked ? 'cal_slot_booked' : 'cal_slot_requested', 'measurement', {
+      start: slot.start,
+      date_label: slot.date_label,
+      label: slot.label,
+      booking_uid: bookingResult.booking_uid || null
+    });
     if (selectedMessenger) {
       setTimeout(() => {
         window.location.href = buildMessengerUrl(selectedMessenger, buildMessengerMessage(name, slot));
@@ -1951,12 +1997,14 @@ function renderMessengerActions(name) {
 
 function buildMessengerMessage(name, slot = null) {
   const slotText = slot ? ` Записался на замер: ${slot.date_label} в ${slot.label}.` : '';
+  const address = (document.getElementById('measurementAddress')?.value || '').trim();
+  const addressText = address ? ` Адрес замера: ${address}.` : '';
   const designText = answers.design === 'yes'
     ? ' Дизайн-проект готов, могу прислать его сюда.'
     : answers.design === 'wip'
       ? ' Дизайн-проект в работе, пришлю материалы сюда, когда будут под рукой.'
       : '';
-  return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText}${designText} Код заявки: ${sessionToken}`;
+  return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText}${addressText}${designText} Код заявки: ${sessionToken}`;
 }
 
 function normalizePhone(value) {

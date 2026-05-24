@@ -93,6 +93,7 @@ class MeasurementBookingRequest(BaseModel):
     session_token: str
     lead_id: uuid.UUID | None = None
     start: str
+    address: str | None = Field(default=None, max_length=500)
     contact: QuizContact | None = None
     answers: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None

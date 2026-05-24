@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     quiz_abandoned_telegram_followup_delay_minutes: int = 10
 
     # Cal.com / Cal Pro measurement scheduling
-    cal_pro_enabled: bool = False
+    cal_pro_enabled: bool = True
     cal_pro_api_base_url: str = "https://api.cal.com"
     cal_pro_api_key: str = ""
     cal_pro_slots_api_version: str = "2024-09-04"
