@@ -617,6 +617,58 @@
   .result-item-label { color: var(--muted); }
   .result-item-val   { font-weight: 600; }
 
+  .messenger-estimate-box {
+    padding: 22px;
+    text-align: left;
+  }
+  .messenger-estimate-box .price-label { margin-bottom: 10px; color: var(--gold); }
+  .messenger-estimate-box .price-value {
+    display: block;
+    -webkit-text-fill-color: #fff;
+    background: none;
+    font-size: 26px;
+    line-height: 1.15;
+    margin-bottom: 10px;
+  }
+  .messenger-estimate-box .price-note { color: #a0a0a0; line-height: 1.55; }
+  .contact-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 14px 0 16px;
+  }
+  .contact-summary-item {
+    min-width: 0;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .contact-summary-label {
+    color: #777;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .contact-summary-val {
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .messenger-next-note {
+    background: #171717;
+    border: 1px solid var(--gold)33;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  .messenger-next-title { color: #fff; font-size: 14px; font-weight: 900; margin-bottom: 4px; }
+  .messenger-next-sub { color: #999; font-size: 12px; line-height: 1.45; }
+
   /* GIFT IN RESULT */
   .gift-result {
     background: linear-gradient(135deg, #0d1a05, #122005);
@@ -829,6 +881,7 @@
     .price-value { font-size: 32px; }
     .float-gift { display: none; }
     .messenger-actions { grid-template-columns: 1fr; }
+    .contact-summary { grid-template-columns: 1fr; }
     .slot-date-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .slot-time-grid { grid-template-columns: 1fr; }
     .messenger-choice { grid-template-columns: 1fr; }
@@ -943,7 +996,7 @@
 
     <!-- CONTACT -->
     <div class="screen" id="screen-contact">
-      <div class="price-box" style="margin-bottom:20px">
+      <div class="price-box messenger-estimate-box" style="margin-bottom:18px">
         <div class="price-label" id="contactPriceLabel">Ваш предварительный расчёт готов 🎉</div>
         <div class="price-value" id="teaserRange">—</div>
         <div class="price-note" id="contactPriceNote">Стоимость работ (без материалов) · уточняется после замера</div>
@@ -951,6 +1004,7 @@
 
       <div class="question-num" id="contactStepLabel">Последний шаг</div>
       <div class="question-text" id="contactTitle" style="font-size:18px">Куда удобнее отправить расчёт?</div>
+      <div class="contact-summary" id="contactSummary"></div>
 
       <div class="form-group">
         <label>Ваше имя</label>
@@ -976,12 +1030,9 @@
           </span>
         </button>
       </div>
-      <div class="gift-result" style="margin-bottom:16px">
-        <div class="gift-result-icon">🎁</div>
-        <div>
-          <div class="gift-result-title" id="contactNextStepTitle">Следующий шаг в мессенджере</div>
-          <div class="gift-result-sub" id="contactNextStepSub">Отправим расчет и подскажем, что нужно для точной сметы</div>
-        </div>
+      <div class="messenger-next-note" id="contactNextStep">
+        <div class="messenger-next-title" id="contactNextStepTitle">Следующий шаг в мессенджере</div>
+        <div class="messenger-next-sub" id="contactNextStepSub">Отправим расчет и подскажем, что нужно для точной сметы</div>
       </div>
 
       <button class="btn-next" id="contactSubmitBtn" onclick="submitForm()">Получить расчет →</button>
@@ -1008,22 +1059,7 @@
           <div class="price-note">Без материалов · точная цена после выезда замерщика</div>
         </div>
 
-        <div class="result-items" id="resultItems"></div>
-
-        <div class="ty-cards" style="margin-top:16px">
-          <div class="ty-card" style="--d:0.1s">
-            <div class="ty-card-icon">💬</div>
-            <div>Отправьте готовое сообщение, чтобы менеджер увидел вашу заявку</div>
-          </div>
-          <div class="ty-card" style="--d:0.2s">
-            <div class="ty-card-icon">📐</div>
-            <div>Выезд замерщика — бесплатно и в удобное время</div>
-          </div>
-          <div class="ty-card" style="--d:0.3s">
-            <div class="ty-card-icon">🎁</div>
-            <div>Дизайн-проект в подарок при подписании договора</div>
-          </div>
-        </div>
+        <div class="result-items" id="resultItems" style="display:none"></div>
 
         <div class="slots-section" id="slotsSection">
           <div class="slots-title">Выберите время бесплатного замера</div>
@@ -1169,7 +1205,7 @@ let isSubmittingQuiz = false;
 let isCapturingExitContact = false;
 let exitPopupShown = sessionStorage.getItem('isaev_exit_popup_shown') === '1';
 let inactivityTimer = null;
-const CONTACT_GATE_AFTER_STEP = 1;
+const CONTACT_GATE_AFTER_STEP = -1;
 
 const labels = {
   type:  { flat: 'Квартира', house: 'Дом', commercial: 'Коммерция' },
@@ -1556,14 +1592,18 @@ function prevStep() {
 
 function showContactWithTeaser() {
   contactGateMode = 'final';
-  document.getElementById('progressWrap').style.display = 'none';
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressFill').style.width = '100%';
+  document.getElementById('pct').textContent = '100%';
+  document.getElementById('stepLabel').textContent = 'Расчет готов';
   const copy = getFinalContactCopy();
   document.getElementById('contactPriceLabel').textContent = copy.label;
-  document.getElementById('teaserRange').textContent = 'Готово';
-  document.getElementById('teaserRange').style.display = 'none';
+  document.getElementById('teaserRange').textContent = copy.hero;
+  document.getElementById('teaserRange').style.display = 'block';
   document.getElementById('contactPriceNote').textContent = copy.note;
   document.getElementById('contactStepLabel').textContent = 'Последний шаг';
   document.getElementById('contactTitle').textContent = copy.title;
+  renderContactSummary();
   document.getElementById('phoneLabel').textContent = 'Телефон для отправки расчета';
   document.getElementById('contactNextStepTitle').textContent = copy.nextTitle;
   document.getElementById('contactNextStepSub').textContent = copy.nextSub;
@@ -1589,6 +1629,7 @@ function showContactGate() {
   document.getElementById('contactPriceNote').textContent = 'После этого продолжим вопросы без потери данных';
   document.getElementById('contactStepLabel').textContent = 'Куда прислать результат?';
   document.getElementById('contactTitle').textContent = 'Оставьте телефон — закрепим расчет за вами и пришлем результат, если отвлечетесь';
+  document.getElementById('contactSummary').innerHTML = '';
   document.getElementById('phoneLabel').textContent = 'Телефон';
   document.getElementById('contactNextStepTitle').textContent = 'Не потеряем ваш расчет';
   document.getElementById('contactNextStepSub').textContent = 'Если отвлечетесь, сможем продолжить с того же места';
@@ -1662,6 +1703,7 @@ function getFinalContactCopy() {
   if (hasDesignProjectIntent()) {
     return {
       label: 'Предварительный просчет уже готов',
+      hero: 'Получите его в мессенджере',
       title: 'Выберите удобный мессенджер, куда отправить просчет',
       note: 'Получите ориентир бюджета в переписке. Для точного расчета попросим прислать дизайн-проект.',
       nextTitle: 'Точный расчет по проекту',
@@ -1671,11 +1713,24 @@ function getFinalContactCopy() {
 
   return {
     label: 'Предварительный просчет готов',
+    hero: 'Отправим в удобный мессенджер',
     title: 'Выберите удобный мессенджер, куда отправить данные',
     note: 'Отправим ориентир бюджета и подскажем следующий шаг для точной сметы.',
     nextTitle: 'Точная смета после замера',
     nextSub: 'Если проекта нет, в мессенджере предложим выбрать удобное время бесплатного замера.'
   };
+}
+
+function renderContactSummary() {
+  const summary = document.getElementById('contactSummary');
+  if (!summary) return;
+  const compactFields = resultFields.filter(([key]) => ['type', 'area', 'rtype', 'design', 'deadline', 'budget'].includes(key));
+  summary.innerHTML = compactFields.map(([key, title]) => `
+    <div class="contact-summary-item">
+      <div class="contact-summary-label">${escapeHtml(title)}</div>
+      <div class="contact-summary-val">${escapeHtml(labels[key]?.[answers[key]] || '—')}</div>
+    </div>
+  `).join('');
 }
 
 function showResult() {
