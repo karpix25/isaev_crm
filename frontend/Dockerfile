@@ -2,12 +2,14 @@
 FROM node:22-alpine AS build-stage
 
 WORKDIR /app
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm run typecheck
+RUN npm run build:vite
 
 # Production stage
 FROM nginx:stable-alpine AS production-stage
