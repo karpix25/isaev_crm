@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
     telegram_phone_lookup_max_per_minute: int = 20
     telegram_phone_lookup_cache_ttl_seconds: int = 3600
-    whatsapp_lookup_url: str = "https://whatsapp-number-validator3.p.rapidapi.com/WhatsappNumberHasItWithToken"
+    whatsapp_lookup_url: str = ""
     whatsapp_lookup_token: str = ""
     whatsapp_lookup_rapidapi_key: str = ""
     whatsapp_lookup_rapidapi_host: str = "whatsapp-number-validator3.p.rapidapi.com"
