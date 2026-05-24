@@ -73,41 +73,35 @@ class CalProService:
         if not self.is_configured():
             raise ValueError(self.missing_reason() or "cal_pro_not_configured")
 
+        address = str((metadata or {}).get("measurement_address") or "").strip()
+        booking_metadata = self._clean_metadata({
+            "source": "isaev_crm_quiz",
+            "quiz_summary": self._build_quiz_summary(answers),
+            **(metadata or {}),
+        })
         body: dict[str, Any] = {
-            "start": start,
+            "start": self._to_utc_iso(start),
             "attendee": {
                 "name": contact.name,
                 "timeZone": settings.cal_pro_time_zone,
                 "language": "ru",
             },
-            "metadata": {
-                "source": "isaev_crm_quiz",
-                **(metadata or {}),
-            },
+            "metadata": booking_metadata,
         }
         if contact.email:
             body["attendee"]["email"] = str(contact.email)
         else:
             body["attendee"]["email"] = self._fallback_email(metadata)
         if contact.phone:
-            body["attendee"]["phoneNumber"] = contact.phone
+            body["attendee"]["phoneNumber"] = self._format_phone_number(contact.phone)
+        if address:
+            body["location"] = {
+                "type": "address",
+                "address": address[:500],
+            }
         body.update(self._event_type_params())
         if settings.cal_pro_duration_minutes:
             body["lengthInMinutes"] = settings.cal_pro_duration_minutes
-        booking_fields = {}
-        if answers:
-            booking_fields.update({
-                key: str(value)[:500]
-                for key, value in answers.items()
-                if value is not None
-            })
-        address = str((metadata or {}).get("measurement_address") or "").strip()
-        if address:
-            booking_fields["Адрес замера"] = address[:500]
-        if contact.phone:
-            booking_fields["Телефон"] = contact.phone[:100]
-        if booking_fields:
-            body["bookingFieldsResponses"] = booking_fields
 
         headers = {
             "Content-Type": "application/json",
@@ -124,6 +118,37 @@ class CalProService:
             )
             response.raise_for_status()
             return response.json()
+
+    def _to_utc_iso(self, value: str) -> str:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _format_phone_number(self, value: str) -> str:
+        digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+        if not digits:
+            return str(value or "")
+        return f"+{digits}"
+
+    def _build_quiz_summary(self, answers: dict[str, Any] | None) -> str:
+        if not answers:
+            return ""
+        pairs = [f"{key}: {value}" for key, value in answers.items() if value is not None]
+        return "; ".join(pairs)[:500]
+
+    def _clean_metadata(self, metadata: dict[str, Any]) -> dict[str, str]:
+        clean: dict[str, str] = {}
+        for key, value in metadata.items():
+            if value is None:
+                continue
+            clean_key = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in str(key))[:40]
+            if not clean_key:
+                continue
+            clean[clean_key] = str(value)[:500]
+            if len(clean) >= 50:
+                break
+        return clean
 
     def _event_type_params(self) -> dict[str, Any]:
         if settings.cal_pro_event_type_id:

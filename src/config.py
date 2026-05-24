@@ -133,8 +133,8 @@ class Settings(BaseSettings):
     cal_pro_organization_slug: str = ""
     cal_pro_time_zone: str = "Europe/Moscow"
     cal_pro_duration_minutes: int = 60
-    cal_pro_slot_days_ahead: int = 14
-    cal_pro_max_slots: int = 12
+    cal_pro_slot_days_ahead: int = 7
+    cal_pro_max_slots: int = 80
 
     # Wazzup WhatsApp channel
     wazzup_enabled: bool = False

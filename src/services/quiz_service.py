@@ -3,6 +3,7 @@ from typing import Any
 import json
 import re
 import uuid
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select, update
@@ -100,7 +101,7 @@ class QuizService:
 
         slots = []
         if self.should_offer_measurement(payload.answers):
-            slots = await cal_pro_service.get_slots()
+            slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
         return lead, session_token, slots
 
     async def capture_contact(
@@ -267,6 +268,21 @@ class QuizService:
                 if lead.status in self.AUTO_QUIZ_STATUSES:
                     lead.status = LeadStatus.MEASUREMENT_PENDING.value
                 await db.commit()
+                await self._notify_measurement_telegram(
+                    db=db,
+                    lead=lead,
+                    start=payload.start,
+                    address=measurement_address,
+                    status="requested",
+                    booking_uid=None,
+                )
+                await self._enqueue_measurement_reminder(
+                    db=db,
+                    lead=lead,
+                    start=payload.start,
+                    address=measurement_address,
+                    booking_uid=None,
+                )
             await analytics_service.record_event(
                 db=db,
                 session_token=payload.session_token,
@@ -304,6 +320,21 @@ class QuizService:
             lead.extracted_data = json.dumps(data, ensure_ascii=False)
             lead.status = LeadStatus.MEASUREMENT_BOOKED.value
             await db.commit()
+            await self._notify_measurement_telegram(
+                db=db,
+                lead=lead,
+                start=payload.start,
+                address=measurement_address,
+                status="booked",
+                booking_uid=self.extract_booking_uid(booking),
+            )
+            await self._enqueue_measurement_reminder(
+                db=db,
+                lead=lead,
+                start=payload.start,
+                address=measurement_address,
+                booking_uid=self.extract_booking_uid(booking),
+            )
 
         await analytics_service.record_event(
             db=db,
@@ -641,6 +672,98 @@ class QuizService:
         source = data if isinstance(data, dict) else booking
         value = source.get("uid") or source.get("id") or source.get("bookingUid")
         return str(value) if value else None
+
+    def _format_measurement_start(self, value: str) -> str:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            local_dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
+            return local_dt.strftime("%d.%m.%Y в %H:%M")
+        except Exception:
+            return value
+
+    async def _notify_measurement_telegram(
+        self,
+        db: AsyncSession,
+        lead: Lead | None,
+        start: str,
+        address: str,
+        status: str,
+        booking_uid: str | None,
+    ) -> None:
+        if not lead:
+            return
+        try:
+            from src.bot import bot
+            from src.config import settings
+
+            manager_id = getattr(settings, "manager_telegram_id", None)
+            if not manager_id or not bot:
+                return
+
+            status_label = "✅ Замер записан в календарь" if status == "booked" else "🟡 Клиент выбрал слот замера"
+            text = (
+                f"{status_label}\n\n"
+                f"👤 Клиент: {lead.full_name or 'Клиент квиза'}\n"
+                f"📞 Телефон: {lead.phone or 'не указан'}\n"
+                f"📅 Дата: {self._format_measurement_start(start)}\n"
+                f"📍 Адрес: {address}\n"
+                f"🆔 Лид: {lead.id}"
+            )
+            if booking_uid:
+                text += f"\n🔖 Booking: {booking_uid}"
+            await bot.send_message(chat_id=manager_id, text=text)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Failed to send measurement Telegram notification for lead %s",
+                getattr(lead, "id", None),
+                exc_info=True,
+            )
+
+    async def _enqueue_measurement_reminder(
+        self,
+        db: AsyncSession,
+        lead: Lead | None,
+        start: str,
+        address: str,
+        booking_uid: str | None,
+    ) -> None:
+        if not lead:
+            return
+        try:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=timezone.utc)
+            run_at = start_dt.astimezone(timezone.utc) - timedelta(hours=3)
+            min_run_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+            if run_at < min_run_at:
+                run_at = min_run_at
+
+            from src.services.background_job_service import background_job_service
+
+            await background_job_service.enqueue(
+                db=db,
+                job_type="measurement_telegram_reminder",
+                payload={
+                    "lead_id": str(lead.id),
+                    "start": start,
+                    "address": address,
+                    "booking_uid": booking_uid,
+                },
+                max_attempts=2,
+                run_at=run_at,
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Failed to enqueue measurement reminder for lead %s",
+                getattr(lead, "id", None),
+                exc_info=True,
+            )
 
     async def _get_session(self, db: AsyncSession, session_token: str) -> FunnelSession | None:
         result = await db.execute(select(FunnelSession).where(FunnelSession.session_token == session_token))

@@ -667,7 +667,10 @@
   .measurement-form .form-group { margin-bottom: 0; }
   .measurement-form label { font-size: 12px; }
   .measurement-form input { background: #101010; }
-  .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .slot-grid { display: grid; gap: 12px; max-height: 420px; overflow: auto; padding-right: 4px; }
+  .slot-day { display: grid; gap: 8px; }
+  .slot-day-title { color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
+  .slot-day-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .slot-btn {
     background: #101010;
     color: #fff;
@@ -798,7 +801,8 @@
     .question-text { font-size: 18px; }
     .price-value { font-size: 32px; }
     .float-gift { display: none; }
-    .slot-grid, .messenger-actions { grid-template-columns: 1fr; }
+    .messenger-actions { grid-template-columns: 1fr; }
+    .slot-day-times { grid-template-columns: 1fr; }
     .messenger-choice { grid-template-columns: 1fr; }
     .resume-actions { grid-template-columns: 1fr; }
   }
@@ -1891,10 +1895,23 @@ function renderSlots(name) {
   if (phoneInput && submittedContact?.phone && !phoneInput.value.trim()) {
     phoneInput.value = submittedContact.phone;
   }
-  grid.innerHTML = measurementSlots.map((slot, index) => `
-    <button class="slot-btn" onclick="chooseSlot(${index}, '${escapeJs(name)}')">
-      ${slot.date_label} · ${slot.label}
-    </button>
+  const grouped = measurementSlots.reduce((acc, slot, index) => {
+    const key = slot.date_label || 'Ближайшие слоты';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push({ slot, index });
+    return acc;
+  }, {});
+  grid.innerHTML = Object.entries(grouped).map(([dateLabel, items]) => `
+    <div class="slot-day">
+      <div class="slot-day-title">${escapeHtml(dateLabel)}</div>
+      <div class="slot-day-times">
+        ${items.map(({ slot, index }) => `
+          <button class="slot-btn" onclick="chooseSlot(${index}, '${escapeJs(name)}')">
+            ${slot.label}
+          </button>
+        `).join('')}
+      </div>
+    </div>
   `).join('');
 }
 

@@ -3,6 +3,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,6 +124,9 @@ class BackgroundJobService:
         if job.job_type == "quiz_abandoned_telegram_followup":
             await self._process_quiz_abandoned_telegram_followup(db, job.payload)
             return
+        if job.job_type == "measurement_telegram_reminder":
+            await self._process_measurement_telegram_reminder(db, job.payload)
+            return
         raise ValueError(f"Unknown background job type: {job.job_type}")
 
     async def _process_knowledge_index(self, db: AsyncSession, payload: dict[str, Any]) -> None:
@@ -213,7 +217,48 @@ class BackgroundJobService:
             transport=MessageTransport.TELEGRAM,
         )
         await db.commit()
-        logger.info("Sent quiz abandoned Telegram follow-up to lead %s", lead.id)
+
+    async def _process_measurement_telegram_reminder(self, db: AsyncSession, payload: dict[str, Any]) -> None:
+        from src.bot import bot
+        from src.config import settings
+        from src.models import Lead
+
+        manager_id = getattr(settings, "manager_telegram_id", None)
+        if not manager_id or not bot:
+            logger.info("Skipping measurement reminder: manager Telegram is not configured")
+            return
+
+        lead_id = uuid.UUID(str(payload["lead_id"]))
+        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = result.scalar_one_or_none()
+        if not lead:
+            logger.info("Skipping measurement reminder: lead %s not found", lead_id)
+            return
+
+        start = str(payload.get("start") or "")
+        address = str(payload.get("address") or "").strip()
+        booking_uid = str(payload.get("booking_uid") or "").strip()
+
+        text = (
+            "⏰ Напоминание о замере\n\n"
+            f"👤 Клиент: {lead.full_name or 'Клиент квиза'}\n"
+            f"📞 Телефон: {lead.phone or 'не указан'}\n"
+            f"📅 Дата: {self._format_measurement_start(start)}\n"
+            f"📍 Адрес: {address or 'не указан'}\n"
+            f"🆔 Лид: {lead.id}"
+        )
+        if booking_uid:
+            text += f"\n🔖 Booking: {booking_uid}"
+        await bot.send_message(chat_id=manager_id, text=text)
+
+    def _format_measurement_start(self, value: str) -> str:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y в %H:%M")
+        except Exception:
+            return value
 
 
 background_job_service = BackgroundJobService()
