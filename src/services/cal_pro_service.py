@@ -118,8 +118,6 @@ class CalProService:
                 "address": address[:500],
             }
         body.update(self._event_type_params())
-        if settings.cal_pro_duration_minutes:
-            body["lengthInMinutes"] = settings.cal_pro_duration_minutes
 
         headers = {
             "Content-Type": "application/json",
