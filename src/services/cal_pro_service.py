@@ -112,11 +112,6 @@ class CalProService:
             body["attendee"]["email"] = self._fallback_email(metadata)
         if contact.phone:
             body["attendee"]["phoneNumber"] = self._format_phone_number(contact.phone)
-        if address:
-            body["location"] = {
-                "type": "address",
-                "address": address[:500],
-            }
         body.update(self._event_type_params())
 
         headers = {
