@@ -708,8 +708,9 @@ class UserBotService:
             return None
 
         headers = {"Accept": "application/json"}
-        normalized_digits = normalized_phone.lstrip("+")
+        normalized_digits = re.sub(r"\D", "", normalized_phone)
         is_rapidapi = "rapidapi.com" in lookup_url.lower()
+        request_phone = normalized_digits if is_rapidapi else normalized_phone
         if is_rapidapi:
             rapidapi_key = (settings.whatsapp_lookup_rapidapi_key or settings.whatsapp_lookup_token or "").strip()
             rapidapi_host = (
@@ -731,28 +732,28 @@ class UserBotService:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 if settings.whatsapp_lookup_method == "get":
                     if "{phone}" in lookup_url:
-                        response = await client.get(lookup_url.format(phone=normalized_phone), headers=headers)
+                        response = await client.get(lookup_url.format(phone=request_phone), headers=headers)
                     else:
                         response = await client.get(
                             lookup_url,
                             headers=headers,
                             params={
                                 "phone_number": normalized_digits,
-                                "phone": normalized_phone,
+                                **({} if is_rapidapi else {"phone": normalized_phone}),
                                 "number": normalized_digits,
                             },
                         )
                 else:
                     if "{phone}" in lookup_url:
-                        response = await client.post(lookup_url.format(phone=normalized_phone), headers=headers)
+                        response = await client.post(lookup_url.format(phone=request_phone), headers=headers)
                     else:
+                        json_payload = {"phone_number": normalized_digits}
+                        if not is_rapidapi:
+                            json_payload["phone"] = normalized_phone
                         response = await client.post(
                             lookup_url,
                             headers=headers,
-                            json={
-                                "phone_number": normalized_digits,
-                                "phone": normalized_phone,
-                            },
+                            json=json_payload,
                         )
 
             response.raise_for_status()
