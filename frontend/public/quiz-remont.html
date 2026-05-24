@@ -957,7 +957,7 @@
         <input type="text" id="fname" placeholder="Александра">
       </div>
       <div class="form-group">
-        <label>Телефон для подтверждения замера</label>
+        <label id="phoneLabel">Телефон для отправки расчета</label>
         <input type="tel" id="phone" placeholder="+7 999 123-45-67">
       </div>
       <div class="messenger-choice" id="messengerChoice">
@@ -979,8 +979,8 @@
       <div class="gift-result" style="margin-bottom:16px">
         <div class="gift-result-icon">🎁</div>
         <div>
-          <div class="gift-result-title">Дизайн-проект в подарок</div>
-          <div class="gift-result-sub">Если проект уже есть, попросим прислать его в мессенджере после расчета</div>
+          <div class="gift-result-title" id="contactNextStepTitle">Следующий шаг в мессенджере</div>
+          <div class="gift-result-sub" id="contactNextStepSub">Отправим расчет и подскажем, что нужно для точной сметы</div>
         </div>
       </div>
 
@@ -1002,7 +1002,7 @@
           </div>
         </div>
 
-        <div class="price-box" style="margin-bottom:16px">
+        <div class="price-box" id="resultPriceBox" style="margin-bottom:16px">
           <div class="price-label">Предварительная стоимость работ</div>
           <div class="price-value" id="resultRange">—</div>
           <div class="price-note">Без материалов · точная цена после выезда замерщика</div>
@@ -1557,16 +1557,22 @@ function prevStep() {
 function showContactWithTeaser() {
   contactGateMode = 'final';
   document.getElementById('progressWrap').style.display = 'none';
-  const { lo, hi } = calcPrice();
-  document.getElementById('contactPriceLabel').textContent = 'Ваш предварительный расчёт готов 🎉';
-  document.getElementById('teaserRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
-  document.getElementById('contactPriceNote').textContent = 'Стоимость работ (без материалов) · уточняется после замера';
+  const copy = getFinalContactCopy();
+  document.getElementById('contactPriceLabel').textContent = copy.label;
+  document.getElementById('teaserRange').textContent = 'Готово';
+  document.getElementById('teaserRange').style.display = 'none';
+  document.getElementById('contactPriceNote').textContent = copy.note;
   document.getElementById('contactStepLabel').textContent = 'Последний шаг';
-  document.getElementById('contactTitle').textContent = 'Куда удобнее отправить расчёт?';
+  document.getElementById('contactTitle').textContent = copy.title;
+  document.getElementById('phoneLabel').textContent = 'Телефон для отправки расчета';
+  document.getElementById('contactNextStepTitle').textContent = copy.nextTitle;
+  document.getElementById('contactNextStepSub').textContent = copy.nextSub;
   document.getElementById('contactSubmitBtn').textContent = 'Получить расчет →';
   document.getElementById('messengerChoice').style.display = 'grid';
+  document.getElementById('submitStatus').textContent = '';
   showScreen('screen-contact');
   saveProgress();
+  const { lo, hi } = calcPrice();
   trackEvent('contact_viewed', 'contact', { price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` } });
   setTimeout(() => document.getElementById('fname').focus(), 400);
 }
@@ -1579,11 +1585,16 @@ function showContactGate() {
   document.getElementById('stepLabel').textContent = 'Сохранение расчета';
   document.getElementById('contactPriceLabel').textContent = 'Сохраним ваш расчет';
   document.getElementById('teaserRange').textContent = labels.area?.[answers.area] || '—';
+  document.getElementById('teaserRange').style.display = 'block';
   document.getElementById('contactPriceNote').textContent = 'После этого продолжим вопросы без потери данных';
   document.getElementById('contactStepLabel').textContent = 'Куда прислать результат?';
   document.getElementById('contactTitle').textContent = 'Оставьте телефон — закрепим расчет за вами и пришлем результат, если отвлечетесь';
+  document.getElementById('phoneLabel').textContent = 'Телефон';
+  document.getElementById('contactNextStepTitle').textContent = 'Не потеряем ваш расчет';
+  document.getElementById('contactNextStepSub').textContent = 'Если отвлечетесь, сможем продолжить с того же места';
   document.getElementById('contactSubmitBtn').textContent = 'Сохранить и продолжить расчет →';
   document.getElementById('messengerChoice').style.display = 'none';
+  document.getElementById('submitStatus').textContent = '';
   showScreen('screen-contact');
   saveProgress();
   trackEvent('contact_gate_viewed', 'contact_gate', {
@@ -1641,6 +1652,30 @@ function calcPrice() {
 function fmtPrice(n) {
   if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.', ',') + ' млн ₽';
   return Math.round(n / 1000) + ' тыс. ₽';
+}
+
+function hasDesignProjectIntent() {
+  return answers.design === 'yes' || answers.design === 'wip';
+}
+
+function getFinalContactCopy() {
+  if (hasDesignProjectIntent()) {
+    return {
+      label: 'Предварительный просчет уже готов',
+      title: 'Выберите удобный мессенджер, куда отправить просчет',
+      note: 'Получите ориентир бюджета в переписке. Для точного расчета попросим прислать дизайн-проект.',
+      nextTitle: 'Точный расчет по проекту',
+      nextSub: 'В мессенджере попросим прислать проект или материалы, чтобы подготовить смету точнее.'
+    };
+  }
+
+  return {
+    label: 'Предварительный просчет готов',
+    title: 'Выберите удобный мессенджер, куда отправить данные',
+    note: 'Отправим ориентир бюджета и подскажем следующий шаг для точной сметы.',
+    nextTitle: 'Точная смета после замера',
+    nextSub: 'Если проекта нет, в мессенджере предложим выбрать удобное время бесплатного замера.'
+  };
 }
 
 function showResult() {
@@ -1811,14 +1846,16 @@ async function submitFinalQuiz(contactOverride = null) {
   document.getElementById('tyName').textContent  = contact.name;
   const visibleMessenger = selectedMessenger || getRecommendedMessenger() || 'whatsapp';
   document.getElementById('tyMessenger').textContent = visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
-  document.getElementById('resultSubtitle').innerHTML = shouldOfferInlineMeasurement()
-    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный расчет готов.<br>Выберите удобное время замера — это главный шаг для точной сметы.`
-    : `<strong>${escapeHtml(contact.name)}</strong>, расчет готов.<br>Выберите удобный мессенджер, чтобы продолжить по вашей заявке.`;
+  document.getElementById('resultPriceBox').style.display = 'none';
+  document.getElementById('resultSubtitle').innerHTML = hasDesignProjectIntent()
+    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный просчет готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там попросим прислать дизайн-проект для точной сметы.`
+    : `<strong>${escapeHtml(contact.name)}</strong>, предварительный просчет готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там отправим ориентир и предложим следующий шаг.`;
   document.getElementById('floatGift').style.display = 'none';
-  renderSlots(contact.name);
   renderMessengerActions(contact.name);
   showScreen('screen-result');
-  if (!shouldOfferInlineMeasurement() && selectedMessenger) {
+  const slotSection = document.getElementById('slotsSection');
+  if (slotSection) slotSection.classList.remove('active');
+  if (selectedMessenger) {
     const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
     trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
     setTimeout(() => { window.location.href = messengerUrl; }, 450);
@@ -2073,10 +2110,10 @@ function buildMessengerMessage(name, slot = null) {
   const address = (document.getElementById('measurementAddress')?.value || '').trim();
   const addressText = address ? ` Адрес замера: ${address}.` : '';
   const designText = answers.design === 'yes'
-    ? ' Дизайн-проект готов, могу прислать его сюда.'
+    ? ' Хочу получить предварительный просчет. Дизайн-проект готов, могу прислать его сюда для точной сметы.'
     : answers.design === 'wip'
-      ? ' Дизайн-проект в работе, пришлю материалы сюда, когда будут под рукой.'
-      : '';
+      ? ' Хочу получить предварительный просчет. Дизайн-проект в работе, пришлю материалы сюда, когда будут под рукой.'
+      : ' Хочу получить предварительный просчет и понять следующий шаг для точной сметы.';
   return `Здравствуйте! Я ${name}. Прошел квиз ISAEV GROUP.${slotText}${addressText}${designText} Код заявки: ${sessionToken}`;
 }
 

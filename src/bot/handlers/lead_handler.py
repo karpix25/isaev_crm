@@ -59,6 +59,20 @@ def _lead_measurement_data(lead) -> dict:
     measurement = data.get("measurement") if isinstance(data, dict) else None
     return measurement if isinstance(measurement, dict) else {}
 
+
+def _lead_price_label(lead) -> str:
+    if not getattr(lead, "extracted_data", None):
+        return ""
+    try:
+        data = json.loads(lead.extracted_data)
+    except json.JSONDecodeError:
+        return ""
+    quiz = data.get("quiz") if isinstance(data, dict) else None
+    price = quiz.get("price") if isinstance(quiz, dict) else None
+    if not isinstance(price, dict):
+        return ""
+    return str(price.get("label") or "").strip()
+
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
 
@@ -512,15 +526,17 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
         from src.services.lead_stage_context_service import lead_stage_context_service
         stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
         next_action = stage_context.metadata.get("next_action")
+        price_label = _lead_price_label(lead)
+        price_text = f" Ориентир бюджета: {price_label}." if price_label else ""
         if next_action == "awaiting_design_project":
             welcome_text = (
-                "Здравствуйте! Вижу вашу заявку по ремонту. "
-                "Пришлите сюда дизайн-проект файлом, и мы передадим его на расчет сметы."
+                f"Здравствуйте! Вижу вашу заявку по ремонту. Предварительный просчет уже готов.{price_text} "
+                "Пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
             )
         elif next_action == "awaiting_measurement_slot":
             welcome_text = (
-                "Здравствуйте! Вижу вашу заявку по ремонту. "
-                "Для точного расчета лучше записаться на замер. Напишите, какой день вам удобен?"
+                f"Здравствуйте! Вижу вашу заявку по ремонту. Предварительный просчет готов.{price_text} "
+                "Для точной сметы лучше записаться на замер. Напишите, какой день вам удобен?"
             )
         elif next_action == "confirm_measurement":
             measurement = _lead_measurement_data(lead)
