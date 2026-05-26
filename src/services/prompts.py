@@ -1,6 +1,7 @@
 """
 AI Prompts for Lead Qualification Agent
 """
+import re
 
 IDENTITY_GUARDRAILS = """
 CRITICAL IDENTITY RULES:
