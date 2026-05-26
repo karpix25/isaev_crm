@@ -1409,8 +1409,6 @@ async def process_debounced_message(user_id: int):
 
         if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
             return
-        if await _answer_measurement_question_if_possible(db, message, lead, combined_text):
-            return
 
         outside_business_hours = not is_business_hours()
         if outside_business_hours:

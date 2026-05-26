@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -175,6 +176,7 @@ class LeadStageContextService:
 
         missing = self._missing_quiz_fields(answers)
         recent_messages = await self._get_recent_messages(db, lead.id)
+        history_measurement_start, history_measurement_address = self._extract_measurement_from_messages(recent_messages)
         prompt_block = self._render_prompt(
             lead=lead,
             session=session,
@@ -182,6 +184,8 @@ class LeadStageContextService:
             quiz=quiz,
             extracted=extracted,
             recent_messages=recent_messages,
+            history_measurement_start=history_measurement_start,
+            history_measurement_address=history_measurement_address,
             next_action=next_action,
             expected_from_client=expected_from_client,
             client_expects=client_expects,
@@ -201,8 +205,8 @@ class LeadStageContextService:
                 "quiz_completed": quiz_completed,
                 "has_quiz_answers": has_quiz_answers,
                 "missing_quiz_fields": missing,
-                "measurement_start": measurement.get("start"),
-                "measurement_address": measurement.get("address") or extracted.get("address"),
+                "measurement_start": measurement.get("start") or history_measurement_start,
+                "measurement_address": measurement.get("address") or history_measurement_address or extracted.get("address"),
             },
         )
 
@@ -236,6 +240,8 @@ class LeadStageContextService:
         quiz: dict[str, Any],
         extracted: dict[str, Any],
         recent_messages: list[ChatMessage],
+        history_measurement_start: str | None,
+        history_measurement_address: str | None,
         next_action: str,
         expected_from_client: str,
         client_expects: str,
@@ -252,8 +258,12 @@ class LeadStageContextService:
 
         measurement = extracted.get("measurement") if isinstance(extracted.get("measurement"), dict) else {}
         design_file = (quiz.get("design_project_file_url") or "нет")
-        measurement_start = self._format_measurement_start(measurement.get("start"))
-        measurement_address = measurement.get("address") or extracted.get("address") or "не указан"
+        measurement_start_raw = measurement.get("start") or history_measurement_start
+        measurement_start = self._format_measurement_start(measurement_start_raw)
+        measurement_address = measurement.get("address") or history_measurement_address or extracted.get("address") or "не указан"
+        measurement_source = "extracted_data.measurement" if measurement.get("start") or measurement.get("address") else (
+            "recent_messages" if history_measurement_start or history_measurement_address else "none"
+        )
         price_label = ""
         price = quiz.get("price") if isinstance(quiz.get("price"), dict) else None
         if isinstance(price, dict):
@@ -276,10 +286,11 @@ expected_from_client: {expected_from_client}
 client_expects: {client_expects}
 quiz_completed: {bool(session and session.status == "completed")}
 design_project_file: {design_file}
-measurement_slot: {measurement.get("start") or "не выбран"}
+measurement_slot: {measurement_start_raw or "не выбран"}
 measurement_slot_local: {measurement_start or "не выбран"}
 measurement_status: {measurement.get("status") or "не указан"}
 measurement_address: {measurement_address}
+measurement_data_source: {measurement_source}
 preliminary_estimate: {price_label or "не рассчитан"}
 missing_quiz_fields: {missing_line}
 personal_quiz_url: {personal_quiz_url or "none"}
@@ -295,6 +306,7 @@ STAGE_AWARE_RESPONSE_RULES:
 - Если данные уже есть в квизе, не спрашивай их повторно.
 - Если клиент пришел после квиза, отвечай коротко и веди к next_action.
 - Если клиент выбрал/просит замер, не болтай лишнего: предложи или подтверди следующий шаг.
+- Если клиент спрашивает о дате/времени/адресе замера, отвечай прямо из measurement_slot_local и measurement_address. Не говори, что не знаешь, если эти поля заполнены.
 - Если lead_status = MEASUREMENT_BOOKED или MEASUREMENT, ты уже после записи на замер: не начинай продажу заново, не благодари за звонок, не представляйся заново, не говори "менеджер подтвердит" как единственный ответ. Подтверди, что ты на связи, и опирайся на measurement_slot_local и measurement_address.
 - Если нужно уточнение, задай только один вопрос.
 - Не обещай точную смету без замера или дизайн-проекта.
@@ -325,6 +337,23 @@ RESPONSE_POLICY:
             if content:
                 lines.append(f"- {direction}: {content}")
         return "\n".join(lines) if lines else "- Истории сообщений пока нет."
+
+    def _extract_measurement_from_messages(self, messages: list[ChatMessage]) -> tuple[str | None, str | None]:
+        measurement_start = None
+        measurement_address = None
+        for message in reversed(messages):
+            content = str(message.content or "")
+            if not measurement_start:
+                date_match = re.search(r"Дата:\s*([^\n]+)", content, flags=re.IGNORECASE)
+                if date_match:
+                    measurement_start = date_match.group(1).strip(" .")
+            if not measurement_address:
+                address_match = re.search(r"Адрес:\s*([^\n]+)", content, flags=re.IGNORECASE)
+                if address_match:
+                    measurement_address = address_match.group(1).strip(" .")
+            if measurement_start and measurement_address:
+                break
+        return measurement_start, measurement_address
 
     def _missing_quiz_fields(self, answers: dict[str, Any]) -> list[str]:
         return [key for key in QUIZ_ANSWER_LABELS if not answers.get(key)]
