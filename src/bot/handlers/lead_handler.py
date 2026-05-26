@@ -74,6 +74,33 @@ def _display_company_name(org) -> str:
     return raw_name
 
 
+def _looks_like_measurement_question(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return any(word in normalized for word in ("замер", "когда", "во сколько", "дата", "адрес", "выезд"))
+
+
+def _build_measurement_context_answer(lead, text: str) -> str | None:
+    if lead.status not in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value, LeadStatus.MEASUREMENT_PENDING.value}:
+        return None
+    if not _looks_like_measurement_question(text):
+        return None
+
+    measurement = _lead_measurement_data(lead)
+    measurement_date = _format_measurement_start(measurement.get("start"))
+    measurement_address = str(measurement.get("address") or "").strip()
+    if not measurement_date and not measurement_address:
+        return None
+
+    lines = []
+    if measurement_date:
+        lines.append(f"Замер у нас записан на {measurement_date}.")
+    if measurement_address:
+        lines.append(f"Адрес: {measurement_address}.")
+    lines.append("За сутки до замера напомним вам, чтобы ничего не потерялось.")
+    lines.append("Если нужно перенести запись или исправить адрес, напишите здесь.")
+    return "\n".join(lines)
+
+
 def _lead_measurement_data(lead) -> dict:
     if not getattr(lead, "extracted_data", None):
         return {}
@@ -248,7 +275,10 @@ async def _find_lead_by_telegram(db: AsyncSession, telegram_id: int):
 
 async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead) -> bool:
     if not cal_pro_service.is_configured():
-        text = "Календарь сейчас не открылся. Напишите удобный день и время — менеджер подберет ближайший слот для замера 📍"
+        text = (
+            "Календарь сейчас не открылся. Напишите, пожалуйста, удобный день и время — "
+            "менеджер вручную подберет ближайший слот и подтвердит запись 📍"
+        )
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -262,7 +292,10 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
 
     slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
     if not slots:
-        text = "Свободные окна сейчас не загрузились. Напишите удобный день и время — менеджер проверит расписание и подтвердит запись 📍"
+        text = (
+            "Свободные окна сейчас не загрузились. Напишите, пожалуйста, удобный день и время — "
+            "менеджер проверит расписание и подтвердит запись 📍"
+        )
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -287,7 +320,7 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
             lead.status = LeadStatus.MEASUREMENT_PENDING.value
         await db.commit()
 
-    text = "Выберите день бесплатного замера 📍"
+    text = "Выберите удобный день бесплатного замера. Он поможет точно посчитать работы без стройматериалов 📍"
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
     await chat_service.send_outbound_message(
         db=db,
@@ -352,7 +385,7 @@ async def _try_handle_pending_measurement_address(
 
     clean_address = address.strip()
     if len(clean_address) < 5:
-        text = "Напишите адрес чуть подробнее: город, улица, дом и квартиру."
+        text = "Похоже, адрес получился неполным. Напишите, пожалуйста: город, улицу, дом и квартиру/офис."
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -366,7 +399,10 @@ async def _try_handle_pending_measurement_address(
 
     session_token = _lead_session_token(lead)
     if not session_token:
-        text = "Не нашел код заявки для бронирования. Напишите менеджеру удобное время, он закрепит слот вручную."
+        text = (
+            "Не нашел код заявки для автоматического бронирования. Ничего страшного: "
+            "напишите удобное время, и менеджер закрепит слот вручную."
+        )
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -407,8 +443,8 @@ async def _try_handle_pending_measurement_address(
     except Exception:
         logger.warning("Failed to book Telegram measurement slot for lead %s", lead.id, exc_info=True)
         text = (
-            "Адрес сохранил, но календарь сейчас не закрепил слот автоматически. "
-            "Попробуйте выбрать другое окно записи."
+            "Адрес сохранил. Календарь сейчас не закрепил слот автоматически — "
+            "выберите, пожалуйста, другое окно. Если не получится, менеджер поможет записаться вручную."
         )
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
@@ -425,16 +461,16 @@ async def _try_handle_pending_measurement_address(
     booking_uid = quiz_service.extract_booking_uid(booking)
     booked = bool(booking_uid) or booking.get("status") == "ok"
     text = (
-        "Готово, записали вас на замер:\n\n"
+        "Готово, записали вас на замер ✅\n\n"
         f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
         f"Адрес: {clean_address}\n\n"
-        "Бронь закреплена в календаре."
+        "Бронь закреплена в календаре. За сутки до замера напомним вам, чтобы ничего не потерялось."
         if booked
         else
-        "Заявку на замер сохранили:\n\n"
+        "Заявку на замер сохранили ✅\n\n"
         f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
         f"Адрес: {clean_address}\n\n"
-        "Календарь не подтвердил бронь автоматически. Попробуйте выбрать другое окно."
+        "Календарь не подтвердил бронь автоматически. Выберите другое окно, а если не получится — менеджер поможет вручную."
     )
     sent = await message.answer(text)
     await chat_service.send_outbound_message(
@@ -509,7 +545,7 @@ async def _handle_quiz_lead_activation_flow(
     elif next_action == "awaiting_measurement_slot":
         if await _send_measurement_slot_dates(message, db, lead):
             return True
-        welcome_text = "Выберите другое окно или напишите удобный день и время замера — подберем ближайший свободный слот 📍"
+        welcome_text = "Выберите другое окно или напишите удобный день и время замера — подберем ближайший свободный слот и подтвердим запись 📍"
     elif next_action == "confirm_measurement":
         measurement = _lead_measurement_data(lead)
         measurement_date = _format_measurement_start(measurement.get("start"))
@@ -519,17 +555,18 @@ async def _handle_quiz_lead_activation_flow(
             welcome_text = (
                 f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
                 f"Адрес: {measurement_address}\n\n"
-                "Запись закреплена в календаре ✅"
+                "Запись закреплена в календаре ✅\n"
+                "За сутки до замера напомним вам, чтобы ничего не потерялось."
             )
         elif measurement_date:
             welcome_text = (
                 f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}.\n\n"
-                "Напишите, пожалуйста, адрес объекта — подтвердим выезд специалиста 📍"
+                "Напишите, пожалуйста, адрес объекта — подтвердим выезд специалиста и закрепим запись 📍"
             )
         else:
             if await _send_measurement_slot_dates(message, db, lead):
                 return True
-            welcome_text = "Чтобы закрепить замер, напишите удобный день и время — подберем ближайший свободный слот 📍"
+            welcome_text = "Чтобы закрепить замер, напишите удобный день и время — подберем ближайший свободный слот и подтвердим запись 📍"
     else:
         welcome_text = (
             "Здравствуйте! Вижу вашу заявку по квизу.\n\n"
@@ -537,7 +574,7 @@ async def _handle_quiz_lead_activation_flow(
         )
 
     if not is_business_hours():
-        welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время 🕘"
+        welcome_text = f"{welcome_text}\n\nСейчас команда не на связи. Ответим в рабочее время 🕘"
 
     sent_message = await message.answer(welcome_text)
     await chat_service.send_outbound_message(
@@ -943,7 +980,7 @@ async def _handle_regular_start(message: Message) -> None:
             )
             welcome_text = (
                 f"{welcome_text}\n\n"
-                "Сейчас мы не на связи. Ответим в рабочее время."
+                "Сейчас команда не на связи. Ответим в рабочее время 🕘"
             )
         
         # Save AI response to database
@@ -1023,7 +1060,7 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
             "Напишите сюда любой вопрос — продолжим расчет по вашим данным и подскажем следующий шаг."
         )
         if not is_business_hours():
-            welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время 🕘"
+            welcome_text = f"{welcome_text}\n\nСейчас команда не на связи. Ответим в рабочее время 🕘"
 
         sent_message = await message.answer(welcome_text)
         await chat_service.send_outbound_message(
@@ -1188,7 +1225,7 @@ async def quiz_measure_back_callback(query: CallbackQuery):
             await query.answer("Слоты сейчас не загрузились", show_alert=True)
             return
         await query.message.edit_text(
-            "Выберите день бесплатного замера 📍",
+            "Выберите удобный день бесплатного замера. Он поможет точно посчитать работы без стройматериалов 📍",
             reply_markup=_build_measurement_date_keyboard(slots),
         )
         await query.answer()
@@ -1205,10 +1242,10 @@ async def quiz_measure_date_callback(query: CallbackQuery):
         slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
         matching_slots = [slot for slot in slots if _slot_date_key(slot.start) == date_key]
         if not matching_slots:
-            await query.answer("На этот день слоты закончились. Выберите другой день.", show_alert=True)
+            await query.answer("На этот день окна уже заняты. Выберите, пожалуйста, другой день.", show_alert=True)
             return
         await query.message.edit_text(
-            f"Выберите время замера на {_slot_date_button_label(date_key)} 🕘",
+            f"Выберите удобное время замера на {_slot_date_button_label(date_key)} 🕘",
             reply_markup=_build_measurement_time_keyboard(slots, date_key),
         )
         await query.answer()
@@ -1226,7 +1263,7 @@ async def quiz_measure_time_callback(query: CallbackQuery):
         text = (
             f"Отлично, держу для вас окно {_slot_date_button_label(_slot_date_key(start))} "
             f"в {_slot_time_label(start)} ✅\n\n"
-            "Напишите адрес объекта для замера: город, улица, дом и квартиру."
+            "Чтобы подтвердить выезд специалиста, напишите адрес объекта: город, улицу, дом и квартиру/офис."
         )
         await query.message.edit_text(text)
         await chat_service.send_outbound_message(
@@ -1329,8 +1366,10 @@ async def process_debounced_message(user_id: int):
         
         # Check if AI should handle this lead
         if lead.ai_qualification_status == "handoff_required":
+            measurement_answer = _build_measurement_context_answer(lead, combined_text)
             await message.answer(
-                "✅ Спасибо за сообщение! Наш менеджер уже работает с вашим запросом и скоро свяжется с вами."
+                measurement_answer
+                or "✅ Спасибо, сообщение получили. Менеджер уже видит вашу заявку и скоро свяжется с вами."
             )
             return
 
@@ -1403,6 +1442,13 @@ async def process_debounced_message(user_id: int):
             
             ai_metadata = {}
             ai_metadata["stage_context"] = stage_context.metadata
+            logger.info(
+                "AI reply requested: lead_id=%s status=%s next_action=%s text=%s",
+                lead.id,
+                lead.status,
+                stage_context.metadata.get("next_action"),
+                combined_text[:200],
+            )
             if relevant_docs:
                 context_str = "\n\n".join([f"Source: {d.title}\nContent: {d.content}" for d in relevant_docs])
                 system_prompt = f"{system_prompt}\n\nRELEVANT KNOWLEDGE:\n{context_str}\n\nUse this context to answer accurately."
@@ -1429,6 +1475,11 @@ async def process_debounced_message(user_id: int):
                 company_name=company_name
             )
             sent_message = await message.answer(response_text)
+            logger.info(
+                "AI reply sent: lead_id=%s telegram_message_id=%s",
+                lead.id,
+                sent_message.message_id,
+            )
             
             # Save AI response to database
             await chat_service.send_outbound_message(
@@ -1514,17 +1565,21 @@ async def process_debounced_message(user_id: int):
                     
                     # Send handoff message to user
                     await message.answer(
-                        "Отлично! Я передал вашу заявку нашему менеджеру. "
-                        "Он свяжется с вами в ближайшее время для уточнения деталей. 📞"
+                        "Отлично, передал вашу заявку менеджеру ✅ "
+                        "Он свяжется с вами в ближайшее время, уточнит детали и подскажет следующий шаг. 📞"
                     )
         
         except Exception as e:
             logger.error("Error in AI handler for user %s: %s", user_id, e, exc_info=True)
             # Send user-facing error message instead of silently failing
             try:
+                measurement_answer = _build_measurement_context_answer(lead, combined_text)
                 await message.answer(
-                    "Извините, произошла техническая ошибка. "
-                    "Попробуйте написать снова или свяжитесь с нами напрямую."
+                    measurement_answer
+                    or (
+                        "Похоже, сейчас не получилось обработать сообщение автоматически. "
+                        "Попробуйте написать еще раз, а если вопрос срочный — менеджер поможет вручную."
+                    )
                 )
             except Exception:
                 pass  # If even sending error message fails, just log it
