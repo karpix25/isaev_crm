@@ -8,7 +8,8 @@ import { formatTimeAgo } from '@/lib/utils'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History
+    ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History,
+    CalendarClock, ChevronDown
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
@@ -645,6 +646,27 @@ function getQuizAnswerRows(extractedData: Record<string, any>): Array<{ key: str
         }))
 }
 
+function formatMeasurementStart(value?: string | null): string | null {
+    if (!value) return null
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+    return date.toLocaleString('ru-RU', {
+        timeZone: 'Europe/Moscow',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    })
+}
+
+function getMeasurementStatusLabel(status?: string | null): string {
+    if (status === 'booked') return 'Записан в календарь'
+    if (status === 'requested') return 'Ожидает подтверждения'
+    if (status === 'awaiting_address') return 'Ждем адрес'
+    return 'Не записан'
+}
+
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
     const [message, setMessage] = useState('')
     const [selectedTransport, setSelectedTransport] = useState<MessageTransport>(getDefaultTransport(lead))
@@ -661,6 +683,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const [extractedDraft, setExtractedDraft] = useState<Record<string, string>>({})
     const [savedOperatorComment, setSavedOperatorComment] = useState(lead.operator_comment || '')
     const [operatorCommentDraft, setOperatorCommentDraft] = useState(lead.operator_comment || '')
+    const [showStatusPicker, setShowStatusPicker] = useState(false)
 
     const messages = chatData?.messages || []
     const historyItems = historyData?.items || []
@@ -821,6 +844,14 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const quizAnswerRows = getQuizAnswerRows(savedExtractedData)
     const quizPrice = savedExtractedData?.quiz?.price
     const quizPreferredMessenger = savedExtractedData?.quiz?.preferred_messenger
+    const measurement = savedExtractedData?.measurement && typeof savedExtractedData.measurement === 'object'
+        ? savedExtractedData.measurement
+        : null
+    const measurementStart = formatMeasurementStart(measurement?.start)
+    const measurementSlotLabel = measurement?.selected_slot_label ? String(measurement.selected_slot_label) : null
+    const measurementAddress = measurement?.address || savedExtractedData?.measurement_address || savedExtractedData?.address
+    const measurementStatus = measurement?.status ? String(measurement.status) : null
+    const hasMeasurementData = Boolean(measurementStart || measurementSlotLabel || measurementAddress || measurementStatus || measurement?.booking_uid)
 
     useEffect(() => {
         const nextAvailable = getLeadAvailableTransports(lead)
@@ -963,21 +994,62 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                 <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
                                     <ShieldCheck className="h-3.5 w-3.5" /> Текущая стадия
                                 </h3>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {Object.values(LeadStatus).map((status) => (
+                                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Сейчас</div>
+                                            <div className="mt-1 flex items-center gap-2 text-sm font-bold text-slate-800">
+                                                <span className="h-2 w-2 rounded-full bg-primary" />
+                                                <span className="truncate">{statusLabels[lead.status]}</span>
+                                            </div>
+                                        </div>
                                         <button
-                                            key={status}
-                                            onClick={() => onUpdateStatus(status)}
-                                            className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all ${lead.status === status
-                                                ? 'bg-primary text-primary-foreground border-primary shadow-md'
-                                                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
-                                                }`}
+                                            onClick={() => setShowStatusPicker((value) => !value)}
+                                            className="flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                                         >
-                                            <div className={`h-1.5 w-1.5 rounded-full ${lead.status === status ? 'bg-white' : 'bg-slate-300'}`} />
-                                            {statusLabels[status]}
+                                            Изменить
+                                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showStatusPicker ? 'rotate-180' : ''}`} />
                                         </button>
-                                    ))}
+                                    </div>
+                                    {showStatusPicker && (
+                                        <div className="mt-4 grid grid-cols-2 gap-2 border-t pt-4">
+                                            {Object.values(LeadStatus).map((status) => (
+                                                <button
+                                                    key={status}
+                                                    onClick={() => {
+                                                        onUpdateStatus(status)
+                                                        setShowStatusPicker(false)
+                                                    }}
+                                                    className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${lead.status === status
+                                                        ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                                                        : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
+                                                        }`}
+                                                >
+                                                    <div className={`h-1.5 w-1.5 rounded-full ${lead.status === status ? 'bg-white' : 'bg-slate-300'}`} />
+                                                    {statusLabels[status]}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
+                            </section>
+
+                            <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                                <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                                    <CalendarClock className="h-3.5 w-3.5" /> Замер
+                                </h3>
+                                {hasMeasurementData ? (
+                                    <div className="grid grid-cols-2 gap-y-5 gap-x-4">
+                                        <DataField label="Время брони" value={measurementStart || measurementSlotLabel} icon={<Clock className="h-3 w-3" />} />
+                                        <DataField label="Статус" value={getMeasurementStatusLabel(measurementStatus)} />
+                                        <DataField label="Адрес" value={measurementAddress ? String(measurementAddress) : null} icon={<MapPin className="h-3 w-3" />} />
+                                        <DataField label="Booking ID" value={measurement?.booking_uid ? String(measurement.booking_uid) : null} />
+                                    </div>
+                                ) : (
+                                    <div className="rounded-xl border border-dashed bg-slate-50 px-4 py-3 text-xs text-muted-foreground">
+                                        Запись на замер пока не выбрана.
+                                    </div>
+                                )}
                             </section>
 
                             {/* Client Data Section */}
