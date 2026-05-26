@@ -52,7 +52,12 @@ class LeadStageContextService:
         design_answer = str(answers.get("design") or "").lower()
         design_file = bool(quiz.get("design_project_file_url"))
         measurement = extracted.get("measurement") if isinstance(extracted.get("measurement"), dict) else {}
-        measurement_selected = bool(measurement.get("start")) or "measurement_booked" in event_types
+        measurement_start = str(measurement.get("start") or "").strip()
+        measurement_status = str(measurement.get("status") or "").strip()
+        measurement_booking_uid = str(measurement.get("booking_uid") or "").strip()
+        measurement_booked = bool(measurement_start and measurement_booking_uid) or (
+            measurement_status == "booked" and bool(measurement_start)
+        ) or "measurement_booked" in event_types
         quiz_completed = bool(session and session.status == "completed") or "quiz_completed" in event_types
         has_quiz_answers = bool(answers)
         source = lead.source or ""
@@ -113,7 +118,7 @@ class LeadStageContextService:
                 "Попросить прислать дизайн-проект файлом сюда.",
                 "Не предлагать замер первым шагом, пока клиент говорит, что проект есть или в работе.",
             ]
-        elif lead_status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value}:
+        elif lead_status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value} and measurement_booked:
             next_action = "confirm_measurement"
             expected_from_client = "confirm_address_or_wait_manager"
             client_expects = "measurement_confirmation"
@@ -131,7 +136,7 @@ class LeadStageContextService:
                 "Сообщи следующий шаг по подготовке сметы.",
                 "Не предлагай записаться на замер повторно.",
             ]
-        elif has_quiz_answers and not measurement_selected and design_answer in {"no", "", "none"}:
+        elif has_quiz_answers and not measurement_booked and design_answer in {"no", "", "none"}:
             next_action = "awaiting_measurement_slot"
             expected_from_client = "choose_measurement_time"
             client_expects = "estimate_or_measurement_booking"
@@ -139,15 +144,6 @@ class LeadStageContextService:
                 "Коротко подтвердить, что расчет по квизу получен.",
                 "Объяснить, что для точной сметы нужен замер.",
                 "Предложить выбрать время замера или попросить удобный день/интервал.",
-            ]
-        elif has_quiz_answers and measurement_selected:
-            next_action = "confirm_measurement"
-            expected_from_client = "confirm_address_or_wait_manager"
-            client_expects = "measurement_confirmation"
-            response_policy = [
-                "Подтвердить выбранный слот замера.",
-                "Попросить адрес объекта только если его нет в CRM/переписке.",
-                "Не задавать вопросы из квиза повторно.",
             ]
         elif has_quiz_answers and quiz_completed:
             next_action = "needs_estimate_review"

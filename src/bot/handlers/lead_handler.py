@@ -268,6 +268,19 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
         )
         return False
 
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    if measurement and not measurement.get("booking_uid"):
+        data["measurement"] = {
+            key: value
+            for key, value in measurement.items()
+            if key in {"history"} or key.startswith("last_")
+        }
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        if lead.status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value}:
+            lead.status = LeadStatus.MEASUREMENT_PENDING.value
+        await db.commit()
+
     text = "Выберите день бесплатного замера:"
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
     await chat_service.send_outbound_message(
