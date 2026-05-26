@@ -11,7 +11,7 @@ if [ "$#" -eq 0 ] || [ "${1#-}" != "$1" ]; then
     echo "Running migrations..."
     alembic upgrade head
     
-    exec uvicorn src.main:app --host 0.0.0.0 --port 8000 "$@"
+    exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*' "$@"
 else
     # Execute the command passed from docker-compose or docker run
     exec "$@"
