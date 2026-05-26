@@ -1356,13 +1356,13 @@ async def process_debounced_message(user_id: int):
         if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
             return
 
-        if not is_business_hours():
+        outside_business_hours = not is_business_hours()
+        if outside_business_hours:
             logger.info(
-                "Outside business hours at %s, skipping bot reply for lead %s",
+                "Outside business hours at %s, continuing AI reply for lead %s with after-hours context",
                 get_business_now().isoformat(),
                 lead.id
             )
-            return
         
         # Check if AI should handle this lead
         if lead.ai_qualification_status == "handoff_required":
@@ -1422,6 +1422,12 @@ async def process_debounced_message(user_id: int):
             technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
             identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
             system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
+            if outside_business_hours:
+                system_prompt = (
+                    f"{system_prompt}\n\n"
+                    "AFTER-HOURS CONTEXT: Сейчас команда не на связи. Все равно ответь клиенту полезно и по делу. "
+                    "Если нужен менеджер, скажи, что команда вернется в рабочее время; не исчезай и не отказывайся отвечать."
+                )
 
             from src.services.lead_stage_context_service import lead_stage_context_service
             stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
@@ -1712,13 +1718,13 @@ async def handle_lead_photo(message: Message):
         # Build system prompt
         config = await prompt_service.get_active_config(db, org_id)
 
-        if not is_business_hours():
+        outside_business_hours = not is_business_hours()
+        if outside_business_hours:
             logger.info(
-                "Outside business hours at %s, skipping photo reply for lead %s",
+                "Outside business hours at %s, continuing photo reply for lead %s with after-hours context",
                 get_business_now().isoformat(),
                 lead.id
             )
-            return
 
         from src.models.organization import Organization
         org_result = await db.execute(select(Organization).where(Organization.id == org_id))
@@ -1739,6 +1745,12 @@ async def handle_lead_photo(message: Message):
         technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
         identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
         system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
+        if outside_business_hours:
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "AFTER-HOURS CONTEXT: Сейчас команда не на связи. Все равно ответь клиенту полезно и по делу. "
+                "Если нужен менеджер, скажи, что команда вернется в рабочее время; не исчезай и не отказывайся отвечать."
+            )
 
         from src.services.lead_stage_context_service import lead_stage_context_service
         stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)

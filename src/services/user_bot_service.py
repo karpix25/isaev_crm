@@ -370,13 +370,13 @@ class UserBotService:
                 if not bot_record.is_active:
                     return
 
-                if not is_business_hours():
+                outside_business_hours = not is_business_hours()
+                if outside_business_hours:
                     logger.info(
-                        "[USERBOT] Outside business hours at %s, skipping auto-reply for lead %s",
+                        "[USERBOT] Outside business hours at %s, continuing auto-reply for lead %s with after-hours context",
                         get_business_now().isoformat(),
                         lead.id
                     )
-                    return
 
                 # 4. Build system prompt
                 from src.services.prompt_service import prompt_service
@@ -405,6 +405,12 @@ class UserBotService:
                 technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
                 identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
                 system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
+                if outside_business_hours:
+                    system_prompt = (
+                        f"{system_prompt}\n\n"
+                        "AFTER-HOURS CONTEXT: Сейчас команда не на связи. Все равно ответь клиенту полезно и по делу. "
+                        "Если нужен менеджер, скажи, что команда вернется в рабочее время; не исчезай и не отказывайся отвечать."
+                    )
                 quiz_url = self.build_personal_quiz_url(
                     lead_id=str(lead.id),
                     telegram_id=tg_user_id,
