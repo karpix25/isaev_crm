@@ -216,6 +216,7 @@ class QuizService:
             lead = result.scalar_one_or_none()
             if lead:
                 data = self._parse_extracted_data(lead.extracted_data)
+                self._sync_measurement_address(data, measurement_address)
                 measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
                 if measurement.get("booking_uid") and measurement.get("start") == payload.start:
                     return measurement.get("booking") or {"status": "ok", "data": measurement}, lead_id
@@ -271,6 +272,7 @@ class QuizService:
             )
             if lead:
                 data = self._parse_extracted_data(lead.extracted_data)
+                self._sync_measurement_address(data, measurement_address)
                 measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
                 measurement.update(
                     {
@@ -286,21 +288,6 @@ class QuizService:
                 if lead.status in self.AUTO_QUIZ_STATUSES:
                     lead.status = LeadStatus.MEASUREMENT_PENDING.value
                 await db.commit()
-                await self._notify_measurement_telegram(
-                    db=db,
-                    lead=lead,
-                    start=payload.start,
-                    address=measurement_address,
-                    status="requested",
-                    booking_uid=None,
-                )
-                await self._enqueue_measurement_reminder(
-                    db=db,
-                    lead=lead,
-                    start=payload.start,
-                    address=measurement_address,
-                    booking_uid=None,
-                )
             await analytics_service.record_event(
                 db=db,
                 session_token=payload.session_token,
@@ -317,17 +304,63 @@ class QuizService:
                 "status": "requested",
                 "reason": "calendar_booking_failed",
                 "start": payload.start,
-                "message": "Measurement request saved for manager confirmation.",
+                "message": "Measurement request saved, but calendar booking failed.",
+            }, lead_id
+
+        booking_uid = self.extract_booking_uid(booking)
+        if not booking_uid:
+            logger.warning(
+                "Measurement calendar booking returned without uid: lead_id=%s start=%s response=%s",
+                lead_id,
+                payload.start,
+                json.dumps(booking, ensure_ascii=False)[:1000],
+            )
+            if lead:
+                data = self._parse_extracted_data(lead.extracted_data)
+                self._sync_measurement_address(data, measurement_address)
+                measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+                measurement.update(
+                    {
+                        "start": payload.start,
+                        "status": "requested",
+                        "address": measurement_address,
+                        "phone": contact.phone,
+                        "booking_error": "cal_booking_uid_missing",
+                        "booking_response": booking,
+                    }
+                )
+                data["measurement"] = measurement
+                lead.extracted_data = json.dumps(data, ensure_ascii=False)
+                if lead.status in self.AUTO_QUIZ_STATUSES:
+                    lead.status = LeadStatus.MEASUREMENT_PENDING.value
+                await db.commit()
+            await analytics_service.record_event(
+                db=db,
+                session_token=payload.session_token,
+                event_type="measurement_booking_uid_missing",
+                step_id="measurement",
+                event_data={
+                    "start": payload.start,
+                    "lead_id": str(lead_id) if lead_id else None,
+                    "address": measurement_address,
+                },
+            )
+            return {
+                "status": "requested",
+                "reason": "calendar_booking_uid_missing",
+                "start": payload.start,
+                "message": "Measurement request saved, but calendar booking was not confirmed.",
             }, lead_id
 
         logger.info(
             "Measurement calendar booking succeeded: lead_id=%s start=%s booking_uid=%s",
             lead_id,
             payload.start,
-            self.extract_booking_uid(booking),
+            booking_uid,
         )
         if lead:
             data = self._parse_extracted_data(lead.extracted_data)
+            self._sync_measurement_address(data, measurement_address)
             measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
             measurement.update(
                 {
@@ -335,7 +368,7 @@ class QuizService:
                     "status": "booked",
                     "address": measurement_address,
                     "phone": contact.phone,
-                    "booking_uid": self.extract_booking_uid(booking),
+                    "booking_uid": booking_uid,
                     "booking": booking.get("data") or booking,
                     "booked_at": datetime.now(timezone.utc).isoformat(),
                 }
@@ -344,20 +377,12 @@ class QuizService:
             lead.extracted_data = json.dumps(data, ensure_ascii=False)
             lead.status = LeadStatus.MEASUREMENT_BOOKED.value
             await db.commit()
-            await self._notify_measurement_telegram(
-                db=db,
-                lead=lead,
-                start=payload.start,
-                address=measurement_address,
-                status="booked",
-                booking_uid=self.extract_booking_uid(booking),
-            )
             await self._enqueue_measurement_reminder(
                 db=db,
                 lead=lead,
                 start=payload.start,
                 address=measurement_address,
-                booking_uid=self.extract_booking_uid(booking),
+                booking_uid=booking_uid,
             )
 
         await analytics_service.record_event(
@@ -367,7 +392,7 @@ class QuizService:
             step_id="measurement",
             event_data={
                 "start": payload.start,
-                "booking_uid": self.extract_booking_uid(booking),
+                "booking_uid": booking_uid,
                 "lead_id": str(lead_id) if lead_id else None,
                 "address": measurement_address,
             },
@@ -932,6 +957,15 @@ class QuizService:
                 **(target.get("messengers") or {}),
                 **messengers,
             }
+
+    def _sync_measurement_address(self, data: dict[str, Any], address: str) -> None:
+        clean_address = str(address or "").strip()
+        if not clean_address:
+            return
+        data["address"] = clean_address
+        data["measurement_address"] = clean_address
+        if isinstance(data.get("quiz"), dict):
+            data["quiz"]["address"] = clean_address
 
     async def _enqueue_abandoned_telegram_followup(
         self,

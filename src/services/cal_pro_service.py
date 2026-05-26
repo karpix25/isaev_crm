@@ -90,6 +90,8 @@ class CalProService:
     ) -> dict[str, Any]:
         if not self.is_configured():
             raise ValueError(self.missing_reason() or "cal_pro_not_configured")
+        if not settings.cal_pro_api_key:
+            raise ValueError("cal_pro_api_key_missing")
 
         address = str((metadata or {}).get("measurement_address") or "").strip()
         booking_metadata = self._clean_metadata({
@@ -145,10 +147,19 @@ class CalProService:
                 )
                 raise exc
             payload = response.json()
+            booking_uid = self._extract_booking_uid(payload)
+            if payload.get("status") != "success" or not booking_uid:
+                logger.error(
+                    "Cal Pro booking returned unexpected payload: status=%s uid=%s body=%s",
+                    payload.get("status"),
+                    booking_uid,
+                    response.text[:2000],
+                )
+                raise ValueError("cal_pro_booking_not_confirmed")
             logger.info(
                 "Cal Pro booking created: status=%s uid=%s",
                 payload.get("status"),
-                self._extract_booking_uid(payload),
+                booking_uid,
             )
             return payload
 

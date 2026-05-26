@@ -380,7 +380,7 @@ async def _try_handle_pending_measurement_address(
         logger.warning("Failed to book Telegram measurement slot for lead %s", lead.id, exc_info=True)
         text = (
             "Адрес сохранил, но календарь сейчас не закрепил слот автоматически. "
-            "Менеджер проверит время и подтвердит запись."
+            "Попробуйте выбрать другое окно записи."
         )
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
@@ -400,13 +400,13 @@ async def _try_handle_pending_measurement_address(
         "Готово, записали вас на замер:\n\n"
         f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
         f"Адрес: {clean_address}\n\n"
-        "Менеджер подтвердит детали выезда."
+        "Бронь закреплена в календаре."
         if booked
         else
         "Заявку на замер сохранили:\n\n"
         f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
         f"Адрес: {clean_address}\n\n"
-        "Менеджер подтвердит слот вручную."
+        "Календарь не подтвердил бронь автоматически. Попробуйте выбрать другое окно."
     )
     sent = await message.answer(text)
     await chat_service.send_outbound_message(
@@ -477,7 +477,7 @@ async def _handle_quiz_lead_activation_flow(
     elif next_action == "awaiting_measurement_slot":
         if await _send_measurement_slot_dates(message, db, lead):
             return True
-        welcome_text = "Следующий шаг: напишите удобный день и время замера, менеджер подтвердит запись."
+        welcome_text = "Следующий шаг: выберите другое окно или напишите удобный день и время замера."
     elif next_action == "confirm_measurement":
         measurement = _lead_measurement_data(lead)
         measurement_date = _format_measurement_start(measurement.get("start"))
@@ -487,7 +487,7 @@ async def _handle_quiz_lead_activation_flow(
             welcome_text = (
                 f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
                 f"Адрес: {measurement_address}\n\n"
-                "Менеджер подтвердит детали выезда."
+                "Запись закреплена в календаре."
             )
         elif measurement_date:
             welcome_text = (
