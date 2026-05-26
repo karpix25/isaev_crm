@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.bot import dp, bot
 from src.database import AsyncSessionLocal
 from src.models.lead import LeadStatus
+from src.schemas.quiz import MeasurementBookingRequest, QuizContact
 from src.services.lead_service import lead_service
 from src.services.chat_service import chat_service
+from src.services.cal_pro_service import cal_pro_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
@@ -28,7 +30,7 @@ from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS,
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
-from src.models import AuthSession, ChatMessage, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
+from src.models import AuthSession, ChatMessage, Lead, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
 from src.models.user import UserRole
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ QUIZ_SUMMARY_FIELDS = [
     ("rtype", "Ремонт"),
     ("design", "Дизайн"),
 ]
+RU_WEEKDAYS_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 
 
 def _format_measurement_start(value: str | None) -> str:
@@ -98,6 +101,21 @@ def _lead_quiz_answers(lead) -> dict:
     return answers if isinstance(answers, dict) else {}
 
 
+def _lead_extracted_data(lead) -> dict:
+    if not getattr(lead, "extracted_data", None):
+        return {}
+    try:
+        data = json.loads(lead.extracted_data)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _lead_session_token(lead) -> str:
+    data = _lead_extracted_data(lead)
+    return str(data.get("quiz_session_token") or "").strip()
+
+
 def _lead_quiz_summary_lines(lead) -> list[str]:
     answers = _lead_quiz_answers(lead)
     lines: list[str] = []
@@ -127,6 +145,283 @@ def _build_quiz_estimate_text(lead) -> str:
     else:
         text += "\n\nДля точной сметы предложим выбрать удобное время замера."
     return text
+
+
+def _slot_local_datetime(value: str) -> datetime | None:
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo("Europe/Moscow"))
+
+
+def _slot_date_key(value: str) -> str:
+    dt = _slot_local_datetime(value)
+    return dt.strftime("%Y-%m-%d") if dt else value[:10]
+
+
+def _slot_date_button_label(date_key: str) -> str:
+    try:
+        dt = datetime.fromisoformat(date_key).replace(tzinfo=ZoneInfo("Europe/Moscow"))
+    except ValueError:
+        return date_key
+    return f"{dt.strftime('%d.%m')} {RU_WEEKDAYS_SHORT[dt.weekday()]}"
+
+
+def _slot_time_label(value: str) -> str:
+    dt = _slot_local_datetime(value)
+    return dt.strftime("%H:%M") if dt else value
+
+
+def _group_slots_by_date(slots) -> dict[str, list]:
+    grouped: dict[str, list] = {}
+    for slot in slots:
+        grouped.setdefault(_slot_date_key(slot.start), []).append(slot)
+    return grouped
+
+
+def _build_measurement_date_keyboard(slots) -> InlineKeyboardMarkup:
+    grouped = _group_slots_by_date(slots)
+    buttons: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for date_key in list(grouped.keys())[:7]:
+        row.append(
+            InlineKeyboardButton(
+                text=_slot_date_button_label(date_key),
+                callback_data=f"quiz_measure_date:{date_key}",
+            )
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _build_measurement_time_keyboard(slots, date_key: str) -> InlineKeyboardMarkup:
+    matching_slots = [slot for slot in slots if _slot_date_key(slot.start) == date_key]
+    buttons: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for slot in matching_slots[:10]:
+        row.append(
+            InlineKeyboardButton(
+                text=_slot_time_label(slot.start),
+                callback_data=f"quiz_measure_time:{slot.start}",
+            )
+        )
+        if len(row) == 3:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="← Выбрать другой день", callback_data="quiz_measure_back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def _find_lead_by_telegram(db: AsyncSession, telegram_id: int):
+    lead_result = await db.execute(
+        select(Lead)
+        .where(Lead.telegram_id == telegram_id)
+        .order_by(Lead.updated_at.desc())
+        .limit(1)
+    )
+    return lead_result.scalar_one_or_none()
+
+
+async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead) -> bool:
+    if not cal_pro_service.is_configured():
+        text = "Сейчас не удалось открыть календарь. Напишите удобный день и время, менеджер подберет ближайший слот."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "quiz_deep_link", "type": "measurement_slots_unavailable"},
+        )
+        return False
+
+    slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    if not slots:
+        text = "Свободные окна сейчас не загрузились. Напишите удобный день и время, менеджер подтвердит запись."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "quiz_deep_link", "type": "measurement_slots_empty"},
+        )
+        return False
+
+    text = "Выберите день бесплатного замера:"
+    sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="AI",
+        ai_metadata={"source": "quiz_deep_link", "type": "measurement_slot_dates"},
+    )
+    return True
+
+
+async def _store_pending_measurement_slot(db: AsyncSession, lead, start: str) -> None:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    measurement.update(
+        {
+            "status": "awaiting_address",
+            "pending_start": start,
+            "pending_slot_label": f"{_slot_date_button_label(_slot_date_key(start))} {_slot_time_label(start)}",
+            "source": "telegram_inline_slots",
+        }
+    )
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    if lead.status in {
+        LeadStatus.NEW.value,
+        LeadStatus.QUIZ_COMPLETED.value,
+        LeadStatus.MESSENGER_PENDING.value,
+        LeadStatus.MEASUREMENT_PENDING.value,
+    }:
+        lead.status = LeadStatus.MEASUREMENT_PENDING.value
+    await db.commit()
+
+
+async def _pop_pending_measurement_slot(db: AsyncSession, lead) -> str:
+    await db.refresh(lead)
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    start = str(measurement.get("pending_start") or "").strip()
+    if not start:
+        return ""
+    measurement.pop("pending_start", None)
+    measurement.pop("pending_slot_label", None)
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    await db.commit()
+    return start
+
+
+async def _try_handle_pending_measurement_address(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    address: str,
+) -> bool:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    pending_start = str(measurement.get("pending_start") or "").strip()
+    if measurement.get("status") != "awaiting_address" or not pending_start:
+        return False
+
+    clean_address = address.strip()
+    if len(clean_address) < 5:
+        text = "Напишите адрес чуть подробнее: город, улица, дом и квартиру."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "telegram_inline_slots", "type": "measurement_address_retry"},
+        )
+        return True
+
+    session_token = _lead_session_token(lead)
+    if not session_token:
+        text = "Не нашел код заявки для бронирования. Напишите менеджеру удобное время, он закрепит слот вручную."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "telegram_inline_slots", "type": "measurement_booking_no_session"},
+        )
+        return True
+
+    from src.services.quiz_service import quiz_service
+
+    contact = QuizContact(
+        name=lead.full_name or message.from_user.full_name or "Клиент квиза",
+        phone=lead.phone,
+        telegram_username=lead.username,
+        preferred_messenger="telegram",
+    )
+    try:
+        booking, _ = await quiz_service.book_measurement(
+            db=db,
+            payload=MeasurementBookingRequest(
+                session_token=session_token,
+                lead_id=lead.id,
+                start=pending_start,
+                address=clean_address,
+                contact=contact,
+                answers=_lead_quiz_answers(lead),
+                metadata={
+                    "selected_slot_label": f"{_slot_date_button_label(_slot_date_key(pending_start))} {_slot_time_label(pending_start)}",
+                    "selected_messenger": "telegram",
+                    "measurement_address": clean_address,
+                    "source": "telegram_inline_slots",
+                },
+            ),
+        )
+    except Exception:
+        logger.warning("Failed to book Telegram measurement slot for lead %s", lead.id, exc_info=True)
+        text = (
+            "Адрес сохранил, но календарь сейчас не закрепил слот автоматически. "
+            "Менеджер проверит время и подтвердит запись."
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "telegram_inline_slots", "type": "measurement_booking_error"},
+        )
+        return True
+
+    await _pop_pending_measurement_slot(db, lead)
+    booking_uid = quiz_service.extract_booking_uid(booking)
+    booked = bool(booking_uid) or booking.get("status") == "ok"
+    text = (
+        "Готово, записали вас на замер:\n\n"
+        f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
+        f"Адрес: {clean_address}\n\n"
+        "Менеджер подтвердит детали выезда."
+        if booked
+        else
+        "Заявку на замер сохранили:\n\n"
+        f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
+        f"Адрес: {clean_address}\n\n"
+        "Менеджер подтвердит слот вручную."
+    )
+    sent = await message.answer(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="AI",
+        ai_metadata={
+            "source": "telegram_inline_slots",
+            "type": "measurement_booking_confirmed" if booked else "measurement_booking_requested",
+            "booking_uid": booking_uid,
+        },
+    )
+    return True
 
 
 async def _quiz_estimate_already_sent(db: AsyncSession, lead_id: uuid.UUID, session_token: str) -> bool:
@@ -615,9 +910,9 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
                 "Следующий шаг: пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
             )
         elif next_action == "awaiting_measurement_slot":
-            welcome_text = (
-                "Следующий шаг: для точной сметы лучше записаться на замер. Напишите, какой день вам удобен?"
-            )
+            if await _send_measurement_slot_dates(message, db, lead):
+                return
+            welcome_text = "Следующий шаг: напишите удобный день и время замера, менеджер подтвердит запись."
         elif next_action == "confirm_measurement":
             measurement = _lead_measurement_data(lead)
             measurement_date = _format_measurement_start(measurement.get("start"))
@@ -799,6 +1094,70 @@ async def operator_access_callback(query: CallbackQuery):
         await _notify_operator_access_rejected(access_request.telegram_id, access_request.rejection_reason)
 
 
+@router.callback_query(F.data == "quiz_measure_back")
+async def quiz_measure_back_callback(query: CallbackQuery):
+    async with AsyncSessionLocal() as db:
+        lead = await _find_lead_by_telegram(db, query.from_user.id)
+        if not lead:
+            await query.answer("Заявка не найдена", show_alert=True)
+            return
+        slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+        if not slots:
+            await query.answer("Слоты сейчас не загрузились", show_alert=True)
+            return
+        await query.message.edit_text(
+            "Выберите день бесплатного замера:",
+            reply_markup=_build_measurement_date_keyboard(slots),
+        )
+        await query.answer()
+
+
+@router.callback_query(F.data.regexp(r"^quiz_measure_date:\d{4}-\d{2}-\d{2}$"))
+async def quiz_measure_date_callback(query: CallbackQuery):
+    date_key = (query.data or "").split(":", 1)[1]
+    async with AsyncSessionLocal() as db:
+        lead = await _find_lead_by_telegram(db, query.from_user.id)
+        if not lead:
+            await query.answer("Заявка не найдена", show_alert=True)
+            return
+        slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+        matching_slots = [slot for slot in slots if _slot_date_key(slot.start) == date_key]
+        if not matching_slots:
+            await query.answer("На этот день слоты закончились. Выберите другой день.", show_alert=True)
+            return
+        await query.message.edit_text(
+            f"Выберите время замера на {_slot_date_button_label(date_key)}:",
+            reply_markup=_build_measurement_time_keyboard(slots, date_key),
+        )
+        await query.answer()
+
+
+@router.callback_query(F.data.regexp(r"^quiz_measure_time:.+"))
+async def quiz_measure_time_callback(query: CallbackQuery):
+    start = (query.data or "").split(":", 1)[1]
+    async with AsyncSessionLocal() as db:
+        lead = await _find_lead_by_telegram(db, query.from_user.id)
+        if not lead:
+            await query.answer("Заявка не найдена", show_alert=True)
+            return
+        await _store_pending_measurement_slot(db, lead, start)
+        text = (
+            f"Отлично, держу окно {_slot_date_button_label(_slot_date_key(start))} "
+            f"в {_slot_time_label(start)}.\n\n"
+            "Напишите адрес объекта для замера: город, улица, дом и квартиру."
+        )
+        await query.message.edit_text(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=query.message.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "telegram_inline_slots", "type": "measurement_address_request"},
+        )
+        await query.answer()
+
+
 @router.message(F.text)
 async def handle_lead_message(message: Message):
     """
@@ -874,6 +1233,9 @@ async def process_debounced_message(user_id: int):
             sender_name=message.from_user.full_name,
             ai_metadata=metadata
         )
+
+        if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
+            return
 
         if not is_business_hours():
             logger.info(
