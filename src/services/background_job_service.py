@@ -244,7 +244,7 @@ class BackgroundJobService:
         booking_uid = str(payload.get("booking_uid") or "").strip()
 
         text = (
-            "⏰ Напоминание о замере\n\n"
+            "⏰ Напоминание о замере за сутки\n\n"
             f"👤 Клиент: {lead.full_name or 'Клиент квиза'}\n"
             f"📞 Телефон: {lead.phone or 'не указан'}\n"
             f"📅 Дата: {self._format_measurement_start(start)}\n"

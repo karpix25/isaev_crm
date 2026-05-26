@@ -796,7 +796,7 @@ class QuizService:
             start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
             if start_dt.tzinfo is None:
                 start_dt = start_dt.replace(tzinfo=timezone.utc)
-            run_at = start_dt.astimezone(timezone.utc) - timedelta(hours=3)
+            run_at = start_dt.astimezone(timezone.utc) - timedelta(hours=24)
             min_run_at = datetime.now(timezone.utc) + timedelta(minutes=5)
             if run_at < min_run_at:
                 run_at = min_run_at

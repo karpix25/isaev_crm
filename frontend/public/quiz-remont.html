@@ -1844,7 +1844,7 @@ async function submitContactGate(contact) {
       answers_count: Object.keys(answers).length
     });
 
-    statusEl.textContent = 'Готово. Продолжаем расчет...';
+    statusEl.textContent = 'Готово, данные сохранили. Продолжаем расчет...';
     isSubmittingQuiz = false;
     contactGateMode = 'final';
     step++;
@@ -2001,7 +2001,7 @@ async function captureExitContact(messenger) {
     sessionToken = result.session_token;
     rememberLeadContactHints(result);
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
-    statusEl.textContent = 'Готово. Открываем мессенджер...';
+    statusEl.textContent = 'Готово, открываем мессенджер...';
     trackEvent(`${messenger}_clicked`, 'exit_capture');
     setTimeout(() => {
       document.getElementById('exitOverlay').classList.remove('active');
@@ -2105,12 +2105,12 @@ async function chooseSlot(index, name) {
   const address = (addressInput?.value || '').trim();
   if (!normalizedPhone) {
     shake('measurementPhone');
-    statusEl.textContent = 'Проверьте телефон для подтверждения замера.';
+    statusEl.textContent = 'Проверьте, пожалуйста, телефон — он нужен для подтверждения замера.';
     return;
   }
   if (address.length < 5) {
     shake('measurementAddress');
-    statusEl.textContent = 'Укажите адрес объекта, куда приехать на замер.';
+    statusEl.textContent = 'Укажите, пожалуйста, адрес объекта, куда приехать на замер.';
     return;
   }
   submittedContact = { ...submittedContact, phone: normalizedPhone };
@@ -2145,8 +2145,8 @@ async function chooseSlot(index, name) {
     selectedMeasurementSlot = slot;
     const isCalendarBooked = bookingResult.status === 'ok' || Boolean(bookingResult.booking_uid);
     statusEl.textContent = isCalendarBooked
-      ? `Готово, слот закреплен: ${slot.date_label} в ${slot.label}. Выберите мессенджер ниже, чтобы подтвердить детали.`
-      : `Заявку на слот ${slot.date_label} в ${slot.label} сохранили. Менеджер подтвердит время, если календарь не успел закрепить его автоматически.`;
+      ? `Готово, закрепили замер на ${slot.date_label} в ${slot.label}. За сутки напомним, чтобы ничего не потерялось. Выберите мессенджер ниже, чтобы подтвердить детали.`
+      : `Заявку на замер ${slot.date_label} в ${slot.label} сохранили. Менеджер подтвердит время, если календарь не успел закрепить его автоматически.`;
     renderMessengerActions(name);
     trackEvent(isCalendarBooked ? 'cal_slot_booked' : 'cal_slot_requested', 'measurement', {
       start: slot.start,
@@ -2161,7 +2161,7 @@ async function chooseSlot(index, name) {
     }
   } catch (e) {
     console.error(e);
-    statusEl.textContent = 'Не удалось закрепить слот. Выберите другое время или продолжите в мессенджер — менеджер поможет записаться.';
+    statusEl.textContent = 'Не удалось закрепить слот автоматически. Выберите другое время или продолжите в мессенджер — менеджер поможет записаться вручную.';
     buttons.forEach(btn => btn.disabled = false);
     trackEvent('cal_slot_booking_failed', 'measurement', { start: slot.start });
   }
