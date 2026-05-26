@@ -435,6 +435,90 @@ async def _quiz_estimate_already_sent(db: AsyncSession, lead_id: uuid.UUID, sess
             return True
     return False
 
+
+async def _handle_quiz_lead_activation_flow(
+    message: Message,
+    db: AsyncSession,
+    lead,
+    session_token: str | None = None,
+    source: str = "quiz_deep_link",
+) -> bool:
+    """
+    Continue the quiz flow for a linked lead.
+    This also handles plain /start when Telegram opens the bot without the qz_ payload.
+    """
+    session_token = (session_token or _lead_session_token(lead) or str(lead.id)).strip()
+    estimate_text = _build_quiz_estimate_text(lead)
+    if not estimate_text:
+        return False
+
+    from src.services.lead_stage_context_service import lead_stage_context_service
+    stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+    next_action = stage_context.metadata.get("next_action")
+
+    if not await _quiz_estimate_already_sent(db, lead.id, session_token):
+        sent_estimate = await message.answer(estimate_text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=estimate_text,
+            telegram_message_id=sent_estimate.message_id,
+            sender_name="AI",
+            ai_metadata={
+                "source": source,
+                "type": "quiz_estimate_after_activation",
+                "session_token": session_token,
+                "stage_context": stage_context.metadata,
+            },
+        )
+
+    if next_action == "awaiting_design_project":
+        welcome_text = "Следующий шаг: пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
+    elif next_action == "awaiting_measurement_slot":
+        if await _send_measurement_slot_dates(message, db, lead):
+            return True
+        welcome_text = "Следующий шаг: напишите удобный день и время замера, менеджер подтвердит запись."
+    elif next_action == "confirm_measurement":
+        measurement = _lead_measurement_data(lead)
+        measurement_date = _format_measurement_start(measurement.get("start"))
+        measurement_address = str(measurement.get("address") or "").strip()
+        if measurement_date and measurement_address:
+            status_label = "замер записан" if measurement.get("status") == "booked" else "слот замера выбран"
+            welcome_text = (
+                f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
+                f"Адрес: {measurement_address}\n\n"
+                "Менеджер подтвердит детали выезда."
+            )
+        elif measurement_date:
+            welcome_text = (
+                f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}. "
+                "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+            )
+        else:
+            welcome_text = (
+                "Здравствуйте! Вижу выбранный слот замера. "
+                "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+            )
+    else:
+        welcome_text = (
+            "Здравствуйте! Вижу вашу заявку по квизу. "
+            "Напишите сюда любой вопрос, и мы продолжим расчет по вашим данным."
+        )
+
+    if not is_business_hours():
+        welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время."
+
+    sent_message = await message.answer(welcome_text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=welcome_text,
+        telegram_message_id=sent_message.message_id,
+        sender_name="AI",
+        ai_metadata={"source": source, "stage_context": stage_context.metadata},
+    )
+    return True
+
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
 
@@ -799,6 +883,14 @@ async def _handle_regular_start(message: Message) -> None:
             telegram_message_id=message.message_id,
             sender_name=message.from_user.full_name
         )
+
+        if await _handle_quiz_lead_activation_flow(
+            message=message,
+            db=db,
+            lead=lead,
+            source="plain_start_existing_quiz",
+        ):
+            return
         
         # Get initial message from database or fallback
         config = await prompt_service.get_active_config(db, org_id)
@@ -885,61 +977,19 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
             ai_metadata={"source": "quiz_deep_link", "session_token": session_token},
         )
 
-        from src.services.lead_stage_context_service import lead_stage_context_service
-        stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
-        next_action = stage_context.metadata.get("next_action")
+        if await _handle_quiz_lead_activation_flow(
+            message=message,
+            db=db,
+            lead=lead,
+            session_token=session_token,
+            source="quiz_deep_link",
+        ):
+            return
 
-        estimate_text = _build_quiz_estimate_text(lead)
-        if estimate_text and not await _quiz_estimate_already_sent(db, lead.id, session_token):
-            sent_estimate = await message.answer(estimate_text)
-            await chat_service.send_outbound_message(
-                db=db,
-                lead_id=lead.id,
-                content=estimate_text,
-                telegram_message_id=sent_estimate.message_id,
-                sender_name="AI",
-                ai_metadata={
-                    "source": "quiz_deep_link",
-                    "type": "quiz_estimate_after_activation",
-                    "session_token": session_token,
-                },
-            )
-
-        if next_action == "awaiting_design_project":
-            welcome_text = (
-                "Следующий шаг: пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
-            )
-        elif next_action == "awaiting_measurement_slot":
-            if await _send_measurement_slot_dates(message, db, lead):
-                return
-            welcome_text = "Следующий шаг: напишите удобный день и время замера, менеджер подтвердит запись."
-        elif next_action == "confirm_measurement":
-            measurement = _lead_measurement_data(lead)
-            measurement_date = _format_measurement_start(measurement.get("start"))
-            measurement_address = str(measurement.get("address") or "").strip()
-            if measurement_date and measurement_address:
-                status_label = "замер записан" if measurement.get("status") == "booked" else "слот замера выбран"
-                welcome_text = (
-                    f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
-                    f"Адрес: {measurement_address}\n\n"
-                    "Менеджер подтвердит детали выезда."
-                )
-            elif measurement_date:
-                welcome_text = (
-                    f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}. "
-                    "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
-                )
-            else:
-                welcome_text = (
-                    "Здравствуйте! Вижу выбранный слот замера. "
-                    "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
-                )
-        else:
-            welcome_text = (
-                "Здравствуйте! Вижу вашу заявку по квизу. "
-                "Напишите сюда любой вопрос, и мы продолжим расчет по вашим данным."
-            )
-
+        welcome_text = (
+            "Здравствуйте! Вижу вашу заявку по квизу. "
+            "Напишите сюда любой вопрос, и мы продолжим расчет по вашим данным."
+        )
         if not is_business_hours():
             welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время."
 
@@ -950,7 +1000,7 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
             content=welcome_text,
             telegram_message_id=sent_message.message_id,
             sender_name="AI",
-            ai_metadata={"source": "quiz_deep_link", "stage_context": stage_context.metadata},
+            ai_metadata={"source": "quiz_deep_link"},
         )
 
 
