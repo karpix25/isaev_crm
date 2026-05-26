@@ -30,7 +30,7 @@ from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS,
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
-from src.models import AuthSession, ChatMessage, Lead, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
+from src.models import AuthSession, ChatMessage, Lead, MessageDirection, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
 from src.models.user import UserRole
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,6 @@ def _looks_like_measurement_question(text: str) -> bool:
 
 
 def _build_measurement_context_answer(lead, text: str) -> str | None:
-    if lead.status not in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value, LeadStatus.MEASUREMENT_PENDING.value}:
-        return None
     if not _looks_like_measurement_question(text):
         return None
 
@@ -99,6 +97,62 @@ def _build_measurement_context_answer(lead, text: str) -> str | None:
     lines.append("За сутки до замера напомним вам, чтобы ничего не потерялось.")
     lines.append("Если нужно перенести запись или исправить адрес, напишите здесь.")
     return "\n".join(lines)
+
+
+def _extract_measurement_context_from_text(text: str) -> tuple[str | None, str | None]:
+    date_match = re.search(r"Дата:\s*([^\n]+)", text or "", flags=re.IGNORECASE)
+    address_match = re.search(r"Адрес:\s*([^\n]+)", text or "", flags=re.IGNORECASE)
+    date_text = date_match.group(1).strip(" .") if date_match else None
+    address_text = address_match.group(1).strip(" .") if address_match else None
+    return date_text, address_text
+
+
+def _build_measurement_context_answer_from_parts(date_text: str | None, address_text: str | None) -> str | None:
+    if not date_text and not address_text:
+        return None
+    lines = []
+    if date_text:
+        lines.append(f"Замер у нас записан на {date_text}.")
+    if address_text:
+        lines.append(f"Адрес: {address_text}.")
+    lines.append("За сутки до замера напомним вам, чтобы ничего не потерялось.")
+    lines.append("Если нужно перенести запись или исправить адрес, напишите здесь.")
+    return "\n".join(lines)
+
+
+async def _answer_measurement_question_if_possible(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text: str,
+) -> bool:
+    if not _looks_like_measurement_question(text):
+        return False
+
+    answer = _build_measurement_context_answer(lead, text)
+    if not answer:
+        history, _ = await chat_service.get_chat_history(db, lead.id, page_size=12)
+        for chat_message in history:
+            if chat_message.direction != MessageDirection.OUTBOUND:
+                continue
+            date_text, address_text = _extract_measurement_context_from_text(chat_message.content or "")
+            answer = _build_measurement_context_answer_from_parts(date_text, address_text)
+            if answer:
+                break
+
+    if not answer:
+        return False
+
+    sent = await message.answer(answer)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=answer,
+        telegram_message_id=sent.message_id,
+        sender_name="AI",
+        ai_metadata={"source": "measurement_context", "skip_knowledge_index": True},
+    )
+    return True
 
 
 def _lead_measurement_data(lead) -> dict:
@@ -1355,6 +1409,8 @@ async def process_debounced_message(user_id: int):
 
         if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
             return
+        if await _answer_measurement_question_if_possible(db, message, lead, combined_text):
+            return
 
         outside_business_hours = not is_business_hours()
         if outside_business_hours:
@@ -1579,14 +1635,11 @@ async def process_debounced_message(user_id: int):
             logger.error("Error in AI handler for user %s: %s", user_id, e, exc_info=True)
             # Send user-facing error message instead of silently failing
             try:
-                measurement_answer = _build_measurement_context_answer(lead, combined_text)
-                await message.answer(
-                    measurement_answer
-                    or (
+                if not await _answer_measurement_question_if_possible(db, message, lead, combined_text):
+                    await message.answer(
                         "Похоже, сейчас не получилось обработать сообщение автоматически. "
                         "Попробуйте написать еще раз, а если вопрос срочный — менеджер поможет вручную."
                     )
-                )
             except Exception:
                 pass  # If even sending error message fails, just log it
 
