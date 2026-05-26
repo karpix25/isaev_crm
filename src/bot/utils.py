@@ -17,7 +17,19 @@ async def get_default_org_id(db: AsyncSession) -> uuid.UUID:
     In production, this should be configured per bot instance.
     """
     result = await db.execute(
-        select(Organization.id).limit(1)
+        select(Organization.id)
+        .where(Organization.name != "Default Organization")
+        .order_by(Organization.created_at.asc())
+        .limit(1)
+    )
+    org_id = result.scalar_one_or_none()
+    if org_id:
+        return org_id
+
+    result = await db.execute(
+        select(Organization.id)
+        .order_by(Organization.created_at.asc())
+        .limit(1)
     )
     org_id = result.scalar_one_or_none()
     

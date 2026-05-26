@@ -51,6 +51,8 @@ QUIZ_SUMMARY_FIELDS = [
     ("design", "Дизайн"),
 ]
 RU_WEEKDAYS_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+DEFAULT_ORG_NAME = "Default Organization"
+FALLBACK_COMPANY_NAME = "Исаев Групп"
 
 
 def _format_measurement_start(value: str | None) -> str:
@@ -63,6 +65,13 @@ def _format_measurement_start(value: str | None) -> str:
         return dt.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y в %H:%M")
     except Exception:
         return str(value)
+
+
+def _display_company_name(org) -> str:
+    raw_name = str(getattr(org, "name", "") or "").strip()
+    if not raw_name or raw_name == DEFAULT_ORG_NAME:
+        return FALLBACK_COMPANY_NAME
+    return raw_name
 
 
 def _lead_measurement_data(lead) -> dict:
@@ -519,6 +528,7 @@ async def _handle_quiz_lead_activation_flow(
     )
     return True
 
+
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
 
@@ -900,7 +910,7 @@ async def _handle_regular_start(message: Message) -> None:
         from sqlalchemy import select
         org_result = await db.execute(select(Organization).where(Organization.id == org_id))
         org = org_result.scalar_one_or_none()
-        company_name = org.name if org else "наша компания"
+        company_name = _display_company_name(org)
 
         welcome_text = config.welcome_message if config and config.welcome_message else get_initial_message(company_name)
         if not is_business_hours():
@@ -1334,7 +1344,7 @@ async def process_debounced_message(user_id: int):
             from sqlalchemy import select
             org_result = await db.execute(select(Organization).where(Organization.id == org_id))
             org = org_result.scalar_one_or_none()
-            company_name = org.name if org else "наша компания"
+            company_name = _display_company_name(org)
             
             if config and config.system_prompt:
                 base_prompt = config.system_prompt
@@ -1636,7 +1646,7 @@ async def handle_lead_photo(message: Message):
         from src.models.organization import Organization
         org_result = await db.execute(select(Organization).where(Organization.id == org_id))
         org = org_result.scalar_one_or_none()
-        company_name = org.name if org else "наша компания"
+        company_name = _display_company_name(org)
         
         if config and config.system_prompt:
             base_prompt = config.system_prompt

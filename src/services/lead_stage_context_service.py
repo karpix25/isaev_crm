@@ -4,12 +4,14 @@ from dataclasses import dataclass
 from typing import Any
 import json
 import uuid
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
-from src.models import FunnelEvent, FunnelSession, Lead, LeadStatus
+from src.models import ChatMessage, FunnelEvent, FunnelSession, Lead, LeadStatus
 
 
 QUIZ_ANSWER_LABELS = {
@@ -176,12 +178,14 @@ class LeadStageContextService:
             ]
 
         missing = self._missing_quiz_fields(answers)
+        recent_messages = await self._get_recent_messages(db, lead.id)
         prompt_block = self._render_prompt(
             lead=lead,
             session=session,
             answers=answers,
             quiz=quiz,
             extracted=extracted,
+            recent_messages=recent_messages,
             next_action=next_action,
             expected_from_client=expected_from_client,
             client_expects=client_expects,
@@ -201,6 +205,8 @@ class LeadStageContextService:
                 "quiz_completed": quiz_completed,
                 "has_quiz_answers": has_quiz_answers,
                 "missing_quiz_fields": missing,
+                "measurement_start": measurement.get("start"),
+                "measurement_address": measurement.get("address") or extracted.get("address"),
             },
         )
 
@@ -217,6 +223,15 @@ class LeadStageContextService:
         result = await db.execute(select(FunnelEvent.event_type).where(FunnelEvent.session_id == session_id))
         return {row[0] for row in result.all()}
 
+    async def _get_recent_messages(self, db: AsyncSession, lead_id: uuid.UUID) -> list[ChatMessage]:
+        result = await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.lead_id == lead_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(8)
+        )
+        return list(reversed(result.scalars().all()))
+
     def _render_prompt(
         self,
         lead: Lead,
@@ -224,6 +239,7 @@ class LeadStageContextService:
         answers: dict[str, Any],
         quiz: dict[str, Any],
         extracted: dict[str, Any],
+        recent_messages: list[ChatMessage],
         next_action: str,
         expected_from_client: str,
         client_expects: str,
@@ -240,6 +256,13 @@ class LeadStageContextService:
 
         measurement = extracted.get("measurement") if isinstance(extracted.get("measurement"), dict) else {}
         design_file = (quiz.get("design_project_file_url") or "нет")
+        measurement_start = self._format_measurement_start(measurement.get("start"))
+        measurement_address = measurement.get("address") or extracted.get("address") or "не указан"
+        price_label = ""
+        price = quiz.get("price") if isinstance(quiz.get("price"), dict) else None
+        if isinstance(price, dict):
+            price_label = str(price.get("label") or "").strip()
+        recent_lines = self._format_recent_messages(recent_messages)
         policy_lines = "\n".join(f"- {line}" for line in response_policy)
         missing_line = ", ".join(missing) if missing else "нет критичных пропусков"
 
@@ -248,6 +271,9 @@ CRM_STAGE_CONTEXT:
 lead_id: {lead.id}
 lead_status: {lead.status}
 lead_source: {lead.source or "unknown"}
+client_name: {lead.full_name or "не указано"}
+client_phone: {lead.phone or "не указан"}
+telegram_username: {lead.username or "не указан"}
 funnel_session: {session.session_token if session else "none"}
 next_action: {next_action}
 expected_from_client: {expected_from_client}
@@ -255,17 +281,25 @@ client_expects: {client_expects}
 quiz_completed: {bool(session and session.status == "completed")}
 design_project_file: {design_file}
 measurement_slot: {measurement.get("start") or "не выбран"}
+measurement_slot_local: {measurement_start or "не выбран"}
+measurement_status: {measurement.get("status") or "не указан"}
+measurement_address: {measurement_address}
+preliminary_estimate: {price_label or "не рассчитан"}
 missing_quiz_fields: {missing_line}
 personal_quiz_url: {personal_quiz_url or "none"}
 
 QUIZ_ANSWERS:
 {chr(10).join(answer_lines)}
 
+RECENT_CRM_MESSAGES:
+{recent_lines}
+
 STAGE_AWARE_RESPONSE_RULES:
 - Сначала учитывай CRM_STAGE_CONTEXT и QUIZ_ANSWERS.
 - Если данные уже есть в квизе, не спрашивай их повторно.
 - Если клиент пришел после квиза, отвечай коротко и веди к next_action.
 - Если клиент выбрал/просит замер, не болтай лишнего: предложи или подтверди следующий шаг.
+- Если lead_status = MEASUREMENT_BOOKED или MEASUREMENT, ты уже после записи на замер: не начинай продажу заново, не благодари за звонок, не представляйся заново, не говори "менеджер подтвердит" как единственный ответ. Подтверди, что ты на связи, и опирайся на measurement_slot_local и measurement_address.
 - Если нужно уточнение, задай только один вопрос.
 - Не обещай точную смету без замера или дизайн-проекта.
 - Не отправляй personal_quiz_url клиенту, который уже заполнил квиз, кроме случая когда он сам просит пройти заново.
@@ -273,6 +307,28 @@ STAGE_AWARE_RESPONSE_RULES:
 RESPONSE_POLICY:
 {policy_lines}
 """
+
+    def _format_measurement_start(self, value: Any) -> str:
+        if not value:
+            return ""
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y в %H:%M")
+        except Exception:
+            return str(value)
+
+    def _format_recent_messages(self, messages: list[ChatMessage]) -> str:
+        lines: list[str] = []
+        for message in messages:
+            direction = "client" if str(message.direction).endswith("INBOUND") else "assistant"
+            content = str(message.content or "").replace("\n", " ").strip()
+            if len(content) > 220:
+                content = content[:217] + "..."
+            if content:
+                lines.append(f"- {direction}: {content}")
+        return "\n".join(lines) if lines else "- Истории сообщений пока нет."
 
     def _missing_quiz_fields(self, answers: dict[str, Any]) -> list[str]:
         return [key for key in QUIZ_ANSWER_LABELS if not answers.get(key)]
