@@ -28,13 +28,26 @@ from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS,
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
-from src.models import AuthSession, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
+from src.models import AuthSession, ChatMessage, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
 from src.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 # Create router for lead handlers
 router = Router()
+
+QUIZ_LABELS = {
+    "type": {"flat": "Квартира", "house": "Дом", "commercial": "Коммерция"},
+    "area": {"xs": "До 40 м²", "sm": "40–70 м²", "md": "70–100 м²", "lg": "Более 100 м²"},
+    "rtype": {"cosm": "Косметический", "finish": "Чистовая отделка", "full": "Под ключ"},
+    "design": {"yes": "Проект готов", "wip": "Проект в работе", "no": "Проекта нет"},
+}
+QUIZ_SUMMARY_FIELDS = [
+    ("type", "Объект"),
+    ("area", "Площадь"),
+    ("rtype", "Ремонт"),
+    ("design", "Дизайн"),
+]
 
 
 def _format_measurement_start(value: str | None) -> str:
@@ -60,18 +73,72 @@ def _lead_measurement_data(lead) -> dict:
     return measurement if isinstance(measurement, dict) else {}
 
 
-def _lead_price_label(lead) -> str:
+def _lead_quiz_data(lead) -> dict:
     if not getattr(lead, "extracted_data", None):
-        return ""
+        return {}
     try:
         data = json.loads(lead.extracted_data)
     except json.JSONDecodeError:
-        return ""
+        return {}
     quiz = data.get("quiz") if isinstance(data, dict) else None
+    return quiz if isinstance(quiz, dict) else {}
+
+
+def _lead_price_label(lead) -> str:
+    quiz = _lead_quiz_data(lead)
     price = quiz.get("price") if isinstance(quiz, dict) else None
     if not isinstance(price, dict):
         return ""
     return str(price.get("label") or "").strip()
+
+
+def _lead_quiz_answers(lead) -> dict:
+    quiz = _lead_quiz_data(lead)
+    answers = quiz.get("answers") if isinstance(quiz, dict) else None
+    return answers if isinstance(answers, dict) else {}
+
+
+def _lead_quiz_summary_lines(lead) -> list[str]:
+    answers = _lead_quiz_answers(lead)
+    lines: list[str] = []
+    for key, title in QUIZ_SUMMARY_FIELDS:
+        raw_value = str(answers.get(key) or "").strip()
+        if not raw_value:
+            continue
+        value = QUIZ_LABELS.get(key, {}).get(raw_value, raw_value)
+        lines.append(f"{title}: {value}")
+    return lines
+
+
+def _build_quiz_estimate_text(lead) -> str:
+    price_label = _lead_price_label(lead)
+    if not price_label:
+        return ""
+
+    answers = _lead_quiz_answers(lead)
+    summary = _lead_quiz_summary_lines(lead)
+    text = f"Ваш предварительный просчет: {price_label}."
+    if summary:
+        text += "\n\n" + "\n".join(summary)
+
+    design_answer = str(answers.get("design") or "").lower()
+    if design_answer in {"yes", "wip"}:
+        text += "\n\nДля точной сметы пришлите дизайн-проект сюда файлом."
+    else:
+        text += "\n\nДля точной сметы предложим выбрать удобное время замера."
+    return text
+
+
+async def _quiz_estimate_already_sent(db: AsyncSession, lead_id: uuid.UUID, session_token: str) -> bool:
+    result = await db.execute(select(ChatMessage).where(ChatMessage.lead_id == lead_id))
+    for chat_message in result.scalars().all():
+        metadata = chat_message.ai_metadata if isinstance(chat_message.ai_metadata, dict) else {}
+        if (
+            metadata.get("type") == "quiz_estimate_after_activation"
+            and metadata.get("session_token") == session_token
+        ):
+            return True
+    return False
 
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
 pending_updates = {}
@@ -526,17 +593,30 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
         from src.services.lead_stage_context_service import lead_stage_context_service
         stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
         next_action = stage_context.metadata.get("next_action")
-        price_label = _lead_price_label(lead)
-        price_text = f" Ориентир бюджета: {price_label}." if price_label else ""
+
+        estimate_text = _build_quiz_estimate_text(lead)
+        if estimate_text and not await _quiz_estimate_already_sent(db, lead.id, session_token):
+            sent_estimate = await message.answer(estimate_text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=estimate_text,
+                telegram_message_id=sent_estimate.message_id,
+                sender_name="AI",
+                ai_metadata={
+                    "source": "quiz_deep_link",
+                    "type": "quiz_estimate_after_activation",
+                    "session_token": session_token,
+                },
+            )
+
         if next_action == "awaiting_design_project":
             welcome_text = (
-                f"Здравствуйте! Вижу вашу заявку по ремонту. Предварительный просчет уже готов.{price_text} "
-                "Пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
+                "Следующий шаг: пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
             )
         elif next_action == "awaiting_measurement_slot":
             welcome_text = (
-                f"Здравствуйте! Вижу вашу заявку по ремонту. Предварительный просчет готов.{price_text} "
-                "Для точной сметы лучше записаться на замер. Напишите, какой день вам удобен?"
+                "Следующий шаг: для точной сметы лучше записаться на замер. Напишите, какой день вам удобен?"
             )
         elif next_action == "confirm_measurement":
             measurement = _lead_measurement_data(lead)
