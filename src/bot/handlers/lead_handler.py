@@ -144,15 +144,21 @@ def _build_quiz_estimate_text(lead) -> str:
 
     answers = _lead_quiz_answers(lead)
     summary = _lead_quiz_summary_lines(lead)
-    text = f"Ваш предварительный просчет: {price_label}."
+    text = f"Ваш предварительный просчет по работам без стройматериалов: {price_label}."
     if summary:
         text += "\n\n" + "\n".join(summary)
 
     design_answer = str(answers.get("design") or "").lower()
     if design_answer in {"yes", "wip"}:
-        text += "\n\nДля точной сметы пришлите дизайн-проект сюда файлом."
+        text += (
+            "\n\n📎 Пришлите сюда дизайн-проект файлом — просчитаем точную цену ремонта "
+            "по работам без стройматериалов и зафиксируем ее за вами на месяц."
+        )
     else:
-        text += "\n\nДля точной сметы предложим выбрать удобное время замера."
+        text += (
+            "\n\n📍 Для точной сметы выберите удобное время замера. После замера "
+            "посчитаем цену ремонта по работам без стройматериалов и зафиксируем ее за вами на месяц."
+        )
     return text
 
 
@@ -242,7 +248,7 @@ async def _find_lead_by_telegram(db: AsyncSession, telegram_id: int):
 
 async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead) -> bool:
     if not cal_pro_service.is_configured():
-        text = "Сейчас не удалось открыть календарь. Напишите удобный день и время, менеджер подберет ближайший слот."
+        text = "Календарь сейчас не открылся. Напишите удобный день и время — менеджер подберет ближайший слот для замера 📍"
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -256,7 +262,7 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
 
     slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
     if not slots:
-        text = "Свободные окна сейчас не загрузились. Напишите удобный день и время, менеджер подтвердит запись."
+        text = "Свободные окна сейчас не загрузились. Напишите удобный день и время — менеджер проверит расписание и подтвердит запись 📍"
         sent = await message.answer(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -281,7 +287,7 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
             lead.status = LeadStatus.MEASUREMENT_PENDING.value
         await db.commit()
 
-    text = "Выберите день бесплатного замера:"
+    text = "Выберите день бесплатного замера 📍"
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
     await chat_service.send_outbound_message(
         db=db,
@@ -495,11 +501,15 @@ async def _handle_quiz_lead_activation_flow(
         )
 
     if next_action == "awaiting_design_project":
-        welcome_text = "Следующий шаг: пришлите сюда дизайн-проект файлом, и мы подготовим точную смету."
+        welcome_text = (
+            "Следующий шаг — пришлите сюда дизайн-проект файлом 📎\n\n"
+            "Мы просчитаем точную цену ремонта по работам без стройматериалов "
+            "и зафиксируем ее за вами на месяц."
+        )
     elif next_action == "awaiting_measurement_slot":
         if await _send_measurement_slot_dates(message, db, lead):
             return True
-        welcome_text = "Следующий шаг: выберите другое окно или напишите удобный день и время замера."
+        welcome_text = "Выберите другое окно или напишите удобный день и время замера — подберем ближайший свободный слот 📍"
     elif next_action == "confirm_measurement":
         measurement = _lead_measurement_data(lead)
         measurement_date = _format_measurement_start(measurement.get("start"))
@@ -509,26 +519,26 @@ async def _handle_quiz_lead_activation_flow(
             welcome_text = (
                 f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
                 f"Адрес: {measurement_address}\n\n"
-                "Запись закреплена в календаре."
+                "Запись закреплена в календаре ✅"
             )
         elif measurement_date:
             welcome_text = (
-                f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}. "
-                "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+                f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}.\n\n"
+                "Напишите, пожалуйста, адрес объекта — подтвердим выезд специалиста 📍"
             )
         else:
             welcome_text = (
-                "Здравствуйте! Вижу выбранный слот замера. "
-                "Напишите, пожалуйста, адрес объекта, чтобы мы подтвердили выезд."
+                "Здравствуйте! Вижу выбранный слот замера.\n\n"
+                "Напишите, пожалуйста, адрес объекта — подтвердим выезд специалиста 📍"
             )
     else:
         welcome_text = (
-            "Здравствуйте! Вижу вашу заявку по квизу. "
-            "Напишите сюда любой вопрос, и мы продолжим расчет по вашим данным."
+            "Здравствуйте! Вижу вашу заявку по квизу.\n\n"
+            "Напишите сюда любой вопрос — продолжим расчет по вашим данным и подскажем следующий шаг."
         )
 
     if not is_business_hours():
-        welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время."
+        welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время 🕘"
 
     sent_message = await message.answer(welcome_text)
     await chat_service.send_outbound_message(
@@ -1010,11 +1020,11 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
             return
 
         welcome_text = (
-            "Здравствуйте! Вижу вашу заявку по квизу. "
-            "Напишите сюда любой вопрос, и мы продолжим расчет по вашим данным."
+            "Здравствуйте! Вижу вашу заявку по квизу.\n\n"
+            "Напишите сюда любой вопрос — продолжим расчет по вашим данным и подскажем следующий шаг."
         )
         if not is_business_hours():
-            welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время."
+            welcome_text = f"{welcome_text}\n\nСейчас мы не на связи. Ответим в рабочее время 🕘"
 
         sent_message = await message.answer(welcome_text)
         await chat_service.send_outbound_message(
@@ -1179,7 +1189,7 @@ async def quiz_measure_back_callback(query: CallbackQuery):
             await query.answer("Слоты сейчас не загрузились", show_alert=True)
             return
         await query.message.edit_text(
-            "Выберите день бесплатного замера:",
+            "Выберите день бесплатного замера 📍",
             reply_markup=_build_measurement_date_keyboard(slots),
         )
         await query.answer()
@@ -1199,7 +1209,7 @@ async def quiz_measure_date_callback(query: CallbackQuery):
             await query.answer("На этот день слоты закончились. Выберите другой день.", show_alert=True)
             return
         await query.message.edit_text(
-            f"Выберите время замера на {_slot_date_button_label(date_key)}:",
+            f"Выберите время замера на {_slot_date_button_label(date_key)} 🕘",
             reply_markup=_build_measurement_time_keyboard(slots, date_key),
         )
         await query.answer()
@@ -1215,8 +1225,8 @@ async def quiz_measure_time_callback(query: CallbackQuery):
             return
         await _store_pending_measurement_slot(db, lead, start)
         text = (
-            f"Отлично, держу окно {_slot_date_button_label(_slot_date_key(start))} "
-            f"в {_slot_time_label(start)}.\n\n"
+            f"Отлично, держу для вас окно {_slot_date_button_label(_slot_date_key(start))} "
+            f"в {_slot_time_label(start)} ✅\n\n"
             "Напишите адрес объекта для замера: город, улица, дом и квартиру."
         )
         await query.message.edit_text(text)
