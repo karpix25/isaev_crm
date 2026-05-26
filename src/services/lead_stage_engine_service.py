@@ -141,13 +141,13 @@ class LeadStageEngineService:
         has_inbound = bool(event_types & {"telegram_message_received", "whatsapp_message_received"})
         has_messenger_click = bool(event_types & {"telegram_clicked", "whatsapp_clicked"})
         measurement_status = str(measurement.get("status") or "").lower()
+        measurement_start = str(measurement.get("start") or "").strip()
         measurement_booked = (
-            bool(measurement.get("booking_uid"))
-            or measurement_status == "booked"
-            or "measurement_booked" in event_types
+            bool(measurement_start and measurement.get("booking_uid"))
+            or (measurement_status == "booked" and bool(measurement_start))
         )
         measurement_requested = (
-            bool(measurement.get("start"))
+            bool(measurement_start)
             or measurement_status == "requested"
             or "measurement_booking_requested" in event_types
             or "measurement_booking_failed" in event_types

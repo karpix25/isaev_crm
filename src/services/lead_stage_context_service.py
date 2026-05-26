@@ -57,7 +57,7 @@ class LeadStageContextService:
         measurement_booking_uid = str(measurement.get("booking_uid") or "").strip()
         measurement_booked = bool(measurement_start and measurement_booking_uid) or (
             measurement_status == "booked" and bool(measurement_start)
-        ) or "measurement_booked" in event_types
+        )
         quiz_completed = bool(session and session.status == "completed") or "quiz_completed" in event_types
         has_quiz_answers = bool(answers)
         source = lead.source or ""
