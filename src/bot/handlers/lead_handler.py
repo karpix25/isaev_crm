@@ -79,6 +79,41 @@ def _looks_like_measurement_question(text: str) -> bool:
     return any(word in normalized for word in ("замер", "когда", "во сколько", "дата", "адрес", "выезд"))
 
 
+def _looks_like_measurement_reschedule_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    measurement_words = ("замер", "выезд", "инженер", "встреч")
+    reschedule_words = (
+        "перен",
+        "поменять",
+        "изменить",
+        "другую дату",
+        "другой день",
+        "другое время",
+        "не удобно",
+        "неудобно",
+        "не смогу",
+        "не получится",
+    )
+    if any(word in normalized for word in measurement_words) and any(word in normalized for word in reschedule_words):
+        return True
+    return any(
+        phrase in normalized
+        for phrase in (
+            "можно поменять дату",
+            "можно поменять время",
+            "можно перенести",
+            "перенесем дату",
+            "перенести дату",
+            "изменить дату",
+            "изменить время",
+            "поменять время",
+        )
+    )
+
+
 def _build_measurement_context_answer(lead, text: str) -> str | None:
     if not _looks_like_measurement_question(text):
         return None
@@ -387,6 +422,61 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
     return True
 
 
+async def _send_measurement_reschedule_slot_dates(message: Message, db: AsyncSession, lead) -> bool:
+    if not cal_pro_service.is_configured():
+        text = (
+            "Да, перенесем. Календарь сейчас не открылся — напишите удобный день и время, "
+            "менеджер вручную подберет ближайший слот и подтвердит перенос."
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_slots_unavailable"},
+        )
+        return False
+
+    slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    if not slots:
+        text = (
+            "Да, перенесем. Свободные окна сейчас не загрузились — напишите удобный день и время, "
+            "менеджер проверит расписание и подтвердит перенос."
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_slots_empty"},
+        )
+        return False
+
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    measurement["status"] = "awaiting_reschedule_slot"
+    measurement["reschedule_requested_at"] = datetime.now(timezone.utc).isoformat()
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    await db.commit()
+
+    text = "Да, конечно, перенесем. Выберите новый удобный день замера 📍"
+    sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="AI",
+        ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_slot_dates"},
+    )
+    return True
+
+
 async def _store_pending_measurement_slot(db: AsyncSession, lead, start: str) -> None:
     data = _lead_extracted_data(lead)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
@@ -408,6 +498,170 @@ async def _store_pending_measurement_slot(db: AsyncSession, lead, start: str) ->
     }:
         lead.status = LeadStatus.MEASUREMENT_PENDING.value
     await db.commit()
+
+
+async def _confirm_measurement_reschedule(
+    db: AsyncSession,
+    query: CallbackQuery,
+    lead,
+    start: str,
+) -> bool:
+    session_token = _lead_session_token(lead)
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    address = str(measurement.get("address") or data.get("measurement_address") or data.get("address") or "").strip()
+
+    if not session_token:
+        text = (
+            "Новое окно выбрали. Не нашел код заявки для автоматического переноса — "
+            "менеджер закрепит слот вручную и подтвердит вам здесь."
+        )
+        if query.message:
+            await query.message.edit_text(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=query.message.message_id if query.message else None,
+            sender_name="AI",
+            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_no_session"},
+        )
+        return True
+
+    if not address:
+        await _store_pending_measurement_slot(db, lead, start)
+        text = (
+            f"Хорошо, держу новое окно {_slot_date_button_label(_slot_date_key(start))} "
+            f"в {_slot_time_label(start)} ✅\n\n"
+            "Напишите адрес объекта, чтобы я закрепил перенос замера."
+        )
+        if query.message:
+            await query.message.edit_text(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=query.message.message_id if query.message else None,
+            sender_name="AI",
+            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_address_request"},
+        )
+        return True
+
+    from src.services.quiz_service import quiz_service
+
+    previous_start = str(measurement.get("start") or "").strip()
+    previous_booking_uid = str(measurement.get("booking_uid") or "").strip()
+    measurement["reschedule_from"] = {
+        "start": previous_start,
+        "booking_uid": previous_booking_uid,
+        "requested_at": measurement.get("reschedule_requested_at"),
+    }
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    await db.commit()
+
+    contact = QuizContact(
+        name=lead.full_name or query.from_user.full_name or "Клиент квиза",
+        phone=lead.phone,
+        telegram_username=lead.username,
+        preferred_messenger="telegram",
+    )
+
+    try:
+        if previous_booking_uid:
+            booking = await cal_pro_service.reschedule_booking(
+                booking_uid=previous_booking_uid,
+                start=start,
+                rescheduled_by=contact.email,
+                reason="Client requested measurement reschedule in Telegram",
+            )
+            booking_uid = quiz_service.extract_booking_uid(booking)
+            data = _lead_extracted_data(lead)
+            measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+            measurement.update(
+                {
+                    "start": start,
+                    "status": "booked",
+                    "address": address,
+                    "phone": contact.phone,
+                    "booking_uid": booking_uid,
+                    "booking": booking.get("data") or booking,
+                    "rescheduled_at": datetime.now(timezone.utc).isoformat(),
+                    "source": "telegram_reschedule",
+                }
+            )
+            data["measurement"] = measurement
+            lead.extracted_data = json.dumps(data, ensure_ascii=False)
+            lead.status = LeadStatus.MEASUREMENT_BOOKED.value
+            await db.commit()
+            await quiz_service._enqueue_measurement_reminder(
+                db=db,
+                lead=lead,
+                start=start,
+                address=address,
+                booking_uid=booking_uid,
+            )
+        else:
+            booking, _ = await quiz_service.book_measurement(
+                db=db,
+                payload=MeasurementBookingRequest(
+                    session_token=session_token,
+                    lead_id=lead.id,
+                    start=start,
+                    address=address,
+                    contact=contact,
+                    answers=_lead_quiz_answers(lead),
+                    metadata={
+                        "selected_slot_label": f"{_slot_date_button_label(_slot_date_key(start))} {_slot_time_label(start)}",
+                        "selected_messenger": "telegram",
+                        "measurement_address": address,
+                        "source": "telegram_reschedule",
+                        "previous_start": previous_start,
+                        "previous_booking_uid": previous_booking_uid,
+                    },
+                ),
+            )
+            booking_uid = quiz_service.extract_booking_uid(booking)
+    except Exception:
+        logger.warning("Failed to reschedule Telegram measurement for lead %s", lead.id, exc_info=True)
+        text = (
+            "Новое окно выбрали, но календарь сейчас не закрепил перенос автоматически. "
+            "Менеджер проверит слот вручную и подтвердит вам здесь."
+        )
+        if query.message:
+            await query.message.edit_text(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=query.message.message_id if query.message else None,
+            sender_name="AI",
+            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_error"},
+        )
+        return True
+
+    text = (
+        "Готово, перенесли замер ✅\n\n"
+        f"Новая дата: {_slot_date_button_label(_slot_date_key(start))} в {_slot_time_label(start)}\n"
+        f"Адрес: {address}\n\n"
+        "За сутки до замера напомним вам, чтобы ничего не потерялось."
+    )
+    if query.message:
+        await query.message.edit_text(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=query.message.message_id if query.message else None,
+        sender_name="AI",
+        ai_metadata={
+            "source": "measurement_reschedule",
+            "type": "measurement_reschedule_confirmed",
+            "booking_uid": booking_uid,
+            "previous_booking_uid": previous_booking_uid,
+        },
+    )
+    return True
 
 
 async def _pop_pending_measurement_slot(db: AsyncSession, lead) -> str:
@@ -1313,6 +1567,11 @@ async def quiz_measure_time_callback(query: CallbackQuery):
         if not lead:
             await query.answer("Заявка не найдена", show_alert=True)
             return
+        measurement = _lead_measurement_data(lead)
+        if measurement.get("status") == "awaiting_reschedule_slot":
+            await _confirm_measurement_reschedule(db, query, lead, start)
+            await query.answer()
+            return
         await _store_pending_measurement_slot(db, lead, start)
         text = (
             f"Отлично, держу для вас окно {_slot_date_button_label(_slot_date_key(start))} "
@@ -1410,6 +1669,10 @@ async def process_debounced_message(user_id: int):
         if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
             return
 
+        if _looks_like_measurement_reschedule_request(combined_text) and _lead_measurement_data(lead).get("start"):
+            await _send_measurement_reschedule_slot_dates(message, db, lead)
+            return
+
         outside_business_hours = not is_business_hours()
         if outside_business_hours:
             logger.info(
@@ -1489,17 +1752,6 @@ async def process_debounced_message(user_id: int):
             
             # Perform RAG (Retrieval)
             trace_id = f"lead_{lead.id}_{len(messages)}" # Unique per turn
-            relevant_docs = await knowledge_service.search_knowledge(
-                db=db,
-                org_id=org_id,
-                query=combined_text,
-                limit=3,
-                lead_id=lead.id,
-                embedding_model=config.embedding_model if config else None,
-                trace_id=trace_id,
-                user_id=str(message.from_user.id)
-            )
-            
             ai_metadata = {}
             ai_metadata["stage_context"] = stage_context.metadata
             logger.info(
@@ -1509,6 +1761,22 @@ async def process_debounced_message(user_id: int):
                 stage_context.metadata.get("next_action"),
                 combined_text[:200],
             )
+            try:
+                relevant_docs = await knowledge_service.search_knowledge(
+                    db=db,
+                    org_id=org_id,
+                    query=combined_text,
+                    limit=3,
+                    lead_id=lead.id,
+                    embedding_model=config.embedding_model if config else None,
+                    trace_id=trace_id,
+                    user_id=str(message.from_user.id)
+                )
+            except Exception as rag_err:
+                relevant_docs = []
+                ai_metadata["rag_error"] = str(rag_err)[:500]
+                logger.warning("RAG search failed (non-critical): %s", rag_err)
+
             if relevant_docs:
                 context_str = "\n\n".join([f"Source: {d.title}\nContent: {d.content}" for d in relevant_docs])
                 system_prompt = f"{system_prompt}\n\nRELEVANT KNOWLEDGE:\n{context_str}\n\nUse this context to answer accurately."

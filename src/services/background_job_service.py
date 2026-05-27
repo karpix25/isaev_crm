@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -242,6 +243,26 @@ class BackgroundJobService:
         start = str(payload.get("start") or "")
         address = str(payload.get("address") or "").strip()
         booking_uid = str(payload.get("booking_uid") or "").strip()
+        try:
+            extracted = json.loads(lead.extracted_data or "{}")
+        except json.JSONDecodeError:
+            extracted = {}
+        measurement = extracted.get("measurement") if isinstance(extracted, dict) else None
+        if isinstance(measurement, dict):
+            current_start = str(measurement.get("start") or "")
+            current_booking_uid = str(measurement.get("booking_uid") or "")
+            if (booking_uid and current_booking_uid and booking_uid != current_booking_uid) or (
+                start and current_start and start != current_start
+            ):
+                logger.info(
+                    "Skipping stale measurement reminder: lead_id=%s payload_uid=%s current_uid=%s payload_start=%s current_start=%s",
+                    lead.id,
+                    booking_uid,
+                    current_booking_uid,
+                    start,
+                    current_start,
+                )
+                return
 
         text = (
             "⏰ Напоминание о замере за сутки\n\n"
