@@ -263,6 +263,9 @@ class BackgroundJobService:
                     current_start,
                 )
                 return
+            address = str(measurement.get("address") or extracted.get("measurement_address") or address).strip()
+            if measurement.get("phone") and not lead.phone:
+                lead.phone = str(measurement.get("phone"))
 
         text = (
             "⏰ Напоминание о замере за сутки\n\n"

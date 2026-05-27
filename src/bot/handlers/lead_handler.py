@@ -114,6 +114,29 @@ def _looks_like_measurement_reschedule_request(text: str) -> bool:
     )
 
 
+def _looks_like_measurement_change_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    generic_change = any(word in normalized for word in ("изменить", "поменять", "исправить", "заменить"))
+    measurement_context = any(word in normalized for word in ("замер", "брон", "запис", "данн", "дат", "адрес", "телефон", "номер"))
+    return generic_change and measurement_context
+
+
+def _normalize_phone(value: str | None) -> str:
+    digits = re.sub(r"\D+", "", value or "")
+    if len(digits) == 11 and digits.startswith("8"):
+        digits = f"7{digits[1:]}"
+    elif len(digits) == 10:
+        digits = f"7{digits}"
+    return digits if len(digits) >= 10 else ""
+
+
+def _format_phone(value: str | None) -> str:
+    digits = _normalize_phone(value)
+    return f"+{digits}" if digits else "не указан"
+
+
 def _build_measurement_context_answer(lead, text: str) -> str | None:
     if not _looks_like_measurement_question(text):
         return None
@@ -129,6 +152,7 @@ def _build_measurement_context_answer(lead, text: str) -> str | None:
         lines.append(f"Замер у нас записан на {measurement_date}.")
     if measurement_address:
         lines.append(f"Адрес: {measurement_address}.")
+    lines.append(f"Телефон для связи: {_format_phone(lead.phone or measurement.get('phone'))}.")
     lines.append("За сутки до замера напомним вам, чтобы ничего не потерялось.")
     lines.append("Если нужно перенести запись или исправить адрес, напишите здесь.")
     return "\n".join(lines)
@@ -352,6 +376,18 @@ def _build_measurement_time_keyboard(slots, date_key: str) -> InlineKeyboardMark
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def _build_measurement_change_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Дата/время", callback_data="quiz_measure_change:time"),
+                InlineKeyboardButton(text="Адрес", callback_data="quiz_measure_change:address"),
+            ],
+            [InlineKeyboardButton(text="Телефон", callback_data="quiz_measure_change:phone")],
+        ]
+    )
+
+
 async def _find_lead_by_telegram(db: AsyncSession, telegram_id: int):
     lead_result = await db.execute(
         select(Lead)
@@ -477,6 +513,32 @@ async def _send_measurement_reschedule_slot_dates(message: Message, db: AsyncSes
     return True
 
 
+async def _send_measurement_change_choices(message: Message, db: AsyncSession, lead) -> bool:
+    measurement = _lead_measurement_data(lead)
+    measurement_date = _format_measurement_start(measurement.get("start"))
+    measurement_address = str(measurement.get("address") or "").strip()
+    text = "Конечно, изменим. Что нужно поправить по замеру?"
+    if measurement_date or measurement_address or lead.phone:
+        details = []
+        if measurement_date:
+            details.append(f"Дата: {measurement_date}")
+        if measurement_address:
+            details.append(f"Адрес: {measurement_address}")
+        details.append(f"Телефон: {_format_phone(lead.phone or measurement.get('phone'))}")
+        text = f"{text}\n\nСейчас записано:\n" + "\n".join(details)
+
+    sent = await message.answer(text, reply_markup=_build_measurement_change_keyboard())
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="AI",
+        ai_metadata={"source": "measurement_change", "type": "measurement_change_choices"},
+    )
+    return True
+
+
 async def _store_pending_measurement_slot(db: AsyncSession, lead, start: str) -> None:
     data = _lead_extracted_data(lead)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
@@ -497,6 +559,16 @@ async def _store_pending_measurement_slot(db: AsyncSession, lead, start: str) ->
         LeadStatus.MEASUREMENT_PENDING.value,
     }:
         lead.status = LeadStatus.MEASUREMENT_PENDING.value
+    await db.commit()
+
+
+async def _set_pending_measurement_update(db: AsyncSession, lead, field: str) -> None:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    measurement["status"] = f"awaiting_{field}_update"
+    measurement["update_requested_at"] = datetime.now(timezone.utc).isoformat()
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
     await db.commit()
 
 
@@ -643,8 +715,10 @@ async def _confirm_measurement_reschedule(
     text = (
         "Готово, перенесли замер ✅\n\n"
         f"Новая дата: {_slot_date_button_label(_slot_date_key(start))} в {_slot_time_label(start)}\n"
-        f"Адрес: {address}\n\n"
-        "За сутки до замера напомним вам, чтобы ничего не потерялось."
+        f"Адрес: {address}\n"
+        f"Телефон для связи: {_format_phone(contact.phone)}\n\n"
+        "За сутки до замера напомним вам, чтобы ничего не потерялось. "
+        "Если нужно изменить дату, адрес или телефон — напишите сюда."
     )
     if query.message:
         await query.message.edit_text(text)
@@ -677,6 +751,113 @@ async def _pop_pending_measurement_slot(db: AsyncSession, lead) -> str:
     lead.extracted_data = json.dumps(data, ensure_ascii=False)
     await db.commit()
     return start
+
+
+async def _try_handle_pending_measurement_update(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text_value: str,
+) -> bool:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    status = str(measurement.get("status") or "")
+
+    if status == "awaiting_address_update":
+        clean_address = text_value.strip()
+        if len(clean_address) < 5:
+            text = "Похоже, адрес получился неполным. Напишите, пожалуйста: город, улицу, дом и квартиру/офис."
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="AI",
+                ai_metadata={"source": "measurement_change", "type": "measurement_address_update_retry"},
+            )
+            return True
+
+        old_address = str(measurement.get("address") or data.get("measurement_address") or "").strip()
+        measurement["address"] = clean_address
+        measurement["status"] = "booked" if measurement.get("start") else "address_updated"
+        measurement["address_updated_at"] = datetime.now(timezone.utc).isoformat()
+        data["measurement"] = measurement
+        data["address"] = clean_address
+        data["measurement_address"] = clean_address
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        await db.commit()
+
+        date_text = _format_measurement_start(measurement.get("start"))
+        text = (
+            "Готово, адрес замера обновил ✅\n\n"
+            f"Дата: {date_text or 'не выбрана'}\n"
+            f"Адрес: {clean_address}\n"
+            f"Телефон для связи: {_format_phone(lead.phone or measurement.get('phone'))}"
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={
+                "source": "measurement_change",
+                "type": "measurement_address_updated",
+                "old_address": old_address,
+            },
+        )
+        return True
+
+    if status == "awaiting_phone_update":
+        normalized_phone = _normalize_phone(text_value)
+        if not normalized_phone:
+            text = "Похоже, номер не распознал. Напишите, пожалуйста, телефон в формате +7..."
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="AI",
+                ai_metadata={"source": "measurement_change", "type": "measurement_phone_update_retry"},
+            )
+            return True
+
+        old_phone = lead.phone
+        lead.phone = normalized_phone
+        measurement["phone"] = normalized_phone
+        measurement["status"] = "booked" if measurement.get("start") else "phone_updated"
+        measurement["phone_updated_at"] = datetime.now(timezone.utc).isoformat()
+        data["measurement"] = measurement
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        await db.commit()
+
+        date_text = _format_measurement_start(measurement.get("start"))
+        address = str(measurement.get("address") or data.get("measurement_address") or data.get("address") or "").strip()
+        text = (
+            "Готово, телефон для связи обновил ✅\n\n"
+            f"Дата: {date_text or 'не выбрана'}\n"
+            f"Адрес: {address or 'не указан'}\n"
+            f"Телефон для связи: {_format_phone(normalized_phone)}"
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={
+                "source": "measurement_change",
+                "type": "measurement_phone_updated",
+                "old_phone": old_phone,
+            },
+        )
+        return True
+
+    return False
 
 
 async def _try_handle_pending_measurement_address(
@@ -771,13 +952,16 @@ async def _try_handle_pending_measurement_address(
     text = (
         "Готово, записали вас на замер ✅\n\n"
         f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
-        f"Адрес: {clean_address}\n\n"
-        "Бронь закреплена в календаре. За сутки до замера напомним вам, чтобы ничего не потерялось."
+        f"Адрес: {clean_address}\n"
+        f"Телефон для связи: {_format_phone(contact.phone)}\n\n"
+        "Бронь закреплена в календаре. За сутки до замера напомним вам, чтобы ничего не потерялось. "
+        "Если нужно изменить дату, адрес или телефон — напишите сюда."
         if booked
         else
         "Заявку на замер сохранили ✅\n\n"
         f"Дата: {_slot_date_button_label(_slot_date_key(pending_start))} в {_slot_time_label(pending_start)}\n"
-        f"Адрес: {clean_address}\n\n"
+        f"Адрес: {clean_address}\n"
+        f"Телефон для связи: {_format_phone(contact.phone)}\n\n"
         "Календарь не подтвердил бронь автоматически. Выберите другое окно, а если не получится — менеджер поможет вручную."
     )
     sent = await message.answer(text)
@@ -862,9 +1046,11 @@ async def _handle_quiz_lead_activation_flow(
             status_label = "замер записан" if measurement.get("status") == "booked" else "слот замера выбран"
             welcome_text = (
                 f"Здравствуйте! Вижу, что {status_label}: {measurement_date}.\n"
-                f"Адрес: {measurement_address}\n\n"
+                f"Адрес: {measurement_address}\n"
+                f"Телефон для связи: {_format_phone(lead.phone or measurement.get('phone'))}\n\n"
                 "Запись закреплена в календаре ✅\n"
-                "За сутки до замера напомним вам, чтобы ничего не потерялось."
+                "За сутки до замера напомним вам, чтобы ничего не потерялось. "
+                "Если нужно изменить дату, адрес или телефон — напишите сюда."
             )
         elif measurement_date:
             welcome_text = (
@@ -1521,6 +1707,66 @@ async def operator_access_callback(query: CallbackQuery):
         await _notify_operator_access_rejected(access_request.telegram_id, access_request.rejection_reason)
 
 
+@router.callback_query(F.data.regexp(r"^quiz_measure_change:(time|address|phone)$"))
+async def quiz_measure_change_callback(query: CallbackQuery):
+    action = (query.data or "").split(":", 1)[1]
+    async with AsyncSessionLocal() as db:
+        lead = await _find_lead_by_telegram(db, query.from_user.id)
+        if not lead:
+            await query.answer("Заявка не найдена", show_alert=True)
+            return
+
+        if action == "time":
+            slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+            if not slots:
+                await query.answer("Слоты сейчас не загрузились", show_alert=True)
+                return
+            data = _lead_extracted_data(lead)
+            measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+            measurement["status"] = "awaiting_reschedule_slot"
+            measurement["reschedule_requested_at"] = datetime.now(timezone.utc).isoformat()
+            data["measurement"] = measurement
+            lead.extracted_data = json.dumps(data, ensure_ascii=False)
+            await db.commit()
+            if query.message:
+                await query.message.edit_text(
+                    "Выберите новый удобный день замера 📍",
+                    reply_markup=_build_measurement_date_keyboard(slots),
+                )
+            await query.answer()
+            return
+
+        if action == "address":
+            await _set_pending_measurement_update(db, lead, "address")
+            text = "Напишите новый адрес объекта: город, улицу, дом и квартиру/офис."
+            if query.message:
+                await query.message.edit_text(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=query.message.message_id if query.message else None,
+                sender_name="AI",
+                ai_metadata={"source": "measurement_change", "type": "measurement_address_update_request"},
+            )
+            await query.answer()
+            return
+
+        await _set_pending_measurement_update(db, lead, "phone")
+        text = "Напишите новый телефон для связи по замеру в формате +7..."
+        if query.message:
+            await query.message.edit_text(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=query.message.message_id if query.message else None,
+            sender_name="AI",
+            ai_metadata={"source": "measurement_change", "type": "measurement_phone_update_request"},
+        )
+        await query.answer()
+
+
 @router.callback_query(F.data == "quiz_measure_back")
 async def quiz_measure_back_callback(query: CallbackQuery):
     async with AsyncSessionLocal() as db:
@@ -1532,8 +1778,14 @@ async def quiz_measure_back_callback(query: CallbackQuery):
         if not slots:
             await query.answer("Слоты сейчас не загрузились", show_alert=True)
             return
+        measurement = _lead_measurement_data(lead)
+        text = (
+            "Выберите новый удобный день замера 📍"
+            if measurement.get("status") == "awaiting_reschedule_slot"
+            else "Выберите удобный день бесплатного замера. Он поможет точно посчитать работы без стройматериалов 📍"
+        )
         await query.message.edit_text(
-            "Выберите удобный день бесплатного замера. Он поможет точно посчитать работы без стройматериалов 📍",
+            text,
             reply_markup=_build_measurement_date_keyboard(slots),
         )
         await query.answer()
@@ -1666,10 +1918,18 @@ async def process_debounced_message(user_id: int):
             ai_metadata=metadata
         )
 
+        if await _try_handle_pending_measurement_update(db, message, lead, combined_text):
+            return
+
         if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
             return
 
-        if _looks_like_measurement_reschedule_request(combined_text) and _lead_measurement_data(lead).get("start"):
+        measurement_data = _lead_measurement_data(lead)
+        if _looks_like_measurement_change_request(combined_text) and measurement_data.get("start"):
+            await _send_measurement_change_choices(message, db, lead)
+            return
+
+        if _looks_like_measurement_reschedule_request(combined_text) and measurement_data.get("start"):
             await _send_measurement_reschedule_slot_dates(message, db, lead)
             return
 
