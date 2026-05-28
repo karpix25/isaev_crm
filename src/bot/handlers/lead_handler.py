@@ -1935,6 +1935,16 @@ async def process_debounced_message(user_id: int):
                 lead.source = "telegram_business"
             await db.commit()
 
+        session_token = quiz_service.extract_session_token(combined_text)
+        if session_token and await _handle_quiz_lead_activation_flow(
+            message=message,
+            db=db,
+            lead=lead,
+            session_token=session_token,
+            source="quiz_business_message" if business_connection_id else "quiz_token_message",
+        ):
+            return
+
         if await _try_handle_pending_measurement_update(db, message, lead, combined_text):
             return
 

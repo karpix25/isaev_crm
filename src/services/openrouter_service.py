@@ -409,6 +409,12 @@ class OpenRouterService:
         before sending the text to the client.
         """
         clean = text.strip()
+        clean = (
+            clean
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\t", " ")
+        )
 
         if self._looks_like_structured_payload(clean):
             return "Здравствуйте. Чем могу помочь по ремонту?"
@@ -427,7 +433,8 @@ class OpenRouterService:
         for pattern, replacement in substitutions:
             clean = re.sub(pattern, replacement, clean, flags=re.IGNORECASE)
 
-        clean = re.sub(r'\s{2,}', ' ', clean).strip()
+        clean = re.sub(r'[ \t]{2,}', ' ', clean).strip()
+        clean = re.sub(r'\n{3,}', '\n\n', clean)
         clean = re.sub(r'^\.\s*', '', clean)
 
         return clean or "Здравствуйте. Чем могу помочь по ремонту?"
