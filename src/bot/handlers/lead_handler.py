@@ -1842,6 +1842,7 @@ async def quiz_measure_time_callback(query: CallbackQuery):
         await query.answer()
 
 
+@router.business_message(F.text)
 @router.message(F.text)
 async def handle_lead_message(message: Message):
     """
@@ -1917,6 +1918,22 @@ async def process_debounced_message(user_id: int):
             sender_name=message.from_user.full_name,
             ai_metadata=metadata
         )
+
+        business_connection_id = getattr(message, "business_connection_id", None)
+        if business_connection_id:
+            data = _lead_extracted_data(lead)
+            data["telegram_business_chat"] = {
+                "business_connection_id": business_connection_id,
+                "chat_id": message.chat.id,
+                "telegram_id": message.from_user.id,
+                "username": _normalize_username(message.from_user.username),
+                "linked_at": datetime.now(timezone.utc).isoformat(),
+            }
+            data.setdefault("messengers", {})["telegram"] = True
+            lead.extracted_data = json.dumps(data, ensure_ascii=False)
+            if not lead.source or lead.source == "telegram":
+                lead.source = "telegram_business"
+            await db.commit()
 
         if await _try_handle_pending_measurement_update(db, message, lead, combined_text):
             return
@@ -2170,6 +2187,7 @@ async def process_debounced_message(user_id: int):
                 pass  # If even sending error message fails, just log it
 
 
+@router.business_message(F.voice | F.audio | F.video_note)
 @router.message(F.voice | F.audio | F.video_note)
 async def handle_lead_voice(message: Message):
     """
@@ -2221,6 +2239,7 @@ async def handle_lead_voice(message: Message):
 
 
 
+@router.business_message(F.photo)
 @router.message(F.photo)
 async def handle_lead_photo(message: Message):
     """

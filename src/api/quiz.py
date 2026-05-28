@@ -64,6 +64,7 @@ async def get_quiz_public_config():
         "posthog": posthog_service.public_config(),
         "telegram": {
             "bot_username": bot_username,
+            "business_profile_url": (settings.telegram_business_profile_url or "").strip(),
         },
     }
 

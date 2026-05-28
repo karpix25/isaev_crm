@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str
     telegram_bot_username: str = ""
+    telegram_business_profile_url: str = ""
     telegram_webhook_url: str = ""
     telegram_webhook_secret_token: str = ""
     telegram_update_mode: str = "polling"  # polling | webhook | auto

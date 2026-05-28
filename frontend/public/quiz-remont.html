@@ -1117,6 +1117,7 @@
 const API_BASE = window.QUIZ_API_BASE || '/api';
 const TELEGRAM_URL = window.QUIZ_TELEGRAM_URL || 'https://t.me/karlo25';
 let telegramBotUsername = (window.QUIZ_TELEGRAM_BOT_USERNAME || '').replace(/^@/, '');
+let telegramBusinessProfileUrl = window.QUIZ_TELEGRAM_BUSINESS_PROFILE_URL || '';
 const WHATSAPP_PHONE = window.QUIZ_WHATSAPP_PHONE || '';
 let posthogReady = false;
 
@@ -1281,6 +1282,7 @@ async function initPostHog() {
     const ph = config.posthog || {};
     const telegram = config.telegram || {};
     if (telegram.bot_username) telegramBotUsername = String(telegram.bot_username).replace(/^@/, '');
+    if (telegram.business_profile_url) telegramBusinessProfileUrl = String(telegram.business_profile_url);
     if (!ph.enabled || !ph.project_api_key || window.posthog) return;
 
     (function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split('.');2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement('script')).type='text/javascript',p.crossOrigin='anonymous',p.async=!0,p.src=s.api_host.replace('.i.posthog.com','-assets.i.posthog.com')+'/static/array.js',(r=t.getElementsByTagName('script')[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a='posthog',u.people=u.people||[],u.toString=function(t){var e='posthog';return'posthog'!==a&&(e+='.'+a),t||(e+=' (stub)'),e},u.people.toString=function(){return u.toString(1)+'.people (stub)'},o='init capture register register_once unregister identify alias set_config get_distinct_id onFeatureFlags reloadFeatureFlags group reset'.split(' '),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)})(document,window.posthog||[]);
@@ -2213,6 +2215,10 @@ function buildMessengerUrl(messenger, message) {
     return WHATSAPP_PHONE
       ? `https://wa.me/${WHATSAPP_PHONE.replace(/\D/g, '')}?text=${text}`
       : `https://wa.me/?text=${text}`;
+  }
+  if (telegramBusinessProfileUrl) {
+    const separator = telegramBusinessProfileUrl.includes('?') ? '&' : '?';
+    return `${telegramBusinessProfileUrl}${separator}text=${text}`;
   }
   if (telegramBotUsername && sessionToken) {
     return `https://t.me/${telegramBotUsername}?start=${encodeURIComponent(sessionToken)}`;

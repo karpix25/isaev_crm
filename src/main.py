@@ -18,7 +18,11 @@ telegram_polling_task: asyncio.Task | None = None
 
 
 def _telegram_webhook_params(url: str) -> dict:
-    params = {"url": url, "drop_pending_updates": False}
+    params = {
+        "url": url,
+        "drop_pending_updates": False,
+        "allowed_updates": dp.resolve_used_update_types(),
+    }
     secret_token = (settings.telegram_webhook_secret_token or "").strip()
     if secret_token:
         params["secret_token"] = secret_token
