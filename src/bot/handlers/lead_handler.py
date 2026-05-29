@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import uuid
 from zoneinfo import ZoneInfo
 from aiogram import Router, F
+from aiogram.enums import ChatAction
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.filters import CommandStart
 from aiogram.filters.command import CommandObject
@@ -54,6 +55,49 @@ QUIZ_SUMMARY_FIELDS = [
 RU_WEEKDAYS_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 DEFAULT_ORG_NAME = "Default Organization"
 FALLBACK_COMPANY_NAME = "Исаев Групп"
+
+
+def _drain_background_task(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:
+        logger.debug("Failed to inspect background task: %s", exc)
+        return
+    if exc:
+        logger.error("Background task failed: %s", exc, exc_info=(type(exc), exc, exc.__traceback__))
+
+
+async def _send_typing_action(message: Message) -> None:
+    if not bot:
+        return
+    try:
+        await bot.send_chat_action(
+            chat_id=message.chat.id,
+            action=ChatAction.TYPING,
+            business_connection_id=getattr(message, "business_connection_id", None),
+            message_thread_id=message.message_thread_id if getattr(message, "is_topic_message", False) else None,
+        )
+    except Exception as exc:
+        logger.debug("Failed to send typing action: %s", exc)
+
+
+async def _typing_indicator_loop(message: Message, interval_seconds: float = 4.0) -> None:
+    while True:
+        await _send_typing_action(message)
+        await asyncio.sleep(interval_seconds)
+
+
+def _start_typing_indicator(message: Message) -> asyncio.Task:
+    typing_task = asyncio.create_task(_typing_indicator_loop(message))
+    typing_task.add_done_callback(_drain_background_task)
+    current_task = asyncio.current_task()
+    if current_task:
+        current_task.add_done_callback(lambda _: typing_task.cancel())
+    return typing_task
 
 
 def _format_measurement_start(value: str | None) -> str:
@@ -1383,6 +1427,36 @@ async def _handle_quiz_lead_activation_flow(
     return True
 
 
+async def _send_quiz_token_fallback(
+    message: Message,
+    db: AsyncSession,
+    lead,
+    session_token: str,
+    source: str,
+) -> bool:
+    text = (
+        "Вижу код вашей заявки по квизу ✅\n\n"
+        "Сейчас данные анкеты не подтянулись автоматически, но сообщение получили. "
+        "Чтобы не терять время: если дизайн-проекта нет, напишите удобный день и время для бесплатного замера. "
+        "Если проект есть — можно прикрепить его сюда файлом."
+    )
+    sent = await message.answer(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={
+            "source": source,
+            "engine": "bot_template",
+            "type": "quiz_token_activation_fallback",
+            "session_token": session_token,
+        },
+    )
+    return True
+
+
 async def _send_manager_handoff_notice(message: Message, db: AsyncSession, lead) -> bool:
     lead.ai_qualification_status = "handoff_required"
     if lead.status in {LeadStatus.NEW.value, LeadStatus.QUIZ_COMPLETED.value, LeadStatus.MESSENGER_PENDING.value}:
@@ -2606,6 +2680,8 @@ async def handle_lead_message(message: Message):
             business_connection_id,
             (message.text or "")[:120],
         )
+    typing_once_task = asyncio.create_task(_send_typing_action(message))
+    typing_once_task.add_done_callback(_drain_background_task)
     is_voice = getattr(message, "is_voice", False)
     
     # Add message to pending list
@@ -2621,6 +2697,7 @@ async def handle_lead_message(message: Message):
     
     # Start new timer task
     task = asyncio.create_task(process_debounced_message(conversation_key))
+    task.add_done_callback(_drain_background_task)
     pending_updates[conversation_key] = (task, msgs, saved_message, has_voice)
 
 async def process_debounced_message(conversation_key: str):
@@ -2634,6 +2711,7 @@ async def process_debounced_message(conversation_key: str):
     combined_text = " ".join(msgs)
     user_id = message.from_user.id
     business_connection_id = getattr(message, "business_connection_id", None)
+    _start_typing_indicator(message)
     
     async with AsyncSessionLocal() as db:
         # Get default organization ID
@@ -2701,13 +2779,32 @@ async def process_debounced_message(conversation_key: str):
             await db.commit()
 
         session_token = quiz_service.extract_session_token(combined_text)
-        if session_token and await _handle_quiz_lead_activation_flow(
-            message=message,
-            db=db,
-            lead=lead,
-            session_token=session_token,
-            source="quiz_business_message" if business_connection_id else "quiz_token_message",
-        ):
+        if session_token:
+            source = "quiz_business_message" if business_connection_id else "quiz_token_message"
+            try:
+                if await _handle_quiz_lead_activation_flow(
+                    message=message,
+                    db=db,
+                    lead=lead,
+                    session_token=session_token,
+                    source=source,
+                ):
+                    return
+            except Exception:
+                logger.error(
+                    "Quiz activation failed: lead_id=%s session_token=%s business=%s",
+                    getattr(lead, "id", None),
+                    session_token,
+                    bool(business_connection_id),
+                    exc_info=True,
+                )
+            await _send_quiz_token_fallback(
+                message=message,
+                db=db,
+                lead=lead,
+                session_token=session_token,
+                source=source,
+            )
             return
 
         if await _try_handle_pending_measurement_update(db, message, lead, combined_text):

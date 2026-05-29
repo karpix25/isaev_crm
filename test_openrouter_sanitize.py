@@ -4,6 +4,8 @@ import sys
 import types
 from pathlib import Path
 
+import httpx
+
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
@@ -23,6 +25,7 @@ openrouter_module = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(openrouter_module)
 OpenRouterService = openrouter_module.OpenRouterService
+should_retry_api_error = openrouter_module.should_retry_api_error
 
 
 def test_sanitize_lead_message_unescapes_newlines():
@@ -98,3 +101,13 @@ def test_extract_user_facing_text_blocks_raw_tool_action_artifact():
     assert text == "Здравствуйте. Чем могу помочь по ремонту?"
     assert "tool_action" not in text
     assert "show_measurement_slots" not in text
+
+
+def test_should_retry_api_error_handles_httpx_exceptions_directly():
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response_402 = httpx.Response(402, request=request)
+    response_429 = httpx.Response(429, request=request)
+
+    assert should_retry_api_error(httpx.HTTPStatusError("credits", request=request, response=response_402)) is False
+    assert should_retry_api_error(httpx.HTTPStatusError("rate limit", request=request, response=response_429)) is True
+    assert should_retry_api_error(httpx.ConnectTimeout("timeout", request=request)) is True

@@ -14,14 +14,12 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-def should_retry_api_error(retry_state):
+def should_retry_api_error(exc: BaseException) -> bool:
     """Determine if we should retry based on the exception type and HTTP status."""
-    if retry_state.outcome.failed:
-        exc = retry_state.outcome.exception()
-        if isinstance(exc, httpx.RequestError):
-            return True
-        if isinstance(exc, httpx.HTTPStatusError):
-            return exc.response.status_code in (429, 500, 502, 503, 504)
+    if isinstance(exc, httpx.RequestError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (429, 500, 502, 503, 504)
     return False
 
 
