@@ -26,6 +26,7 @@ from src.services.cal_pro_service import cal_pro_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
+from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS, get_initial_message, build_system_prompt, normalize_system_prompt_template
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
@@ -77,6 +78,27 @@ def _display_company_name(org) -> str:
 def _looks_like_measurement_question(text: str) -> bool:
     normalized = (text or "").strip().lower()
     return any(word in normalized for word in ("замер", "когда", "во сколько", "дата", "адрес", "выезд"))
+
+
+def _looks_like_measurement_acknowledgement(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    return normalized in {
+        "ок",
+        "окей",
+        "хорошо",
+        "понял",
+        "поняла",
+        "понятно",
+        "спасибо",
+        "спасибо!",
+        "да",
+        "ага",
+        "угу",
+        "жду",
+        "буду ждать",
+    }
 
 
 def _looks_like_measurement_reschedule_request(text: str) -> bool:
@@ -463,7 +485,7 @@ def _build_quiz_estimate_text(lead) -> str:
     if summary:
         text += "\n\n" + "\n".join(summary)
 
-    design_answer = str(answers.get("design") or "").lower()
+    design_answer = normalize_quiz_design_answer(answers.get("design"))
     if design_answer in {"yes", "wip"}:
         text += (
             "\n\n📎 Если пришлете сюда дизайн-проект файлом, мы спокойнее проверим объемы, "
@@ -585,12 +607,29 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
             lead_id=lead.id,
             content=text,
             telegram_message_id=sent.message_id,
-            sender_name="AI",
-            ai_metadata={"source": "quiz_deep_link", "type": "measurement_slots_unavailable"},
+            sender_name="Bot",
+            ai_metadata={"source": "quiz_deep_link", "engine": "bot_template", "type": "measurement_slots_unavailable"},
         )
-        return False
+        return True
 
-    slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    try:
+        slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    except Exception:
+        logger.warning("Failed to load measurement slots for lead %s", lead.id, exc_info=True)
+        text = (
+            "Календарь сейчас не загрузил свободные окна. Напишите, пожалуйста, удобный день и время — "
+            "менеджер проверит расписание и подтвердит запись 📍"
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "quiz_deep_link", "engine": "bot_template", "type": "measurement_slots_error"},
+        )
+        return True
     if not slots:
         text = (
             "Свободные окна сейчас не загрузились. Напишите, пожалуйста, удобный день и время — "
@@ -602,10 +641,10 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
             lead_id=lead.id,
             content=text,
             telegram_message_id=sent.message_id,
-            sender_name="AI",
-            ai_metadata={"source": "quiz_deep_link", "type": "measurement_slots_empty"},
+            sender_name="Bot",
+            ai_metadata={"source": "quiz_deep_link", "engine": "bot_template", "type": "measurement_slots_empty"},
         )
-        return False
+        return True
 
     data = _lead_extracted_data(lead)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
@@ -630,8 +669,8 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
         lead_id=lead.id,
         content=text,
         telegram_message_id=sent.message_id,
-        sender_name="AI",
-        ai_metadata={"source": "quiz_deep_link", "type": "measurement_slot_dates"},
+        sender_name="Bot",
+        ai_metadata={"source": "quiz_deep_link", "engine": "bot_template", "type": "measurement_slot_dates"},
     )
     return True
 
@@ -648,12 +687,29 @@ async def _send_measurement_reschedule_slot_dates(message: Message, db: AsyncSes
             lead_id=lead.id,
             content=text,
             telegram_message_id=sent.message_id,
-            sender_name="AI",
-            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_slots_unavailable"},
+            sender_name="Bot",
+            ai_metadata={"source": "measurement_reschedule", "engine": "bot_template", "type": "measurement_reschedule_slots_unavailable"},
         )
-        return False
+        return True
 
-    slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    try:
+        slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    except Exception:
+        logger.warning("Failed to load reschedule slots for lead %s", lead.id, exc_info=True)
+        text = (
+            "Да, перенесем. Календарь сейчас не загрузил свободные окна — напишите удобный день и время, "
+            "менеджер проверит расписание и подтвердит перенос."
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "measurement_reschedule", "engine": "bot_template", "type": "measurement_reschedule_slots_error"},
+        )
+        return True
     if not slots:
         text = (
             "Да, перенесем. Свободные окна сейчас не загрузились — напишите удобный день и время, "
@@ -665,10 +721,10 @@ async def _send_measurement_reschedule_slot_dates(message: Message, db: AsyncSes
             lead_id=lead.id,
             content=text,
             telegram_message_id=sent.message_id,
-            sender_name="AI",
-            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_slots_empty"},
+            sender_name="Bot",
+            ai_metadata={"source": "measurement_reschedule", "engine": "bot_template", "type": "measurement_reschedule_slots_empty"},
         )
-        return False
+        return True
 
     data = _lead_extracted_data(lead)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
@@ -685,8 +741,8 @@ async def _send_measurement_reschedule_slot_dates(message: Message, db: AsyncSes
         lead_id=lead.id,
         content=text,
         telegram_message_id=sent.message_id,
-        sender_name="AI",
-        ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_slot_dates"},
+        sender_name="Bot",
+        ai_metadata={"source": "measurement_reschedule", "engine": "bot_template", "type": "measurement_reschedule_slot_dates"},
     )
     return True
 
@@ -711,8 +767,33 @@ async def _send_measurement_change_choices(message: Message, db: AsyncSession, l
         lead_id=lead.id,
         content=text,
         telegram_message_id=sent.message_id,
-        sender_name="AI",
-        ai_metadata={"source": "measurement_change", "type": "measurement_change_choices"},
+        sender_name="Bot",
+        ai_metadata={"source": "measurement_change", "engine": "bot_template", "type": "measurement_change_choices"},
+    )
+    return True
+
+
+async def _send_measurement_acknowledgement(message: Message, db: AsyncSession, lead) -> bool:
+    measurement = _lead_measurement_data(lead)
+    measurement_date = _format_measurement_start(measurement.get("start"))
+    measurement_address = str(measurement.get("address") or "").strip()
+    text = "Отлично, тогда держим запись ✅"
+    if measurement_date or measurement_address:
+        details = []
+        if measurement_date:
+            details.append(f"Дата: {measurement_date}")
+        if measurement_address:
+            details.append(f"Адрес: {measurement_address}")
+        text = f"{text}\n\n" + "\n".join(details)
+    text = f"{text}\n\nЕсли нужно будет изменить дату, адрес или телефон — просто напишите сюда."
+    sent = await message.answer(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={"source": "measurement_confirmation", "engine": "bot_template", "type": "measurement_acknowledgement"},
     )
     return True
 
@@ -1232,9 +1313,10 @@ async def _handle_quiz_lead_activation_flow(
             lead_id=lead.id,
             content=estimate_text,
             telegram_message_id=sent_estimate.message_id,
-            sender_name="AI",
+            sender_name="Bot",
             ai_metadata={
                 "source": source,
+                "engine": "bot_template",
                 "type": "quiz_estimate_after_activation",
                 "session_token": session_token,
                 "stage_context": stage_context.metadata,
@@ -1295,8 +1377,8 @@ async def _handle_quiz_lead_activation_flow(
         lead_id=lead.id,
         content=welcome_text,
         telegram_message_id=sent_message.message_id,
-        sender_name="AI",
-        ai_metadata={"source": source, "stage_context": stage_context.metadata},
+        sender_name="Bot",
+        ai_metadata={"source": source, "engine": "bot_template", "stage_context": stage_context.metadata},
     )
     return True
 
@@ -1729,10 +1811,13 @@ async def _try_route_scenario_before_ai(
     if next_action == "confirm_measurement" and await _answer_measurement_question_if_possible(db, message, lead, text):
         return True
 
+    if next_action == "confirm_measurement" and _looks_like_measurement_acknowledgement(text):
+        return await _send_measurement_acknowledgement(message, db, lead)
+
     return False
 
 
-# Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
+# Debouncing state: {conversation_key: (task, [messages], original_message, has_voice)}
 pending_updates = {}
 
 AUTH_SESSION_TTL_SECONDS = 5 * 60
@@ -2212,8 +2297,8 @@ async def _handle_quiz_start(message: Message, session_token: str) -> None:
             lead_id=lead.id,
             content=welcome_text,
             telegram_message_id=sent_message.message_id,
-            sender_name="AI",
-            ai_metadata={"source": "quiz_deep_link"},
+            sender_name="Bot",
+            ai_metadata={"source": "quiz_deep_link", "engine": "bot_template", "type": "quiz_deep_link_fallback"},
         )
 
 
@@ -2507,11 +2592,25 @@ async def handle_lead_message(message: Message):
     Groups messages sent within 5 seconds into a single AI request.
     """
     user_id = message.from_user.id
+    business_connection_id = getattr(message, "business_connection_id", None)
+    conversation_key = (
+        f"business:{business_connection_id}:{message.chat.id}:{user_id}"
+        if business_connection_id
+        else f"bot:{user_id}"
+    )
+    if business_connection_id:
+        logger.info(
+            "Telegram business message queued: chat_id=%s user_id=%s connection=%s text=%s",
+            message.chat.id,
+            user_id,
+            business_connection_id,
+            (message.text or "")[:120],
+        )
     is_voice = getattr(message, "is_voice", False)
     
     # Add message to pending list
-    if user_id in pending_updates:
-        task, msgs, saved_message, has_voice = pending_updates[user_id]
+    if conversation_key in pending_updates:
+        task, msgs, saved_message, has_voice = pending_updates[conversation_key]
         task.cancel() # Cancel previous timer
         msgs.append(message.text)
         has_voice = has_voice or is_voice
@@ -2521,18 +2620,20 @@ async def handle_lead_message(message: Message):
         has_voice = is_voice
     
     # Start new timer task
-    task = asyncio.create_task(process_debounced_message(user_id))
-    pending_updates[user_id] = (task, msgs, saved_message, has_voice)
+    task = asyncio.create_task(process_debounced_message(conversation_key))
+    pending_updates[conversation_key] = (task, msgs, saved_message, has_voice)
 
-async def process_debounced_message(user_id: int):
+async def process_debounced_message(conversation_key: str):
     """Wait for quiet period and then process all accumulated messages."""
     await asyncio.sleep(5.0) # 5 second window
     
-    if user_id not in pending_updates:
+    if conversation_key not in pending_updates:
         return
         
-    _, msgs, message, has_voice = pending_updates.pop(user_id)
+    _, msgs, message, has_voice = pending_updates.pop(conversation_key)
     combined_text = " ".join(msgs)
+    user_id = message.from_user.id
+    business_connection_id = getattr(message, "business_connection_id", None)
     
     async with AsyncSessionLocal() as db:
         # Get default organization ID
@@ -2565,7 +2666,15 @@ async def process_debounced_message(user_id: int):
             )
         
         # Save incoming message (using combined text as one entry for AI context)
-        metadata = {"is_voice": True} if has_voice else None
+        metadata = {"is_voice": True} if has_voice else {}
+        if business_connection_id:
+            metadata.update(
+                {
+                    "source": "telegram_business",
+                    "business_connection_id": business_connection_id,
+                    "business_chat_id": message.chat.id,
+                }
+            )
         
         await chat_service.save_incoming_message(
             db=db,
@@ -2573,10 +2682,9 @@ async def process_debounced_message(user_id: int):
             content=combined_text,
             telegram_message_id=message.message_id,
             sender_name=message.from_user.full_name,
-            ai_metadata=metadata
+            ai_metadata=metadata or None,
         )
 
-        business_connection_id = getattr(message, "business_connection_id", None)
         if business_connection_id:
             data = _lead_extracted_data(lead)
             data["telegram_business_chat"] = {

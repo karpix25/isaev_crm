@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.models import ChatMessage, FunnelEvent, FunnelSession, Lead, LeadStatus
+from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 
 
 QUIZ_ANSWER_LABELS = {
@@ -50,7 +51,7 @@ class LeadStageContextService:
         session = await self._get_latest_session(db, lead.id)
         event_types = await self._get_event_types(db, session.id) if session else set()
 
-        design_answer = str(answers.get("design") or "").lower()
+        design_answer = normalize_quiz_design_answer(answers.get("design"))
         design_file = bool(quiz.get("design_project_file_url"))
         measurement = extracted.get("measurement") if isinstance(extracted.get("measurement"), dict) else {}
         measurement_start = str(measurement.get("start") or "").strip()

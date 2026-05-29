@@ -17,6 +17,7 @@ from src.schemas.quiz import QuizContact, QuizContactCaptureRequest, QuizSubmitR
 from src.services.analytics_service import analytics_service
 from src.services.cal_pro_service import cal_pro_service
 from src.services.lead_service import lead_service
+from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 
 logger = logging.getLogger(__name__)
 
@@ -930,7 +931,7 @@ class QuizService:
         if metadata.get("quiz_completed") is False:
             return LeadStatus.NEW
 
-        design_answer = str(payload.answers.get("design") or "").lower()
+        design_answer = normalize_quiz_design_answer(payload.answers.get("design"))
         if payload.design_project_file_url:
             return LeadStatus.DESIGN_REVIEW
         if design_answer in {"yes", "wip"}:

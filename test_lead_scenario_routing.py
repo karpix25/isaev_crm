@@ -1,5 +1,6 @@
 import ast
 import asyncio
+import importlib.util
 import inspect
 import json
 import re
@@ -8,6 +9,18 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
+
+
+def _load_quiz_value_normalizer():
+    module_path = Path(__file__).parent / "src" / "services" / "quiz_value_normalizer.py"
+    spec = importlib.util.spec_from_file_location("quiz_value_normalizer_for_test", module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module.normalize_quiz_design_answer
+
+
+normalize_quiz_design_answer = _load_quiz_value_normalizer()
 
 
 def _load_lead_handler_functions():
@@ -33,6 +46,19 @@ def _load_lead_handler_functions():
         "ZoneInfo": ZoneInfo,
         "AsyncSession": object,
         "Message": object,
+        "normalize_quiz_design_answer": normalize_quiz_design_answer,
+        "QUIZ_SUMMARY_FIELDS": (
+            ("type", "Объект"),
+            ("area", "Площадь"),
+            ("rtype", "Ремонт"),
+            ("design", "Дизайн"),
+        ),
+        "QUIZ_LABELS": {
+            "type": {"commercial": "Коммерция"},
+            "area": {"md": "70–100 м²"},
+            "rtype": {"full": "Под ключ"},
+            "design": {"no": "Проекта нет"},
+        },
         "LeadStatus": SimpleNamespace(
             NEW=SimpleNamespace(value="NEW"),
             QUIZ_COMPLETED=SimpleNamespace(value="QUIZ_COMPLETED"),
@@ -154,6 +180,34 @@ def test_routes_reactivation_before_ai(monkeypatch):
     assert lead.ai_qualification_status == "in_progress"
 
 
+def test_routes_measurement_acknowledgement_before_ai(monkeypatch):
+    routed, calls, lead, message, db = asyncio.run(
+        _route_text(
+            "хорошо",
+            monkeypatch,
+            measurement_booked=True,
+            next_action="confirm_measurement",
+        )
+    )
+
+    calls["_answer_measurement_question_if_possible"].side_effect = None
+    calls["_answer_measurement_question_if_possible"].return_value = False
+
+    routed = asyncio.run(
+        LEAD_HANDLER["_try_route_scenario_before_ai"](
+            db,
+            message,
+            lead,
+            "хорошо",
+            SimpleNamespace(metadata={"next_action": "confirm_measurement"}),
+        )
+    )
+
+    assert routed is True
+    assert calls["_send_measurement_acknowledgement"].await_count == 1
+    assert calls["_send_measurement_slot_dates"].await_count == 0
+
+
 def test_extract_ai_tool_action_normalizes_aliases_and_none():
     extract_tool_action = LEAD_HANDLER["_extract_ai_tool_action"]
 
@@ -189,3 +243,59 @@ def test_ai_support_tools_prompt_routes_pressure_sensitive_states_gently():
     assert 'tool_action = "none", status = "LOST"' in prompt
     assert "message должен быть коротким без продолжения продажи" in prompt
     assert "Если клиент сам вернулся после отказа" in prompt
+
+
+def test_quiz_design_normalizer_handles_codes_and_rendered_labels():
+    assert normalize_quiz_design_answer("no") == "no"
+    assert normalize_quiz_design_answer("Проекта нет") == "no"
+    assert normalize_quiz_design_answer("Нет — хочу в подарок!") == "no"
+    assert normalize_quiz_design_answer("В процессе разработки") == "wip"
+    assert normalize_quiz_design_answer("Да, уже готов") == "yes"
+
+
+def test_quiz_estimate_text_uses_normalized_design_answer():
+    build_estimate = LEAD_HANDLER["_build_quiz_estimate_text"]
+    lead = SimpleNamespace(
+        extracted_data=json.dumps(
+            {
+                "quiz": {
+                    "price": {"label": "3,0 млн ₽ – 3,6 млн ₽"},
+                    "answers": {"type": "commercial", "area": "md", "rtype": "full", "design": "Проекта нет"},
+                }
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    text = build_estimate(lead)
+
+    assert "Предварительный ориентир" in text
+    assert "лучше выбрать удобное время бесплатного замера" in text
+    assert "Если пришлете сюда дизайн-проект" not in text
+
+
+def test_unavailable_measurement_calendar_is_handled_by_bot_template(monkeypatch):
+    send_outbound = AsyncMock()
+    monkeypatch.setitem(
+        LEAD_HANDLER,
+        "chat_service",
+        SimpleNamespace(send_outbound_message=send_outbound),
+    )
+    monkeypatch.setitem(
+        LEAD_HANDLER,
+        "cal_pro_service",
+        SimpleNamespace(is_configured=lambda: False),
+    )
+
+    message = SimpleNamespace(answer=AsyncMock(return_value=SimpleNamespace(message_id=10)))
+    db = SimpleNamespace()
+    lead = SimpleNamespace(id=123)
+
+    handled = asyncio.run(LEAD_HANDLER["_send_measurement_slot_dates"](message, db, lead))
+
+    assert handled is True
+    assert message.answer.await_count == 1
+    kwargs = send_outbound.await_args.kwargs
+    assert kwargs["sender_name"] == "Bot"
+    assert kwargs["ai_metadata"]["engine"] == "bot_template"
+    assert kwargs["ai_metadata"]["type"] == "measurement_slots_unavailable"
