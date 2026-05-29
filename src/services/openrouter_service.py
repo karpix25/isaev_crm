@@ -399,6 +399,7 @@ class OpenRouterService:
             '"confidence":',
             '"bot_id":',
             '"is_hot_lead":',
+            '"tool_action":',
         )
         marker_hits = sum(1 for marker in structured_markers if marker in stripped)
         return marker_hits >= 2
@@ -424,7 +425,7 @@ class OpenRouterService:
         if any(marker in lowered for marker in artifact_markers):
             return True
 
-        has_json_field = bool(re.search(r'"(?:message|status|client_name|phone|confidence|is_hot_lead)"\s*:', stripped))
+        has_json_field = bool(re.search(r'"(?:message|status|client_name|phone|confidence|is_hot_lead|tool_action)"\s*:', stripped))
         has_markdown_json_context = bool(re.search(r'\bjson\b', lowered)) and ("{" in stripped or "}" in stripped)
         return has_json_field or has_markdown_json_context
 

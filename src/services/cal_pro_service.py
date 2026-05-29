@@ -220,6 +220,57 @@ class CalProService:
             logger.info("Cal Pro booking rescheduled: status=%s uid=%s", payload.get("status"), booking_uid)
             return payload
 
+    async def cancel_booking(
+        self,
+        booking_uid: str,
+        reason: str = "Client requested cancellation",
+        cancel_subsequent_bookings: bool = True,
+    ) -> dict[str, Any]:
+        if not self.is_configured():
+            raise ValueError(self.missing_reason() or "cal_pro_not_configured")
+        if not settings.cal_pro_api_key:
+            raise ValueError("cal_pro_api_key_missing")
+        clean_uid = str(booking_uid or "").strip()
+        if not clean_uid:
+            raise ValueError("booking_uid_missing")
+
+        body: dict[str, Any] = {
+            "cancellationReason": reason,
+            "cancelSubsequentBookings": cancel_subsequent_bookings,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "cal-api-version": settings.cal_pro_bookings_api_version,
+            "Authorization": f"Bearer {settings.cal_pro_api_key}",
+        }
+
+        logger.info("Cancelling Cal Pro booking: uid=%s", clean_uid)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+            response = await client.post(
+                f"{settings.cal_pro_api_base_url.rstrip('/')}/v2/bookings/{clean_uid}/cancel",
+                json=body,
+                headers=headers,
+            )
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.error(
+                    "Cal Pro cancel failed: status=%s body=%s",
+                    response.status_code,
+                    response.text[:2000],
+                )
+                raise exc
+            payload = response.json()
+            if payload.get("status") != "success":
+                logger.error(
+                    "Cal Pro cancel returned unexpected payload: status=%s body=%s",
+                    payload.get("status"),
+                    response.text[:2000],
+                )
+                raise ValueError("cal_pro_cancel_not_confirmed")
+            logger.info("Cal Pro booking cancelled: status=%s uid=%s", payload.get("status"), clean_uid)
+            return payload
+
     def _to_utc_iso(self, value: str) -> str:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if dt.tzinfo is None:

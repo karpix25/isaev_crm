@@ -65,13 +65,30 @@ class LeadStageContextService:
 
         lead_status = str(lead.status or "")
 
-        if lead_status in {LeadStatus.CONTRACT.value, LeadStatus.CONTRACT_NEGOTIATION.value}:
+        if lead_status == LeadStatus.LOST.value:
+            next_action = "lost_or_paused"
+            expected_from_client = "only_answer_if_client_reinitiates"
+            client_expects = "short_answer_or_reactivation"
+            response_policy = [
+                "Лид ранее отказался или попросил не беспокоить.",
+                "Не отправлять прогрев и не продолжать продажу без явного интереса клиента.",
+                "Если клиент сам вернулся к ремонту — коротко подтвердить контекст и вернуть к записи на замер.",
+            ]
+        elif lead_status == LeadStatus.SPAM.value:
+            next_action = "spam_or_wrong_dialog"
+            expected_from_client = "none"
+            client_expects = "minimal_boundary"
+            response_policy = [
+                "Не продавать ремонт и не продолжать диалог.",
+                "Если клиент сам пишет по ремонту — ответить коротко и попросить уточнить задачу.",
+            ]
+        elif lead_status in {LeadStatus.CONTRACT.value, LeadStatus.CONTRACT_NEGOTIATION.value}:
             next_action = "contract_closing"
             expected_from_client = "confirm_contract_or_start_date"
             client_expects = "final_terms_or_start_confirmation"
             response_policy = [
                 "Коротко вернуть клиента к финальному шагу.",
-                "Предложить зафиксировать дату старта, бригаду или условия договора.",
+                "Предложить спокойно разобрать условия, сроки старта и что закрепляется в договоре.",
                 "Не начинать заново квалификацию и не задавать вопросы из квиза.",
             ]
         elif lead_status in {LeadStatus.ESTIMATE.value, LeadStatus.ESTIMATE_SENT.value}:
@@ -80,7 +97,7 @@ class LeadStageContextService:
             client_expects = "estimate_explanation_or_optimization"
             response_policy = [
                 "Напомнить про отправленную смету.",
-                "Предложить коротко разобрать расчет или оптимизировать бюджет.",
+                "Предложить коротко разобрать один пункт расчета или показать, где можно оптимизировать бюджет без потери качества.",
                 "Не давить на договор, пока клиент не отреагировал на смету.",
             ]
         elif lead_status == LeadStatus.ESTIMATE_REVIEW.value:
@@ -116,7 +133,8 @@ class LeadStageContextService:
             client_expects = "estimate_after_design_project"
             response_policy = [
                 "Коротко подтвердить, что анкета получена.",
-                "Попросить прислать дизайн-проект файлом сюда.",
+                "Объяснить, что проект поможет проверить объемы, чертежи, мокрые зоны и спорные места без догадок.",
+                "Попросить прислать дизайн-проект файлом сюда, в любом удобном формате.",
                 "Не предлагать замер первым шагом, пока клиент говорит, что проект есть или в работе.",
             ]
         elif lead_status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value} and measurement_booked:
@@ -134,7 +152,7 @@ class LeadStageContextService:
             client_expects = "estimate_after_measurement"
             response_policy = [
                 "Опирайся на то, что замер уже проведен.",
-                "Сообщи следующий шаг по подготовке сметы.",
+                "Сообщи следующий шаг по подготовке сметы: когда ждать расчет и что в нем будет понятно.",
                 "Не предлагай записаться на замер повторно.",
             ]
         elif has_quiz_answers and not measurement_booked and design_answer in {"no", "", "none"}:
@@ -143,8 +161,8 @@ class LeadStageContextService:
             client_expects = "estimate_or_measurement_booking"
             response_policy = [
                 "Коротко подтвердить, что расчет по квизу получен.",
-                "Объяснить, что для точной сметы нужен замер.",
-                "Предложить выбрать время замера или попросить удобный день/интервал.",
+                "Объяснить, что замер нужен, чтобы не считать вслепую и избежать сюрпризов в смете.",
+                "Предложить выбрать время бесплатного замера как спокойный следующий шаг без обязательств.",
             ]
         elif has_quiz_answers and quiz_completed:
             next_action = "needs_estimate_review"
@@ -305,12 +323,16 @@ STAGE_AWARE_RESPONSE_RULES:
 - Сначала учитывай CRM_STAGE_CONTEXT и QUIZ_ANSWERS.
 - Если данные уже есть в квизе, не спрашивай их повторно.
 - Если клиент пришел после квиза, отвечай коротко и веди к next_action.
-- Если клиент выбрал/просит замер, не болтай лишнего: предложи или подтверди следующий шаг.
+- Тон: спокойный живой менеджер, который помогает навести порядок в ремонте. Без давления, срочности, рекламных лозунгов и ощущения скрипта.
+- Каждый следующий шаг объясняй через пользу для клиента: точнее расчет, меньше сюрпризов, понятнее сроки, спокойнее подготовка.
+- Не дави, но веди: если ответил на вопрос клиента, предложи один конкретный следующий шаг и не оставляй диалог в воздухе.
+- Если клиент выбрал/просит замер, не болтай лишнего: предложи или подтверди следующий шаг и коротко объясни, зачем он нужен.
 - Если клиент спрашивает о дате/времени/адресе замера, отвечай прямо из measurement_slot_local и measurement_address. Не говори, что не знаешь, если эти поля заполнены.
 - Если lead_status = MEASUREMENT_BOOKED или MEASUREMENT, ты уже после записи на замер: не начинай продажу заново, не благодари за звонок, не представляйся заново, не говори "менеджер подтвердит" как единственный ответ. Подтверди, что ты на связи, и опирайся на measurement_slot_local и measurement_address.
 - Если нужно уточнение, задай только один вопрос.
 - Не обещай точную смету без замера или дизайн-проекта.
 - Не отправляй personal_quiz_url клиенту, который уже заполнил квиз, кроме случая когда он сам просит пройти заново.
+- Не используй клиенту внутренние слова "лид", "квалификация", "воронка", "скрипт", "закрытие".
 
 RESPONSE_POLICY:
 {policy_lines}

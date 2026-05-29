@@ -3,6 +3,7 @@ Follow-Up Service: sends contextual AI-generated follow-up messages
 to leads who haven't responded for a while.
 """
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -41,8 +42,6 @@ FOLLOWUP_STATUSES = {
     LeadStatus.CONSULTING,
     LeadStatus.QUALIFIED,
     LeadStatus.MEASUREMENT_PENDING,
-    LeadStatus.MEASUREMENT_BOOKED,
-    LeadStatus.MEASUREMENT,
     LeadStatus.MEASUREMENT_DONE,
     LeadStatus.ESTIMATE_PREPARING,
     LeadStatus.ESTIMATE_REVIEW,
@@ -50,32 +49,31 @@ FOLLOWUP_STATUSES = {
     LeadStatus.ESTIMATE,
     LeadStatus.FOLLOW_UP,
     LeadStatus.CONTRACT_NEGOTIATION,
-    LeadStatus.CONTRACT,
 }
 
 STAGE_FOLLOWUP_THRESHOLDS = {
-    "awaiting_design_project": {0: 12, 1: 48, 2: 96},
-    "awaiting_measurement_slot": {0: 12, 1: 48, 2: 96},
+    "awaiting_design_project": {0: 3, 1: 24, 2: 72},
+    "awaiting_measurement_slot": {0: 3, 1: 24, 2: 72},
     "confirm_measurement": {0: 6, 1: 24, 2: 72},
-    "estimate_internal_review": {0: 24, 1: 72, 2: 168},
-    "needs_estimate_review": {0: 24, 1: 72, 2: 168},
-    "contract_closing": {0: 24, 1: 72, 2: 168},
-    "direct_chat_qualification": {0: 12, 1: 48, 2: 96},
+    "estimate_internal_review": {0: 24, 1: 48, 2: 96},
+    "needs_estimate_review": {0: 24, 1: 72, 2: 120},
+    "contract_closing": {0: 24, 1: 72, 2: 120},
+    "direct_chat_qualification": {0: 3, 1: 24, 2: 72},
     "general_consultation": {0: 24, 1: 72, 2: 168},
 }
 
 STAGE_SCENARIOS = {
     "awaiting_design_project": (
         "Ждем дизайн-проект",
-        "Мягко напомнить прислать файл дизайн-проекта, чтобы можно было точнее считать смету.",
+        "Спокойно объяснить, что проект поможет посчитать смету без лишних догадок, и предложить прислать файл в удобном виде.",
     ),
     "awaiting_measurement_slot": (
         "Ждем выбор слота замера",
-        "Подтолкнуть к записи на бесплатный замер без давления.",
+        "Мягко вернуть к бесплатному замеру как к безопасному следующему шагу: без обязательств, чтобы не считать вслепую.",
     ),
     "confirm_measurement": (
         "Ждем подтверждение замера",
-        "Аккуратно подтвердить слот и попросить адрес, если он нужен для выезда.",
+        "Аккуратно подтвердить слот и помочь клиенту спокойно завершить подготовку к выезду инженера.",
     ),
     "estimate_internal_review": (
         "Смета на проверке",
@@ -95,7 +93,7 @@ STAGE_SCENARIOS = {
     ),
     "general_consultation": (
         "Общий прогрев",
-        "Коротко напомнить о себе и вернуть диалог в сторону замера или расчета.",
+        "Коротко и по-человечески вернуть диалог через пользу: расчет, похожий объект, замер или ответ на тревожный вопрос.",
     ),
 }
 
@@ -154,6 +152,8 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
     
     eligible = []
     for lead in leads:
+        if _lead_has_do_not_contact_flag(lead):
+            continue
         try:
             scenario_key, _, _ = await _build_stage_context(db, lead)
             setattr(lead, "_stage_context", {"next_action": scenario_key})
@@ -184,6 +184,16 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
             eligible.append(lead)
     
     return eligible
+
+
+def _lead_has_do_not_contact_flag(lead: Lead) -> bool:
+    if not lead.extracted_data:
+        return False
+    try:
+        data = json.loads(lead.extracted_data)
+    except json.JSONDecodeError:
+        return False
+    return bool(isinstance(data, dict) and data.get("do_not_contact"))
 
 
 def _is_followup_too_old(now: datetime, reference_time: datetime) -> bool:
@@ -275,10 +285,10 @@ async def generate_followup_message(db: AsyncSession, lead: Lead) -> tuple[str |
 
 def _attempt_guidance(attempt_number: int) -> str:
     if attempt_number == 1:
-        return "Попытка 1: мягкое напоминание и один ясный следующий шаг."
+        return "Попытка 1: мягкое напоминание, польза для клиента и один ясный следующий шаг."
     if attempt_number == 2:
-        return "Попытка 2: чуть более прямое напоминание без давления."
-    return "Попытка 3: финальное теплое напоминание с открытой дверью."
+        return "Попытка 2: убрать оставшуюся неопределенность и предложить конкретное действие без давления."
+    return "Попытка 3: финальное теплое касание: предложи продолжить сейчас или поставить вопрос на паузу. Не спорь и не уговаривай."
 
 
 async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:

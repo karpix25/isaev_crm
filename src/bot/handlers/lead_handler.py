@@ -114,6 +114,18 @@ def _looks_like_measurement_reschedule_request(text: str) -> bool:
     )
 
 
+def _looks_like_measurement_cancel_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    cancel_words = ("отмен", "убери", "сними", "не надо", "не нужен", "не приезж")
+    measurement_words = ("замер", "брон", "запис", "выезд", "инженер")
+    if any(word in normalized for word in cancel_words) and any(word in normalized for word in measurement_words):
+        return True
+    return normalized in {"отменяй", "отменить", "отмена", "да отменяй", "отменяй да"}
+
+
 def _looks_like_measurement_change_request(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -204,6 +216,86 @@ def _looks_like_manager_handoff_request(text: str) -> bool:
     manager_words = ("менеджер", "человек", "оператор", "специалист", "живой")
     request_words = ("позов", "соедин", "передай", "передайте", "хочу", "нужен", "дайте")
     return any(word in normalized for word in manager_words) and any(word in normalized for word in request_words)
+
+
+def _looks_like_do_not_contact_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    phrases = (
+        "не пиши",
+        "не пишите",
+        "не звони",
+        "не звоните",
+        "не беспокой",
+        "не беспокоить",
+        "отстань",
+        "отстаньте",
+        "удалите мой номер",
+        "удали мой номер",
+        "больше не надо",
+        "больше не пиш",
+    )
+    return any(phrase in normalized for phrase in phrases)
+
+
+def _looks_like_not_interested(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    phrases = (
+        "не хочу у вас",
+        "не хочу с вами",
+        "не нужен ремонт",
+        "ремонт не нужен",
+        "передумал делать ремонт",
+        "передумали делать ремонт",
+        "не актуально",
+        "неактуально",
+        "отказ",
+        "не интересно",
+        "неинтересно",
+    )
+    return any(phrase in normalized for phrase in phrases)
+
+
+def _looks_like_reactivation(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    reactivation_markers = (
+        "передумал",
+        "передумали",
+        "давай делаем",
+        "давайте делать",
+        "хочу продолжить",
+        "вернемся",
+        "вернёмся",
+        "актуально снова",
+        "снова актуально",
+        "готов продолжить",
+        "готовы продолжить",
+    )
+    action_markers = ("делаем", "ремонт", "замер", "запис", "продолж", "давай", "давайте")
+    return any(marker in normalized for marker in reactivation_markers) and any(marker in normalized for marker in action_markers)
+
+
+def _looks_like_abusive_message(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    abusive_words = (
+        "пошел ты",
+        "пошёл ты",
+        "иди нах",
+        "нахуй",
+        "хуйня",
+        "чорт",
+        "черт",
+        "мудак",
+        "долбо",
+    )
+    return any(word in normalized for word in abusive_words)
 
 
 def _normalize_phone(value: str | None) -> str:
@@ -367,20 +459,20 @@ def _build_quiz_estimate_text(lead) -> str:
 
     answers = _lead_quiz_answers(lead)
     summary = _lead_quiz_summary_lines(lead)
-    text = f"Ваш предварительный просчет по работам без стройматериалов: {price_label}."
+    text = f"Предварительный ориентир по работам без стройматериалов: {price_label}."
     if summary:
         text += "\n\n" + "\n".join(summary)
 
     design_answer = str(answers.get("design") or "").lower()
     if design_answer in {"yes", "wip"}:
         text += (
-            "\n\n📎 Пришлите сюда дизайн-проект файлом — просчитаем точную цену ремонта "
-            "по работам без стройматериалов и зафиксируем ее за вами на месяц."
+            "\n\n📎 Если пришлете сюда дизайн-проект файлом, мы спокойнее проверим объемы, "
+            "чертежи и спорные места — так расчет по работам будет точнее."
         )
     else:
         text += (
-            "\n\n📍 Для точной сметы выберите удобное время замера. После замера "
-            "посчитаем цену ремонта по работам без стройматериалов и зафиксируем ее за вами на месяц."
+            "\n\n📍 Чтобы не считать вслепую, лучше выбрать удобное время бесплатного замера. "
+            "Инженер посмотрит объект, замерит нюансы и после этого мы точнее посчитаем работы."
         )
     return text
 
@@ -528,7 +620,10 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
             lead.status = LeadStatus.MEASUREMENT_PENDING.value
         await db.commit()
 
-    text = "Выберите удобный день бесплатного замера. Он поможет точно посчитать работы без стройматериалов 📍"
+    text = (
+        "Выберите удобный день бесплатного замера. "
+        "Так мы спокойно посмотрим объект и посчитаем работы без догадок 📍"
+    )
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
     await chat_service.send_outbound_message(
         db=db,
@@ -583,7 +678,7 @@ async def _send_measurement_reschedule_slot_dates(message: Message, db: AsyncSes
     lead.extracted_data = json.dumps(data, ensure_ascii=False)
     await db.commit()
 
-    text = "Да, конечно, перенесем. Выберите новый удобный день замера 📍"
+    text = "Да, конечно, перенесем. Выберите новый удобный день, чтобы инженеру было удобно приехать без спешки 📍"
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
     await chat_service.send_outbound_message(
         db=db,
@@ -1149,13 +1244,16 @@ async def _handle_quiz_lead_activation_flow(
     if next_action == "awaiting_design_project":
         welcome_text = (
             "Следующий шаг — пришлите сюда дизайн-проект файлом 📎\n\n"
-            "Мы просчитаем точную цену ремонта по работам без стройматериалов "
-            "и зафиксируем ее за вами на месяц."
+            "Мы спокойно проверим объемы, чертежи и спорные места, "
+            "чтобы точнее рассчитать работы без стройматериалов."
         )
     elif next_action == "awaiting_measurement_slot":
         if await _send_measurement_slot_dates(message, db, lead):
             return True
-        welcome_text = "Выберите другое окно или напишите удобный день и время замера — подберем ближайший свободный слот и подтвердим запись 📍"
+        welcome_text = (
+            "Можно выбрать другое окно или написать удобный день и время. "
+            "Подберем ближайший свободный слот для бесплатного замера 📍"
+        )
     elif next_action == "confirm_measurement":
         measurement = _lead_measurement_data(lead)
         measurement_date = _format_measurement_start(measurement.get("start"))
@@ -1167,22 +1265,25 @@ async def _handle_quiz_lead_activation_flow(
                 f"Адрес: {measurement_address}\n"
                 f"Телефон для связи: {_format_phone(lead.phone or measurement.get('phone'))}\n\n"
                 "Запись закреплена в календаре ✅\n"
-                "За сутки до замера напомним вам, чтобы ничего не потерялось. "
+                "За сутки до замера напомним вам спокойно, чтобы ничего не потерялось. "
                 "Если нужно изменить дату, адрес или телефон — напишите сюда."
             )
         elif measurement_date:
             welcome_text = (
                 f"Здравствуйте! Вижу выбранный слот замера: {measurement_date}.\n\n"
-                "Напишите, пожалуйста, адрес объекта — подтвердим выезд специалиста и закрепим запись 📍"
+                "Напишите, пожалуйста, адрес объекта — так инженер заранее поймет, куда ехать, и мы подтвердим выезд 📍"
             )
         else:
             if await _send_measurement_slot_dates(message, db, lead):
                 return True
-            welcome_text = "Чтобы закрепить замер, напишите удобный день и время — подберем ближайший свободный слот и подтвердим запись 📍"
+            welcome_text = (
+                "Чтобы спокойно подобрать замер, напишите удобный день и время — "
+                "проверим ближайший свободный слот и подтвердим запись 📍"
+            )
     else:
         welcome_text = (
             "Здравствуйте! Вижу вашу заявку по квизу.\n\n"
-            "Напишите сюда любой вопрос — продолжим расчет по вашим данным и подскажем следующий шаг."
+            "Напишите сюда любой вопрос — продолжим по вашим данным и подскажем понятный следующий шаг."
         )
 
     if not is_business_hours():
@@ -1222,16 +1323,282 @@ async def _send_manager_handoff_notice(message: Message, db: AsyncSession, lead)
     return True
 
 
+def _measurement_has_active_booking(measurement: dict) -> bool:
+    status = str(measurement.get("status") or "").strip().lower()
+    return bool(measurement.get("booking_uid")) and status not in {"cancelled", "cancel_requested"}
+
+
+def _set_lead_conversation_mode(lead, mode: str, reason: str) -> dict:
+    data = _lead_extracted_data(lead)
+    data["conversation_mode"] = mode
+    data["conversation_mode_reason"] = reason
+    data["conversation_mode_updated_at"] = datetime.now(timezone.utc).isoformat()
+    data["do_not_contact"] = mode == "do_not_contact"
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    return data
+
+
+async def _handle_measurement_cancel_request(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    reason: str = "Client requested measurement cancellation in Telegram",
+    final_lost: bool = False,
+) -> bool:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    booking_uid = str(measurement.get("booking_uid") or "").strip()
+    measurement_date = _format_measurement_start(measurement.get("start"))
+
+    if not booking_uid:
+        measurement["status"] = "cancelled" if measurement.get("start") else "cancel_requested"
+        measurement["cancel_requested_at"] = datetime.now(timezone.utc).isoformat()
+        measurement["cancel_reason"] = reason
+        data["measurement"] = measurement
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        if final_lost:
+            lead.status = LeadStatus.LOST.value
+            lead.ai_qualification_status = "not_interested"
+        elif lead.status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value, LeadStatus.MEASUREMENT_PENDING.value}:
+            lead.status = LeadStatus.CONSULTING.value
+        await db.commit()
+
+        text = (
+            f"Принял, замер{f' на {measurement_date}' if measurement_date else ''} отменил в CRM. "
+            "В календаре не нашел активный номер брони, поэтому менеджер дополнительно проверит вручную."
+        )
+        if final_lost:
+            text += " Больше не будем беспокоить."
+        else:
+            text += "\n\nЕсли захотите перенести на другой день, напишите сюда."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "bot_scenario", "type": "measurement_cancel_no_booking_uid"},
+        )
+        return True
+
+    try:
+        cancel_response = await cal_pro_service.cancel_booking(booking_uid=booking_uid, reason=reason)
+    except Exception:
+        logger.warning("Failed to cancel Cal Pro booking for lead %s", lead.id, exc_info=True)
+        measurement["status"] = "cancel_requested"
+        measurement["cancel_requested_at"] = datetime.now(timezone.utc).isoformat()
+        measurement["cancel_reason"] = reason
+        data["measurement"] = measurement
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        lead.ai_qualification_status = "handoff_required"
+        await db.commit()
+
+        text = (
+            "Принял запрос на отмену замера, но календарь не подтвердил отмену автоматически. "
+            "Передал менеджеру для ручной проверки брони."
+        )
+        if final_lost:
+            text += " Больше не будем беспокоить."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "bot_scenario", "type": "measurement_cancel_failed", "booking_uid": booking_uid},
+        )
+        return True
+
+    measurement["status"] = "cancelled"
+    measurement["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+    measurement["cancel_reason"] = reason
+    measurement["cancel_response"] = cancel_response.get("data") or cancel_response
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    if final_lost:
+        lead.status = LeadStatus.LOST.value
+        lead.ai_qualification_status = "not_interested"
+    elif lead.status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value, LeadStatus.MEASUREMENT_PENDING.value}:
+        lead.status = LeadStatus.CONSULTING.value
+    await db.commit()
+
+    text = f"Готово, замер{f' на {measurement_date}' if measurement_date else ''} отменил в календаре."
+    if final_lost:
+        text += " Больше не будем беспокоить."
+    else:
+        text += "\n\nХотите перенести на другой день или пока отложим ремонт?"
+    sent = await message.answer(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={
+            "source": "bot_scenario",
+            "type": "measurement_cancelled",
+            "booking_uid": booking_uid,
+        },
+    )
+    return True
+
+
+async def _handle_not_interested(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text_value: str,
+) -> bool:
+    data = _set_lead_conversation_mode(lead, "not_interested", text_value[:300])
+    lead.status = LeadStatus.LOST.value
+    lead.ai_qualification_status = "not_interested"
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    if _measurement_has_active_booking(measurement):
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        await db.commit()
+        return await _handle_measurement_cancel_request(
+            db=db,
+            message=message,
+            lead=lead,
+            reason="Client declined renovation after booking",
+            final_lost=True,
+        )
+
+    await db.commit()
+    reply = "Понял вас. Зафиксировал отказ, больше не будем вас беспокоить. Всего доброго."
+    sent = await message.answer(reply)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=reply,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={"source": "bot_scenario", "type": "lead_not_interested"},
+    )
+    return True
+
+
+async def _handle_do_not_contact(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text_value: str,
+) -> bool:
+    data = _set_lead_conversation_mode(lead, "do_not_contact", text_value[:300])
+    lead.status = LeadStatus.LOST.value
+    lead.ai_qualification_status = "not_interested"
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    if _measurement_has_active_booking(measurement):
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        await db.commit()
+        return await _handle_measurement_cancel_request(
+            db=db,
+            message=message,
+            lead=lead,
+            reason="Client requested do-not-contact after booking",
+            final_lost=True,
+        )
+
+    await db.commit()
+
+    reply = "Понял, больше не будем вас беспокоить. Всего доброго."
+    sent = await message.answer(reply)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=reply,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={"source": "bot_scenario", "type": "do_not_contact"},
+    )
+    return True
+
+
+async def _handle_abusive_message(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text_value: str,
+) -> bool:
+    data = _lead_extracted_data(lead)
+    if data.get("do_not_contact"):
+        logger.info("Ignoring abusive message after do-not-contact for lead %s", lead.id)
+        return True
+
+    _set_lead_conversation_mode(lead, "abusive", text_value[:300])
+    lead.status = LeadStatus.LOST.value
+    lead.ai_qualification_status = "not_interested"
+    await db.commit()
+
+    reply = "Понял, больше не беспокоим."
+    sent = await message.answer(reply)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=reply,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={"source": "bot_scenario", "type": "abusive_lead_closed"},
+    )
+    return True
+
+
+async def _handle_reactivation(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text_value: str,
+) -> bool:
+    data = _lead_extracted_data(lead)
+    data["conversation_mode"] = "reactivated"
+    data["conversation_mode_reason"] = text_value[:300]
+    data["conversation_mode_updated_at"] = datetime.now(timezone.utc).isoformat()
+    data["do_not_contact"] = False
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    if measurement.get("status") in {"cancelled", "cancel_requested"}:
+        measurement["status"] = "reactivated"
+        measurement["reactivated_at"] = datetime.now(timezone.utc).isoformat()
+        data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    lead.status = LeadStatus.MEASUREMENT_PENDING.value
+    lead.ai_qualification_status = "in_progress"
+    await db.commit()
+
+    intro = (
+        "Да, вижу переписку. Продолжаем спокойно: лучше снова подобрать время бесплатного замера, "
+        "чтобы посчитать работы не вслепую."
+    )
+    sent = await message.answer(intro)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=intro,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={"source": "bot_scenario", "type": "lead_reactivated"},
+    )
+    await _send_measurement_slot_dates(message, db, lead)
+    return True
+
+
 def _build_ai_support_tools_prompt(stage_context) -> str:
     next_action = stage_context.metadata.get("next_action") if stage_context else "unknown"
     return f"""
 SCENARIO_ORCHESTRATION:
 - Главный сценарий ведет бот. ИИ только отвечает на вопросы поддержки, возражения и боковые уточнения.
+- Тон ИИ: заботливый живой менеджер, который продает через ясность. Спокойно, понятно, без давления, срочности, рекламных лозунгов и ощущения скрипта.
+- Не дави, но веди. Если вопрос клиента закрыт, не оставляй диалог в воздухе: предложи один конкретный следующий шаг.
+- Следующий шаг объясняй через пользу клиенту: меньше сюрпризов, точнее расчет, понятнее сроки, спокойнее подготовка ремонта.
 - Если клиент просит действие, не обещай выполнить его текстом. Верни tool_action в JSON, чтобы backend вызвал инструмент.
 - Если клиент просит записаться, выбрать время, календарь, слот или замер: tool_action = "show_measurement_slots".
 - Если клиент просит перенести существующий замер: tool_action = "reschedule_measurement".
+- Если клиент просит отменить существующий замер: tool_action = "cancel_measurement".
 - Если клиент просит изменить дату, адрес, телефон или данные брони: tool_action = "change_measurement_booking".
 - Если клиент просит менеджера/оператора/живого человека: tool_action = "handoff_to_manager".
+- Если клиент отказался от ремонта или просит больше не писать: tool_action = "none", status = "LOST", message должен быть коротким без продолжения продажи.
+- Если клиент сам вернулся после отказа: tool_action = "show_measurement_slots".
 - Если клиент спрашивает о компании, процессе ремонта, гарантиях, оплате, сроках, материалах или цене: отвечай в message и мягко возвращай к next_action.
 - Не выводи клиенту названия инструментов, JSON, markdown-блоки или рассуждения.
 - Текущий next_action CRM: {next_action}.
@@ -1239,6 +1606,7 @@ SCENARIO_ORCHESTRATION:
 AVAILABLE_TOOL_ACTIONS:
 - show_measurement_slots
 - reschedule_measurement
+- cancel_measurement
 - change_measurement_booking
 - handoff_to_manager
 - none
@@ -1272,6 +1640,9 @@ def _extract_ai_tool_action(extracted_data: dict | None) -> str:
         "booking_slots": "show_measurement_slots",
         "book_measurement": "show_measurement_slots",
         "measurement_slots": "show_measurement_slots",
+        "cancel_booking": "cancel_measurement",
+        "cancel_measurement_booking": "cancel_measurement",
+        "cancel_measurement_slots": "cancel_measurement",
         "update_measurement_data": "change_measurement_booking",
         "change_booking": "change_measurement_booking",
         "manager_handoff": "handoff_to_manager",
@@ -1297,6 +1668,12 @@ async def _execute_ai_tool_action(
             return await _send_measurement_reschedule_slot_dates(message, db, lead)
         return await _send_measurement_slot_dates(message, db, lead)
 
+    if action == "cancel_measurement":
+        measurement = _lead_measurement_data(lead)
+        if measurement.get("start") or measurement.get("booking_uid"):
+            return await _handle_measurement_cancel_request(db, message, lead)
+        return False
+
     if action == "change_measurement_booking":
         measurement = _lead_measurement_data(lead)
         if measurement.get("start"):
@@ -1319,8 +1696,23 @@ async def _try_route_scenario_before_ai(
     next_action = stage_context.metadata.get("next_action") if stage_context else ""
     measurement_data = _lead_measurement_data(lead)
 
+    if _looks_like_reactivation(text):
+        return await _handle_reactivation(db, message, lead, text)
+
+    if _looks_like_do_not_contact_request(text):
+        return await _handle_do_not_contact(db, message, lead, text)
+
+    if _looks_like_abusive_message(text):
+        return await _handle_abusive_message(db, message, lead, text)
+
+    if _looks_like_not_interested(text):
+        return await _handle_not_interested(db, message, lead, text)
+
     if _looks_like_manager_handoff_request(text):
         return await _send_manager_handoff_notice(message, db, lead)
+
+    if _looks_like_measurement_cancel_request(text) and (measurement_data.get("start") or measurement_data.get("booking_uid")):
+        return await _handle_measurement_cancel_request(db, message, lead)
 
     if _looks_like_measurement_change_request(text) and measurement_data.get("start"):
         return await _send_measurement_change_choices(message, db, lead)

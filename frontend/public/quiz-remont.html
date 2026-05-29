@@ -945,8 +945,8 @@
       <div class="gift-banner">
         <div class="gift-icon">🎁</div>
         <div class="gift-text">
-          <div class="gift-title">Подарок за прохождение квиза</div>
-          <div class="gift-sub">Дизайн-проект квартиры бесплатно — при заключении договора</div>
+          <div class="gift-title">Бонус к ремонту</div>
+          <div class="gift-sub">Дизайн-проект можем включить бесплатно при заключении договора</div>
         </div>
         <div class="gift-tag">Дар</div>
       </div>
@@ -958,7 +958,7 @@
       <div class="start-points">
         <div class="start-point">
           <div class="start-point-icon">📊</div>
-          Точная предварительная смета
+          Понятный ориентир по стоимости
         </div>
         <div class="start-point">
           <div class="start-point-icon">⚡</div>
@@ -1101,7 +1101,7 @@
 <div class="exit-overlay" id="exitOverlay">
   <div class="exit-modal">
     <div class="exit-title">Сохранить расчет?</div>
-    <div class="exit-sub">Вы уже начали квиз. Оставьте телефон — закрепим расчет за вами и откроем удобный мессенджер.</div>
+    <div class="exit-sub">Вы уже начали квиз. Можем сохранить ответы и открыть удобный мессенджер, чтобы не заполнять заново.</div>
     <div class="exit-grid">
       <input type="text" id="exitName" placeholder="Ваше имя">
       <input type="tel" id="exitPhone" placeholder="+7 999 123-45-67">
@@ -1640,7 +1640,7 @@ function showContactGate() {
   document.getElementById('teaserRange').textContent = labels.area?.[answers.area] || '—';
   document.getElementById('teaserRange').style.display = 'block';
   document.getElementById('contactPriceNote').textContent = 'После этого продолжим вопросы без потери данных';
-  document.getElementById('contactTitle').textContent = 'Оставьте телефон — закрепим расчет за вами и пришлем результат, если отвлечетесь';
+  document.getElementById('contactTitle').textContent = 'Укажите телефон — сохраним ответы и пришлем результат, если отвлечетесь';
   document.getElementById('contactSummary').innerHTML = '';
   document.getElementById('phoneLabel').textContent = 'Телефон';
   document.getElementById('contactNextStepTitle').textContent = 'Не потеряем ваш расчет';
@@ -1931,8 +1931,8 @@ async function submitFinalQuiz(contactOverride = null) {
   document.getElementById('tyMessenger').textContent = visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
   document.getElementById('resultPriceBox').style.display = 'none';
   document.getElementById('resultSubtitle').innerHTML = hasDesignProjectIntent()
-    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный просчет готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там попросим прислать дизайн-проект для точной сметы.`
-    : `<strong>${escapeHtml(contact.name)}</strong>, предварительный просчет готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там отправим ориентир и предложим следующий шаг.`;
+    ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный ориентир готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там можно спокойно прислать дизайн-проект для более точного расчета.`
+    : `<strong>${escapeHtml(contact.name)}</strong>, предварительный ориентир готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там отправим расчет и подскажем понятный следующий шаг.`;
   document.getElementById('floatGift').style.display = 'none';
   renderMessengerActions(contact.name);
   showScreen('screen-result');
@@ -1981,7 +1981,7 @@ async function captureExitContact(messenger) {
   const normalizedPhone = normalizePhone(phone);
   if (!normalizedPhone) {
     shake('exitPhone');
-    document.getElementById('exitStatus').textContent = 'Оставьте телефон, чтобы мы сохранили расчет.';
+    document.getElementById('exitStatus').textContent = 'Укажите телефон, чтобы мы сохранили расчет.';
     return;
   }
   const statusEl = document.getElementById('exitStatus');
