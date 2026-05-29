@@ -123,6 +123,89 @@ def _looks_like_measurement_change_request(text: str) -> bool:
     return generic_change and measurement_context
 
 
+def _looks_like_measurement_booking_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    direct_calendar_words = ("calpro", "cal pro", "cal.com", "calcom", "календар", "слот", "окн")
+    booking_words = ("запис", "заброн", "брон", "замер", "выезд", "инженер")
+    request_words = ("дай", "дайте", "скинь", "скиньте", "пришли", "пришлите", "можно", "хочу", "запис")
+    if any(word in normalized for word in direct_calendar_words) and any(word in normalized for word in request_words):
+        return True
+    return any(word in normalized for word in booking_words) and any(word in normalized for word in request_words)
+
+
+def _looks_like_measurement_slot_reply(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    short_confirmations = {
+        "да",
+        "давайте",
+        "ок",
+        "окей",
+        "хорошо",
+        "можно",
+        "да можно",
+        "давайте замер",
+        "да хочу",
+    }
+    if normalized in short_confirmations:
+        return True
+
+    date_words = (
+        "сегодня",
+        "завтра",
+        "послезавтра",
+        "понедельник",
+        "вторник",
+        "среда",
+        "среду",
+        "ср",
+        "четверг",
+        "пятниц",
+        "суббот",
+        "воскрес",
+        "утр",
+        "днем",
+        "днём",
+        "вечер",
+        "после обеда",
+        "до обеда",
+    )
+    month_words = (
+        "январ",
+        "феврал",
+        "март",
+        "апрел",
+        "мая",
+        "май",
+        "июн",
+        "июл",
+        "август",
+        "сентябр",
+        "октябр",
+        "ноябр",
+        "декабр",
+    )
+    has_date_word = any(word in normalized for word in date_words + month_words)
+    has_time = bool(re.search(r"\b(?:в\s*)?\d{1,2}(?::\d{2})?\b", normalized))
+    is_time_only = bool(re.fullmatch(r"(?:в\s*)?\d{1,2}(?::\d{2})?", normalized))
+    has_date_number = bool(re.search(r"\b\d{1,2}\s*(?:числа|мая|июн|июл|август|сентябр|октябр|ноябр|декабр)", normalized))
+    return has_date_word or has_date_number or is_time_only or ("замер" in normalized and has_time)
+
+
+def _looks_like_manager_handoff_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    manager_words = ("менеджер", "человек", "оператор", "специалист", "живой")
+    request_words = ("позов", "соедин", "передай", "передайте", "хочу", "нужен", "дайте")
+    return any(word in normalized for word in manager_words) and any(word in normalized for word in request_words)
+
+
 def _normalize_phone(value: str | None) -> str:
     digits = re.sub(r"\D+", "", value or "")
     if len(digits) == 11 and digits.startswith("8"):
@@ -542,9 +625,10 @@ async def _send_measurement_change_choices(message: Message, db: AsyncSession, l
 async def _store_pending_measurement_slot(db: AsyncSession, lead, start: str) -> None:
     data = _lead_extracted_data(lead)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    has_phone = bool(_normalize_phone(lead.phone or measurement.get("phone")))
     measurement.update(
         {
-            "status": "awaiting_address",
+            "status": "awaiting_address" if has_phone else "awaiting_phone_for_measurement",
             "pending_start": start,
             "pending_slot_label": f"{_slot_date_button_label(_slot_date_key(start))} {_slot_time_label(start)}",
             "source": "telegram_inline_slots",
@@ -869,6 +953,40 @@ async def _try_handle_pending_measurement_address(
     data = _lead_extracted_data(lead)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
     pending_start = str(measurement.get("pending_start") or "").strip()
+    if measurement.get("status") == "awaiting_phone_for_measurement" and pending_start:
+        normalized_phone = _normalize_phone(address)
+        if not normalized_phone:
+            text = "Чтобы закрепить замер, нужен телефон для связи. Напишите, пожалуйста, номер в формате +7..."
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="AI",
+                ai_metadata={"source": "telegram_inline_slots", "type": "measurement_phone_retry"},
+            )
+            return True
+
+        lead.phone = normalized_phone
+        measurement["phone"] = normalized_phone
+        measurement["status"] = "awaiting_address"
+        data["measurement"] = measurement
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        await db.commit()
+
+        text = "Спасибо, телефон сохранил. Теперь напишите адрес объекта: город, улицу, дом и квартиру/офис."
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={"source": "telegram_inline_slots", "type": "measurement_address_request_after_phone"},
+        )
+        return True
+
     if measurement.get("status") != "awaiting_address" or not pending_start:
         return False
 
@@ -1080,6 +1198,146 @@ async def _handle_quiz_lead_activation_flow(
         ai_metadata={"source": source, "stage_context": stage_context.metadata},
     )
     return True
+
+
+async def _send_manager_handoff_notice(message: Message, db: AsyncSession, lead) -> bool:
+    lead.ai_qualification_status = "handoff_required"
+    if lead.status in {LeadStatus.NEW.value, LeadStatus.QUIZ_COMPLETED.value, LeadStatus.MESSENGER_PENDING.value}:
+        lead.status = LeadStatus.QUALIFIED.value
+    await db.commit()
+
+    text = (
+        "Передал менеджеру вашу заявку ✅\n"
+        "Он увидит переписку и подключится с контекстом. Если вопрос срочный, напишите его сюда одним сообщением."
+    )
+    sent = await message.answer(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={"source": "bot_scenario", "type": "manager_handoff_requested"},
+    )
+    return True
+
+
+def _build_ai_support_tools_prompt(stage_context) -> str:
+    next_action = stage_context.metadata.get("next_action") if stage_context else "unknown"
+    return f"""
+SCENARIO_ORCHESTRATION:
+- Главный сценарий ведет бот. ИИ только отвечает на вопросы поддержки, возражения и боковые уточнения.
+- Если клиент просит действие, не обещай выполнить его текстом. Верни tool_action в JSON, чтобы backend вызвал инструмент.
+- Если клиент просит записаться, выбрать время, календарь, слот или замер: tool_action = "show_measurement_slots".
+- Если клиент просит перенести существующий замер: tool_action = "reschedule_measurement".
+- Если клиент просит изменить дату, адрес, телефон или данные брони: tool_action = "change_measurement_booking".
+- Если клиент просит менеджера/оператора/живого человека: tool_action = "handoff_to_manager".
+- Если клиент спрашивает о компании, процессе ремонта, гарантиях, оплате, сроках, материалах или цене: отвечай в message и мягко возвращай к next_action.
+- Не выводи клиенту названия инструментов, JSON, markdown-блоки или рассуждения.
+- Текущий next_action CRM: {next_action}.
+
+AVAILABLE_TOOL_ACTIONS:
+- show_measurement_slots
+- reschedule_measurement
+- change_measurement_booking
+- handoff_to_manager
+- none
+
+JSON_CONTRACT:
+{{
+  "message": "короткий ответ клиенту, если это вопрос поддержки",
+  "tool_action": "none",
+  "status": "CONSULTING",
+  "is_hot_lead": false,
+  "confidence": 50
+}}
+"""
+
+
+def _extract_ai_tool_action(extracted_data: dict | None) -> str:
+    if not isinstance(extracted_data, dict):
+        return ""
+    raw_action = (
+        extracted_data.get("tool_action")
+        or extracted_data.get("tool")
+        or extracted_data.get("action")
+        or extracted_data.get("requested_tool")
+    )
+    if isinstance(raw_action, dict):
+        raw_action = raw_action.get("name") or raw_action.get("action")
+    action = str(raw_action or "").strip().lower()
+    aliases = {
+        "calendar": "show_measurement_slots",
+        "show_calendar": "show_measurement_slots",
+        "booking_slots": "show_measurement_slots",
+        "book_measurement": "show_measurement_slots",
+        "measurement_slots": "show_measurement_slots",
+        "update_measurement_data": "change_measurement_booking",
+        "change_booking": "change_measurement_booking",
+        "manager_handoff": "handoff_to_manager",
+        "human_handoff": "handoff_to_manager",
+        "operator_handoff": "handoff_to_manager",
+    }
+    action = aliases.get(action, action)
+    return action if action not in {"", "none", "null", "answer_support"} else ""
+
+
+async def _execute_ai_tool_action(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    action: str,
+) -> bool:
+    if action == "show_measurement_slots":
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if action == "reschedule_measurement":
+        measurement = _lead_measurement_data(lead)
+        if measurement.get("start"):
+            return await _send_measurement_reschedule_slot_dates(message, db, lead)
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if action == "change_measurement_booking":
+        measurement = _lead_measurement_data(lead)
+        if measurement.get("start"):
+            return await _send_measurement_change_choices(message, db, lead)
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if action == "handoff_to_manager":
+        return await _send_manager_handoff_notice(message, db, lead)
+
+    return False
+
+
+async def _try_route_scenario_before_ai(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text: str,
+    stage_context,
+) -> bool:
+    next_action = stage_context.metadata.get("next_action") if stage_context else ""
+    measurement_data = _lead_measurement_data(lead)
+
+    if _looks_like_manager_handoff_request(text):
+        return await _send_manager_handoff_notice(message, db, lead)
+
+    if _looks_like_measurement_change_request(text) and measurement_data.get("start"):
+        return await _send_measurement_change_choices(message, db, lead)
+
+    if _looks_like_measurement_reschedule_request(text) and measurement_data.get("start"):
+        return await _send_measurement_reschedule_slot_dates(message, db, lead)
+
+    if _looks_like_measurement_booking_request(text):
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if next_action == "awaiting_measurement_slot" and _looks_like_measurement_slot_reply(text):
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if next_action == "confirm_measurement" and await _answer_measurement_question_if_possible(db, message, lead, text):
+        return True
+
+    return False
 
 
 # Debouncing state: {telegram_id: (task, [messages], original_message, has_voice)}
@@ -1825,11 +2083,18 @@ async def quiz_measure_time_callback(query: CallbackQuery):
             await query.answer()
             return
         await _store_pending_measurement_slot(db, lead, start)
-        text = (
-            f"Отлично, держу для вас окно {_slot_date_button_label(_slot_date_key(start))} "
-            f"в {_slot_time_label(start)} ✅\n\n"
-            "Чтобы подтвердить выезд специалиста, напишите адрес объекта: город, улицу, дом и квартиру/офис."
-        )
+        if _normalize_phone(lead.phone):
+            text = (
+                f"Отлично, держу для вас окно {_slot_date_button_label(_slot_date_key(start))} "
+                f"в {_slot_time_label(start)} ✅\n\n"
+                "Чтобы подтвердить выезд специалиста, напишите адрес объекта: город, улицу, дом и квартиру/офис."
+            )
+        else:
+            text = (
+                f"Отлично, держу для вас окно {_slot_date_button_label(_slot_date_key(start))} "
+                f"в {_slot_time_label(start)} ✅\n\n"
+                "Чтобы закрепить замер, напишите телефон для связи в формате +7..."
+            )
         await query.message.edit_text(text)
         await chat_service.send_outbound_message(
             db=db,
@@ -1951,13 +2216,9 @@ async def process_debounced_message(user_id: int):
         if await _try_handle_pending_measurement_address(db, message, lead, combined_text):
             return
 
-        measurement_data = _lead_measurement_data(lead)
-        if _looks_like_measurement_change_request(combined_text) and measurement_data.get("start"):
-            await _send_measurement_change_choices(message, db, lead)
-            return
-
-        if _looks_like_measurement_reschedule_request(combined_text) and measurement_data.get("start"):
-            await _send_measurement_reschedule_slot_dates(message, db, lead)
+        from src.services.lead_stage_context_service import lead_stage_context_service
+        stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+        if await _try_route_scenario_before_ai(db, message, lead, combined_text, stage_context):
             return
 
         outside_business_hours = not is_business_hours()
@@ -2033,9 +2294,7 @@ async def process_debounced_message(user_id: int):
                     "Если нужен менеджер, скажи, что команда вернется в рабочее время; не исчезай и не отказывайся отвечать."
                 )
 
-            from src.services.lead_stage_context_service import lead_stage_context_service
-            stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
-            system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}"
+            system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}\n\n{_build_ai_support_tools_prompt(stage_context)}"
             
             # Perform RAG (Retrieval)
             trace_id = f"lead_{lead.id}_{len(messages)}" # Unique per turn
@@ -2082,6 +2341,13 @@ async def process_debounced_message(user_id: int):
                 trace_id=trace_id,
                 user_id=str(message.from_user.id)
             )
+
+            requested_tool_action = _extract_ai_tool_action(ai_response.get("extracted_data"))
+            if requested_tool_action:
+                ai_metadata["requested_tool_action"] = requested_tool_action
+                ai_metadata["source"] = "ai_requested_tool"
+                if await _execute_ai_tool_action(db, message, lead, requested_tool_action):
+                    return
             
             # Send AI response to user
             response_text = openrouter_service.enforce_identity_answer(
@@ -2362,7 +2628,7 @@ async def handle_lead_photo(message: Message):
 
         from src.services.lead_stage_context_service import lead_stage_context_service
         stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
-        system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}"
+        system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}\n\n{_build_ai_support_tools_prompt(stage_context)}"
         
         # Get conversation history (exclude the photo message we just saved — it's sent separately via vision)
         history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
@@ -2407,6 +2673,10 @@ async def handle_lead_photo(message: Message):
                 system_prompt,
                 model=config.llm_model if config else None
             )
+
+        requested_tool_action = _extract_ai_tool_action(ai_response.get("extracted_data"))
+        if requested_tool_action and await _execute_ai_tool_action(db, message, lead, requested_tool_action):
+            return
         
         reply_text = ai_response["text"]
         await message.answer(reply_text)

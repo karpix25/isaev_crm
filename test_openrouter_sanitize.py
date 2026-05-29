@@ -23,3 +23,14 @@ def test_sanitize_lead_message_unescapes_newlines():
 
     assert "\\n" not in text
     assert "\n\n" in text
+
+
+def test_extract_user_facing_text_blocks_markdown_json_artifacts():
+    service = OpenRouterService()
+
+    text = service._extract_user_facing_text(
+        "Let's format this as JSON.\\n\\n4. **Refining the JSON:**\\n```json\\n{\\n\"message\": \"Отлично! Завтра",
+        None,
+    )
+
+    assert text == "Здравствуйте. Чем могу помочь по ремонту?"

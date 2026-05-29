@@ -355,10 +355,10 @@ class OpenRouterService:
             return self._sanitize_lead_message(quoted_message)
 
         clean_text = self._remove_json_from_response(ai_message)
-        if clean_text and not self._looks_like_structured_payload(clean_text):
+        if clean_text and not self._looks_like_structured_payload(clean_text) and not self._looks_like_generation_artifact(clean_text):
             return self._sanitize_lead_message(clean_text)
 
-        if not self._looks_like_structured_payload(ai_message):
+        if not self._looks_like_structured_payload(ai_message) and not self._looks_like_generation_artifact(ai_message):
             return self._sanitize_lead_message(ai_message)
 
         logger.warning("AI returned structured payload without usable message field")
@@ -403,6 +403,31 @@ class OpenRouterService:
         marker_hits = sum(1 for marker in structured_markers if marker in stripped)
         return marker_hits >= 2
 
+    def _looks_like_generation_artifact(self, text: str) -> bool:
+        """
+        Detect model-side formatting/planning artifacts that should never be
+        sent to a lead, especially malformed markdown-wrapped JSON.
+        """
+        stripped = text.strip()
+        if not stripped:
+            return False
+
+        artifact_markers = (
+            "```json",
+            "```",
+            "let's format this as json",
+            "refining the json",
+            "valid json",
+            "---json---",
+        )
+        lowered = stripped.lower()
+        if any(marker in lowered for marker in artifact_markers):
+            return True
+
+        has_json_field = bool(re.search(r'"(?:message|status|client_name|phone|confidence|is_hot_lead)"\s*:', stripped))
+        has_markdown_json_context = bool(re.search(r'\bjson\b', lowered)) and ("{" in stripped or "}" in stripped)
+        return has_json_field or has_markdown_json_context
+
     def _sanitize_lead_message(self, text: str) -> str:
         """
         Remove common bad self-introductions and mistaken hardcoded naming
@@ -416,7 +441,7 @@ class OpenRouterService:
             .replace("\\t", " ")
         )
 
-        if self._looks_like_structured_payload(clean):
+        if self._looks_like_structured_payload(clean) or self._looks_like_generation_artifact(clean):
             return "Здравствуйте. Чем могу помочь по ремонту?"
 
         substitutions = [

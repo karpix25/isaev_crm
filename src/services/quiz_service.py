@@ -252,6 +252,8 @@ class QuizService:
         booking_metadata = {
             "lead_id": str(lead_id) if lead_id else None,
             "session_token": payload.session_token,
+            "client_name": contact.name,
+            "client_phone": contact.phone,
             "measurement_address": measurement_address,
             **(payload.metadata or {}),
         }
