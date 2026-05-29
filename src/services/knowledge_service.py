@@ -3,7 +3,7 @@ import fitz
 import io
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from src.models.knowledge import KnowledgeItem
 from src.services.openrouter_service import openrouter_service
 
@@ -51,6 +51,25 @@ class KnowledgeService:
         user_id: Optional[str] = None
     ) -> List[KnowledgeItem]:
         """Perform semantic search in the knowledge base"""
+        from sqlalchemy import or_
+
+        exists_stmt = select(func.count(KnowledgeItem.id)).where(KnowledgeItem.org_id == org_id)
+        if lead_id:
+            exists_stmt = exists_stmt.where(
+                or_(
+                    KnowledgeItem.lead_id == None,
+                    KnowledgeItem.lead_id == lead_id
+                )
+            )
+        else:
+            exists_stmt = exists_stmt.where(KnowledgeItem.lead_id == None)
+        if category:
+            exists_stmt = exists_stmt.where(KnowledgeItem.category == category)
+
+        exists_result = await db.execute(exists_stmt)
+        if (exists_result.scalar_one() or 0) == 0:
+            return []
+
         # Langfuse Tracing
         span = None
         if openrouter_service.langfuse and trace_id:
@@ -63,7 +82,6 @@ class KnowledgeService:
         # We search for items that:
         # a) Belong to the organization AND have NO lead_id (general knowledge)
         # b) OR belong to the organization AND match the specific lead_id (this lead's history)
-        from sqlalchemy import or_
         vec_stmt = select(KnowledgeItem).where(
             KnowledgeItem.org_id == org_id
         )
@@ -86,7 +104,6 @@ class KnowledgeService:
         vec_docs = list(vec_result.scalars().all())
 
         # 2. Full Text Search (FTS)
-        from sqlalchemy import func
         ts_query = func.websearch_to_tsquery('russian', query)
         ts_vector = func.to_tsvector('russian', KnowledgeItem.content)
         
