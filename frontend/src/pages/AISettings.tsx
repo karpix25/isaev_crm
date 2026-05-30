@@ -291,7 +291,7 @@ function TabButton({ active, onClick, icon: Icon, label }: { active: boolean, on
 function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSave: (data: any) => void }) {
     const [formData, setFormData] = useState({
         name: activePrompt?.name || '',
-        llm_model: activePrompt?.llm_model || 'anthropic/claude-3.5-sonnet',
+        llm_model: activePrompt?.llm_model || 'google/gemini-3.1-flash-lite',
         embedding_model: activePrompt?.embedding_model || 'openai/text-embedding-3-small',
         system_prompt: activePrompt?.system_prompt || '',
         welcome_message: activePrompt?.welcome_message || '',
@@ -303,7 +303,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
         if (activePrompt) {
             setFormData({
                 name: activePrompt.name,
-                llm_model: activePrompt.llm_model || 'anthropic/claude-3.5-sonnet',
+                llm_model: activePrompt.llm_model || 'google/gemini-3.1-flash-lite',
                 embedding_model: activePrompt.embedding_model || 'openai/text-embedding-3-small',
                 system_prompt: activePrompt.system_prompt,
                 welcome_message: activePrompt.welcome_message || '',
@@ -340,7 +340,7 @@ function ConfigurationForm({ activePrompt, onSave }: { activePrompt?: any, onSav
                 <div className="grid grid-cols-2 gap-6">
                     <FormField label="НАЗВАНИЕ КОНФИГУРАЦИИ" value={formData.name} onChange={(v) => setFormData({ ...formData, name: v })} placeholder="Напр: Sales Agent v2.1" />
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField label="LLM МОДЕЛЬ" value={formData.llm_model} onChange={(v) => setFormData({ ...formData, llm_model: v })} placeholder="openai/gpt-4o" isSelect options={['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'google/gemini-2.5-flash', 'meta-llama/llama-3.1-70b']} />
+                        <FormField label="LLM МОДЕЛЬ" value={formData.llm_model} onChange={(v) => setFormData({ ...formData, llm_model: v })} placeholder="google/gemini-3.1-flash-lite" isSelect options={['google/gemini-3.1-flash-lite', 'google/gemini-2.5-flash-lite', 'deepseek/deepseek-v4-flash', 'mistralai/mistral-small-3.2-24b-instruct', 'openai/gpt-5.4-mini', 'anthropic/claude-haiku-4.5', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.1-70b']} />
                         <div>
                             <FormField
                                 label="EMBEDDING МОДЕЛЬ"

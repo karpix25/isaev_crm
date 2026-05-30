@@ -14,6 +14,11 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CHAT_MODEL = "google/gemini-3.1-flash-lite"
+CHAT_MODEL_ALIASES = {
+    "google/gemini-3.5-flash": DEFAULT_CHAT_MODEL,
+}
+
 def should_retry_api_error(exc: BaseException) -> bool:
     """Determine if we should retry based on the exception type and HTTP status."""
     if isinstance(exc, httpx.RequestError):
@@ -28,7 +33,7 @@ class OpenRouterService:
     
     def __init__(self):
         self.api_key = settings.openrouter_api_key
-        self.model = settings.openrouter_model
+        self.model = self.resolve_chat_model(settings.openrouter_model)
         self.base_url = getattr(settings, 'openrouter_base_url', 'https://openrouter.ai/api/v1')
         
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
@@ -44,6 +49,13 @@ class OpenRouterService:
             )
         else:
             self.langfuse = None
+
+    @staticmethod
+    def resolve_chat_model(model: Optional[str] = None) -> str:
+        normalized = str(model or "").strip()
+        if not normalized:
+            normalized = DEFAULT_CHAT_MODEL
+        return CHAT_MODEL_ALIASES.get(normalized, normalized)
     
     @retry(
         retry=retry_if_exception(should_retry_api_error),
@@ -75,6 +87,7 @@ class OpenRouterService:
             }
         """
         try:
+            resolved_model = self.resolve_chat_model(model or self.model)
             # Langfuse Trace
             trace = None
             if self.langfuse:
@@ -82,7 +95,7 @@ class OpenRouterService:
                     id=trace_id,
                     user_id=user_id,
                     name="chat-completion",
-                    metadata={"model": model or self.model}
+                    metadata={"model": resolved_model}
                 )
 
             # Prepare messages
@@ -95,7 +108,7 @@ class OpenRouterService:
             if trace:
                 generation = trace.generation(
                     name="openrouter-generation",
-                    model=model or self.model,
+                    model=resolved_model,
                     input=messages,
                     model_parameters={"temperature": 0.7}
                 )
@@ -110,7 +123,7 @@ class OpenRouterService:
                     "X-Title": "Renovation CRM"  # Optional
                 },
                 json={
-                    "model": model or self.model,
+                    "model": resolved_model,
                     "messages": messages,
                     "temperature": 0.7,
                     "max_tokens": 1000,
@@ -189,6 +202,7 @@ class OpenRouterService:
             Same format as generate_response
         """
         try:
+            resolved_model = self.resolve_chat_model(model or self.model)
             # Build the user message with image
             user_content = []
             
@@ -228,7 +242,7 @@ class OpenRouterService:
                     "X-Title": "Renovation CRM"
                 },
                 json={
-                    "model": model or self.model,
+                    "model": resolved_model,
                     "messages": messages,
                     "temperature": 0.7,
                     "max_tokens": 1000,

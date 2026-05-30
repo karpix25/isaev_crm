@@ -111,3 +111,11 @@ def test_should_retry_api_error_handles_httpx_exceptions_directly():
     assert should_retry_api_error(httpx.HTTPStatusError("credits", request=request, response=response_402)) is False
     assert should_retry_api_error(httpx.HTTPStatusError("rate limit", request=request, response=response_429)) is True
     assert should_retry_api_error(httpx.ConnectTimeout("timeout", request=request)) is True
+
+
+def test_resolve_chat_model_maps_expensive_gemini_flash_to_lite_default():
+    service = OpenRouterService()
+
+    assert service.resolve_chat_model("") == "google/gemini-3.1-flash-lite"
+    assert service.resolve_chat_model("google/gemini-3.5-flash") == "google/gemini-3.1-flash-lite"
+    assert service.resolve_chat_model("deepseek/deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
