@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -15,6 +14,7 @@ from src.models import Lead, MessageStatus, MessageTransport, User
 from src.models.lead import LeadStatus
 from src.models.user import UserRole
 from src.services.chat_service import chat_service
+from src.services.media_path_service import media_path_service
 
 
 logger = logging.getLogger(__name__)
@@ -131,7 +131,7 @@ class EstimateRequestService:
         if not final_file or not final_file.get("url"):
             raise ValueError("final_estimate_file_missing")
 
-        file_path = self._local_media_path(str(final_file["url"]))
+        file_path = media_path_service.resolve_local_media_path(str(final_file["url"]))
         if not file_path.exists():
             raise ValueError("final_estimate_file_not_found")
 
@@ -226,11 +226,6 @@ class EstimateRequestService:
             return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
             return {}
-
-    def _local_media_path(self, url: str) -> Path:
-        if not url.startswith("/media/"):
-            raise ValueError("unsupported_media_url")
-        return Path.cwd() / url.lstrip("/")
 
     def _duration_minutes(self, start_value: Any, end_value: str) -> int | None:
         start = self._parse_datetime(start_value)

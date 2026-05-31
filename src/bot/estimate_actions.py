@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from aiogram.types import FSInputFile, Message
+from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.bot import bot
 from src.models import Lead, MessageStatus, MessageTransport
 from src.models.lead import LeadStatus
 from src.services.chat_service import chat_service
+from src.services.estimate_delivery_service import estimate_delivery_service
+from src.services.media_path_service import media_path_service
 
 
 DEFAULT_ESTIMATE_RESEND_TEXT = (
@@ -37,7 +37,7 @@ async def send_ready_estimate_from_crm(db: AsyncSession, message: Message, lead:
         )
         return True
 
-    file_path = _local_media_path(str(final_file["url"]))
+    file_path = media_path_service.resolve_local_media_path(str(final_file["url"]))
     if not file_path.exists():
         await _reply_and_log(
             db,
@@ -48,23 +48,22 @@ async def send_ready_estimate_from_crm(db: AsyncSession, message: Message, lead:
         )
         return True
 
-    if not bot:
+    try:
+        telegram_message_id = await estimate_delivery_service.send_telegram_document(
+            db=db,
+            lead=lead,
+            text=DEFAULT_ESTIMATE_RESEND_TEXT,
+            file_path=file_path,
+        )
+    except ValueError as exc:
         await _reply_and_log(
             db,
             message,
             lead,
             "Смета готова, но сейчас не получается отправить файл автоматически. Передам менеджеру, чтобы прислали вручную.",
-            {"type": "estimate_resend_bot_unavailable", "file_url": final_file.get("url")},
+            {"type": str(exc), "file_url": final_file.get("url")},
         )
         return True
-
-    sent = await bot.send_document(
-        chat_id=message.chat.id,
-        document=FSInputFile(file_path),
-        caption=DEFAULT_ESTIMATE_RESEND_TEXT,
-        business_connection_id=getattr(message, "business_connection_id", None),
-        message_thread_id=message.message_thread_id if getattr(message, "is_topic_message", False) else None,
-    )
 
     sent_at = datetime.now(timezone.utc).isoformat()
     estimate_request["status"] = "sent"
@@ -81,7 +80,7 @@ async def send_ready_estimate_from_crm(db: AsyncSession, message: Message, lead:
         lead_id=lead.id,
         content=DEFAULT_ESTIMATE_RESEND_TEXT,
         media_url=str(final_file["url"]),
-        telegram_message_id=sent.message_id,
+        telegram_message_id=telegram_message_id,
         sender_name="AI",
         ai_metadata=_tool_metadata(message, "send_final_estimate", "final_estimate_resent"),
         status=MessageStatus.SENT,
@@ -149,9 +148,3 @@ def _parse_data(value: str | None) -> dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except json.JSONDecodeError:
         return {}
-
-
-def _local_media_path(url: str) -> Path:
-    if not url.startswith("/media/"):
-        raise ValueError("unsupported_media_url")
-    return Path.cwd() / url.lstrip("/")
