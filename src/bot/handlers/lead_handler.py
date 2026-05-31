@@ -2803,13 +2803,11 @@ async def process_debounced_message(conversation_key: str):
             ):
                 lead.ai_qualification_status = "in_progress"
                 await db.commit()
-            else:
+            elif _looks_like_measurement_question(combined_text):
                 measurement_answer = _build_measurement_context_answer(lead, combined_text)
-                await message.answer(
-                    measurement_answer
-                    or "✅ Спасибо, сообщение получили. Менеджер уже видит вашу заявку и скоро свяжется с вами."
-                )
-                return
+                if measurement_answer:
+                    await message.answer(measurement_answer)
+                    return
 
         try:
             # Get conversation history
