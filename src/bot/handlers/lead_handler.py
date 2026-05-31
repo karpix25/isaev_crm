@@ -226,6 +226,35 @@ def _looks_like_measurement_booking_request(text: str) -> bool:
     return any(word in normalized for word in booking_words) and any(word in normalized for word in request_words)
 
 
+def _looks_like_support_question(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    support_words = (
+        "портфолио",
+        "портфель",
+        "кейсы",
+        "примеры",
+        "фото работ",
+        "фотки работ",
+        "отзывы",
+        "гарант",
+        "договор",
+        "оплата",
+        "этап",
+        "срок",
+        "сроки",
+        "материал",
+        "цена",
+        "цены",
+        "расцен",
+        "вилка",
+        "смет",
+    )
+    question_words = ("есть", "покаж", "скинь", "пришл", "можно", "какие", "какая", "какой", "?")
+    return any(word in normalized for word in support_words) and any(word in normalized for word in question_words)
+
+
 def _looks_like_measurement_slot_reply(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -1691,6 +1720,7 @@ SCENARIO_ORCHESTRATION:
 - Если клиент просит отменить существующий замер: tool_action = "cancel_measurement".
 - Если клиент просит изменить дату, адрес, телефон или данные брони: tool_action = "change_measurement_booking".
 - Если клиент просит менеджера/оператора/живого человека: tool_action = "handoff_to_manager".
+- Если клиент спрашивает портфолио, кейсы, примеры работ, фото, отзывы, гарантии, оплату, сроки, материалы или цены: ответь в message и ставь tool_action = "none".
 - Если клиент отказался от ремонта или просит больше не писать: tool_action = "none", status = "LOST", message должен быть коротким без продолжения продажи.
 - Если клиент сам вернулся после отказа: tool_action = "show_measurement_slots".
 - Если клиент спрашивает о компании, процессе ремонта, гарантиях, оплате, сроках, материалах или цене: отвечай в message и мягко возвращай к next_action.
@@ -2893,7 +2923,10 @@ async def process_debounced_message(conversation_key: str):
             if requested_tool_action:
                 ai_metadata["requested_tool_action"] = requested_tool_action
                 ai_metadata["source"] = "ai_requested_tool"
-                if await _execute_ai_tool_action(db, message, lead, requested_tool_action):
+                if _looks_like_support_question(combined_text):
+                    ai_metadata["ignored_tool_action"] = requested_tool_action
+                    requested_tool_action = ""
+                elif await _execute_ai_tool_action(db, message, lead, requested_tool_action):
                     return
             
             # Send AI response to user
@@ -2913,7 +2946,7 @@ async def process_debounced_message(conversation_key: str):
                 stage_context.next_action == "direct_chat_qualification"
                 and should_offer_qualification(combined_text, effective_extracted_data)
             ):
-                direct_prompt = build_next_prompt(effective_extracted_data)
+                direct_prompt = build_next_prompt(effective_extracted_data, company_name=company_name)
                 if direct_prompt:
                     ai_metadata["direct_qualification"] = {
                         "type": "inline_prompt",
@@ -3247,8 +3280,9 @@ async def handle_lead_photo(message: Message):
             )
 
         requested_tool_action = _extract_ai_tool_action(ai_response.get("extracted_data"))
-        if requested_tool_action and await _execute_ai_tool_action(db, message, lead, requested_tool_action):
-            return
+        if requested_tool_action:
+            if not _looks_like_support_question(caption) and await _execute_ai_tool_action(db, message, lead, requested_tool_action):
+                return
         
         reply_text = ai_response["text"]
         await message.answer(reply_text)

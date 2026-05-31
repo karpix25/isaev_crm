@@ -132,7 +132,10 @@ def should_offer_qualification(text: str, extracted_data: dict[str, Any]) -> boo
     return any(word in normalized for word in PRICE_WORDS)
 
 
-def build_next_prompt(extracted_data: dict[str, Any]) -> DirectQualificationPrompt | None:
+def build_next_prompt(
+    extracted_data: dict[str, Any],
+    company_name: str = "Исаев Групп",
+) -> DirectQualificationPrompt | None:
     state = _state(extracted_data)
     if _has_quiz_answers(extracted_data) and not state.get("active"):
         return None
@@ -141,7 +144,7 @@ def build_next_prompt(extracted_data: dict[str, Any]) -> DirectQualificationProm
         if step.field not in completed_fields:
             return DirectQualificationPrompt(
                 field=step.field,
-                text=step.question,
+                text=_prompt_text_for_step(step, completed_fields, company_name),
                 keyboard=_keyboard_for_step(step),
             )
     return None
@@ -213,6 +216,21 @@ def _keyboard_for_step(step: DirectQualificationStep) -> InlineKeyboardMarkup:
     if row:
         rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _prompt_text_for_step(
+    step: DirectQualificationStep,
+    completed_fields: set[str],
+    company_name: str,
+) -> str:
+    if not completed_fields and step.field == "area":
+        display_name = (company_name or "Исаев Групп").strip()
+        return (
+            f"Здравствуйте. Менеджер {display_name} на связи.\n\n"
+            "Чтобы дать нормальную вилку по работам, начнем с площади. "
+            "Какая ближе?"
+        )
+    return step.question
 
 
 def _parse_callback(data: str | None) -> tuple[str | None, str | None]:
