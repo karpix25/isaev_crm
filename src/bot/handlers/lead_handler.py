@@ -24,6 +24,7 @@ from src.schemas.quiz import MeasurementBookingRequest, QuizContact
 from src.services.lead_service import lead_service
 from src.services.chat_service import chat_service
 from src.services.cal_pro_service import cal_pro_service
+from src.services.agent_tool_log_service import agent_tool_log_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
@@ -2124,9 +2125,42 @@ async def _try_execute_llm_crm_tool(
         decision.reason,
         decision.args,
     )
+    tool_call = await agent_tool_log_service.create_call(
+        db,
+        lead=lead,
+        user_message=text,
+        action=decision.action,
+        confidence=decision.confidence,
+        reason=decision.reason,
+        args=decision.args,
+        strict_schema=decision.strict_schema,
+    )
     if not decision.should_execute:
+        await agent_tool_log_service.mark_result(
+            db,
+            tool_call,
+            executed=False,
+            result="skipped_low_confidence" if decision.action != "none" else "none",
+        )
         return False
-    return await _execute_ai_tool_action(db, message, lead, decision.action, decision.args)
+    try:
+        executed = await _execute_ai_tool_action(db, message, lead, decision.action, decision.args)
+    except Exception as exc:
+        await agent_tool_log_service.mark_result(
+            db,
+            tool_call,
+            executed=False,
+            result="error",
+            error=str(exc),
+        )
+        raise
+    await agent_tool_log_service.mark_result(
+        db,
+        tool_call,
+        executed=executed,
+        result="executed" if executed else "not_applicable",
+    )
+    return executed
 
 
 async def _try_route_scenario_before_ai(

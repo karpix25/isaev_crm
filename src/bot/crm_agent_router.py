@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from src.models import Lead
 from src.services.openrouter_service import openrouter_service
+
+logger = logging.getLogger(__name__)
 
 
 ALLOWED_ACTIONS = {
@@ -31,6 +34,7 @@ class CrmToolDecision:
     args: dict[str, Any] = field(default_factory=dict)
     confidence: int = 0
     reason: str = ""
+    strict_schema: bool = False
 
     @property
     def should_execute(self) -> bool:
@@ -52,19 +56,77 @@ async def choose_crm_tool(
 
     prompt = _build_router_prompt(lead=lead, stage_context=stage_context)
     try:
-        response = await openrouter_service.generate_response(
-            conversation_history=[{"role": "user", "content": text}],
-            system_prompt=prompt,
+        data = await _call_strict_router(
+            prompt=prompt,
+            user_text=text,
             model=model,
             trace_id=trace_id,
             user_id=user_id,
         )
+        return _decision_from_data(data, strict_schema=True)
     except Exception as exc:
-        return CrmToolDecision(reason=f"router_error:{str(exc)[:120]}")
+        logger.warning("Strict CRM tool router failed, falling back to JSON prompt: %s", exc)
+        try:
+            response = await openrouter_service.generate_response(
+                conversation_history=[{"role": "user", "content": text}],
+                system_prompt=prompt,
+                model=model,
+                trace_id=trace_id,
+                user_id=user_id,
+            )
+        except Exception as fallback_exc:
+            return CrmToolDecision(reason=f"router_error:{str(fallback_exc)[:120]}")
 
-    data = response.get("extracted_data")
-    if not isinstance(data, dict):
-        data = _parse_json(response.get("text"))
+        data = response.get("extracted_data")
+        if not isinstance(data, dict):
+            data = _parse_json(response.get("text"))
+        return _decision_from_data(data, strict_schema=False)
+
+
+async def _call_strict_router(
+    *,
+    prompt: str,
+    user_text: str,
+    model: str | None,
+    trace_id: str | None,
+    user_id: str | None,
+) -> dict[str, Any]:
+    resolved_model = openrouter_service.resolve_chat_model(model or openrouter_service.model)
+    response = await openrouter_service.client.post(
+        f"{openrouter_service.base_url}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {openrouter_service.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://renovation-crm.com",
+            "X-Title": "Renovation CRM",
+        },
+        json={
+            "model": resolved_model,
+            "messages": [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_text},
+            ],
+            "temperature": 0,
+            "max_tokens": 250,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "crm_tool_decision",
+                    "strict": True,
+                    "schema": _decision_schema(),
+                },
+            },
+        },
+    )
+    response.raise_for_status()
+    data = response.json()
+    parsed = _parse_json(data["choices"][0]["message"]["content"])
+    if not isinstance(parsed, dict):
+        raise ValueError("strict_router_no_json")
+    return parsed
+
+
+def _decision_from_data(data: Any, *, strict_schema: bool) -> CrmToolDecision:
     if not isinstance(data, dict):
         return CrmToolDecision(reason="no_json")
 
@@ -75,14 +137,20 @@ async def choose_crm_tool(
     args = data.get("args") if isinstance(data.get("args"), dict) else {}
     confidence = _safe_int(data.get("confidence"), default=0)
     reason = str(data.get("reason") or "")[:240]
-    return CrmToolDecision(action=action, args=args, confidence=confidence, reason=reason)
+    return CrmToolDecision(
+        action=action,
+        args=args,
+        confidence=confidence,
+        reason=reason,
+        strict_schema=strict_schema,
+    )
 
 
 def _build_router_prompt(*, lead: Lead, stage_context: Any = None) -> str:
     snapshot = _lead_snapshot(lead=lead, stage_context=stage_context)
     return f"""
 Ты CRM tool-router. Твоя задача: по последнему сообщению клиента выбрать ОДИН безопасный инструмент CRM.
-Не отвечай клиенту текстом. Верни только JSON.
+Не отвечай клиенту текстом. Верни только JSON по схеме.
 
 CRM_SNAPSHOT:
 {json.dumps(snapshot, ensure_ascii=False)}
@@ -138,6 +206,37 @@ def _lead_snapshot(*, lead: Lead, stage_context: Any = None) -> dict[str, Any]:
             "status": estimate.get("status"),
             "final_file_present": bool(isinstance(estimate.get("final_file"), dict) and estimate["final_file"].get("url")),
         },
+    }
+
+
+def _decision_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": sorted(ALLOWED_ACTIONS),
+            },
+            "args": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "measurement_address": {"type": "string"},
+                },
+                "required": ["measurement_address"],
+            },
+            "confidence": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+            },
+            "reason": {
+                "type": "string",
+                "maxLength": 240,
+            },
+        },
+        "required": ["action", "args", "confidence", "reason"],
     }
 
 

@@ -17,6 +17,7 @@ from src.models.knowledge import KnowledgeItem
 from src.models.prompt_config import PromptConfig
 from src.models.custom_field import CustomField, FieldType
 from src.models.company_fact import CompanyFact
+from src.models.agent_tool_call import AgentToolCall
 from src.models.telegram_user_bot import TelegramUserBot
 from src.models.auth_session import AuthSession
 from src.models.lead_change_log import LeadChangeLog
@@ -48,6 +49,7 @@ __all__ = [
     "CustomField",
     "FieldType",
     "CompanyFact",
+    "AgentToolCall",
     "TelegramUserBot",
     "AuthSession",
     "LeadChangeLog",
