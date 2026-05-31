@@ -45,6 +45,7 @@ from src.bot.measurement_slots import (
     slot_time_label as _slot_time_label,
 )
 from src.bot.telegram_file_service import save_telegram_document
+from src.bot.crm_agent_router import choose_crm_tool
 from src.bot.crm_safe_tools import answer_estimate_status, answer_lead_summary, answer_measurement_booking
 from src.bot.estimate_actions import looks_like_estimate_file_request, send_ready_estimate_from_crm
 from src.models import AuthSession, ChatMessage, Lead, MessageDirection, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
@@ -1342,6 +1343,10 @@ async def _try_handle_pending_measurement_address(
         return False
 
     clean_address = address.strip()
+    corrected_address = _extract_direct_address_correction(clean_address)
+    if corrected_address:
+        clean_address = corrected_address
+
     if _looks_like_address_or_booking_question(clean_address):
         answer = _build_measurement_status_answer(lead, clean_address)
         sent = await message.answer(answer)
@@ -2021,7 +2026,9 @@ async def _execute_ai_tool_action(
     message: Message,
     lead,
     action: str,
+    args: dict | None = None,
 ) -> bool:
+    args = args or {}
     if action == "show_measurement_slots":
         if _lead_measurement_data(lead).get("start"):
             text = _build_measurement_status_answer(lead, "запись")
@@ -2036,6 +2043,26 @@ async def _execute_ai_tool_action(
             )
             return True
         return await _send_measurement_slot_dates(message, db, lead)
+
+    if action == "update_measurement_address":
+        address = str(args.get("measurement_address") or args.get("address") or "").strip()
+        if address and await _handle_direct_measurement_address_correction(db, message, lead, address):
+            return True
+        measurement = _lead_measurement_data(lead)
+        if measurement.get("start"):
+            await _set_pending_measurement_update(db, lead, "address")
+            text = "Напишите новый адрес объекта: город, улицу, дом и квартиру/офис."
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="Bot",
+                ai_metadata={"source": "crm_tool", "type": "measurement_address_update_request"},
+            )
+            return True
+        return False
 
     if action == "reschedule_measurement":
         measurement = _lead_measurement_data(lead)
@@ -2073,6 +2100,35 @@ async def _execute_ai_tool_action(
     return False
 
 
+async def _try_execute_llm_crm_tool(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text: str,
+    stage_context,
+    config=None,
+) -> bool:
+    decision = await choose_crm_tool(
+        lead=lead,
+        user_text=text,
+        stage_context=stage_context,
+        model=getattr(config, "llm_model", None) if config else None,
+        trace_id=f"crm_tool_router_{lead.id}",
+        user_id=str(message.from_user.id),
+    )
+    logger.info(
+        "CRM tool router: lead_id=%s action=%s confidence=%s reason=%s args=%s",
+        lead.id,
+        decision.action,
+        decision.confidence,
+        decision.reason,
+        decision.args,
+    )
+    if not decision.should_execute:
+        return False
+    return await _execute_ai_tool_action(db, message, lead, decision.action, decision.args)
+
+
 async def _try_route_scenario_before_ai(
     db: AsyncSession,
     message: Message,
@@ -2094,6 +2150,9 @@ async def _try_route_scenario_before_ai(
 
     if _looks_like_not_interested(text):
         return await _handle_not_interested(db, message, lead, text)
+
+    if await _try_execute_llm_crm_tool(db, message, lead, text, stage_context):
+        return True
 
     if _looks_like_manager_handoff_request(text):
         return await _send_manager_handoff_notice(message, db, lead)
