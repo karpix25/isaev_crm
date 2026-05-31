@@ -8,6 +8,8 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from src.services.quiz_price_service import calculate_quiz_price
+
 
 CALLBACK_PREFIX = "dq"
 STATE_KEY = "direct_qualification"
@@ -114,17 +116,7 @@ QUIZ_FIELD_BY_FIELD = {
 QUIZ_VALUE_BY_FIELD = {
     "renovation_type": {"cosmetic": "cosm"},
 }
-PRICE_WORDS = (
-    "цен",
-    "стоим",
-    "сколько",
-    "прайс",
-    "бюджет",
-    "расчет",
-    "расчёт",
-    "смет",
-    "ремонт",
-)
+PRICE_WORDS = ("цен", "стоим", "сколько", "прайс", "бюджет", "расчет", "расчёт", "смет", "ремонт")
 
 
 def should_offer_qualification(text: str, extracted_data: dict[str, Any]) -> bool:
@@ -194,6 +186,7 @@ def apply_callback_answer(
         state["completed"] = True
         state["completed_at"] = _now_iso()
         updated[STATE_KEY] = state
+        _sync_quiz_price(updated)
 
     return DirectQualificationAnswer(
         field=field,
@@ -281,6 +274,16 @@ def _sync_quiz_answer(extracted_data: dict[str, Any], field: str, value: str) ->
     answers[quiz_field] = QUIZ_VALUE_BY_FIELD.get(field, {}).get(value, value)
     quiz["answers"] = answers
     quiz.setdefault("source", "telegram_inline")
+    quiz["updated_at"] = _now_iso()
+    extracted_data["quiz"] = quiz
+
+
+def _sync_quiz_price(extracted_data: dict[str, Any]) -> None:
+    quiz = extracted_data.get("quiz") if isinstance(extracted_data.get("quiz"), dict) else {}
+    answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
+    if not answers:
+        return
+    quiz["price"] = calculate_quiz_price(answers).as_dict()
     quiz["updated_at"] = _now_iso()
     extracted_data["quiz"] = quiz
 

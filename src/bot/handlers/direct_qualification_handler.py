@@ -45,11 +45,27 @@ def _needs_measurement_booking(extracted_data: dict) -> bool:
     return str(extracted_data.get("design_project_status") or "").strip().lower() == "нет"
 
 
+def _price_line(extracted_data: dict) -> str:
+    quiz = extracted_data.get("quiz") if isinstance(extracted_data.get("quiz"), dict) else {}
+    price = quiz.get("price") if isinstance(quiz.get("price"), dict) else {}
+    label = str(price.get("label") or "").strip()
+    if not label:
+        return ""
+    return (
+        f"Предварительно по работам без стройматериалов: {label}.\n"
+        "Этот ориентир можем зафиксировать за вами на месяц."
+    )
+
+
+def _join_message(*parts: str) -> str:
+    return "\n\n".join(part.strip() for part in parts if part and part.strip())
+
+
 async def _build_completion_reply(db: AsyncSession, lead: Lead, extracted_data: dict):
+    price_line = _price_line(extracted_data)
     if not _needs_measurement_booking(extracted_data):
         return (
-            "Спасибо, вводные собрали ✅\n\n"
-            "Теперь менеджер увидит картину сразу и сможет сориентировать без повторных вопросов.",
+            _join_message(price_line, "Вводные сохранил ✅"),
             None,
             "completed",
         )
@@ -64,9 +80,11 @@ async def _build_completion_reply(db: AsyncSession, lead: Lead, extracted_data: 
         lead.status = LeadStatus.MEASUREMENT_PENDING.value
         await db.commit()
         return (
-            "Спасибо, вводные собрали ✅\n\n"
-            "Раз проекта пока нет, лучше начать с бесплатного замера. "
-            "Напишите удобный день и время — менеджер проверит расписание и подтвердит окно.",
+            _join_message(
+                price_line,
+                "Раз проекта пока нет, лучше начать с бесплатного замера. "
+                "Напишите удобный день и время — менеджер проверит расписание и подтвердит окно.",
+            ),
             None,
             "measurement_slots_empty",
         )
@@ -80,9 +98,11 @@ async def _build_completion_reply(db: AsyncSession, lead: Lead, extracted_data: 
     await db.commit()
 
     return (
-        "Спасибо, вводные собрали ✅\n\n"
-        "Раз проекта пока нет, лучше начать с бесплатного замера. "
-        "Выберите удобный день, а после выезда мы точнее посчитаем работы без стройматериалов 📍",
+        _join_message(
+            price_line,
+            "Раз проекта пока нет, лучше начать с бесплатного замера. "
+            "Выберите удобный день, а после выезда мы точнее посчитаем работы без стройматериалов 📍",
+        ),
         build_measurement_date_keyboard(slots),
         "measurement_slots",
     )

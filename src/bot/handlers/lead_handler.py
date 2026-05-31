@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Create router for lead handlers
 router = Router()
+LEAD_MESSAGE_DEBOUNCE_SECONDS = 15.0
 
 QUIZ_LABELS = {
     "type": {"flat": "Квартира", "house": "Дом", "commercial": "Коммерция"},
@@ -2600,7 +2601,7 @@ async def quiz_measure_time_callback(query: CallbackQuery):
 async def handle_lead_message(message: Message):
     """
     Handle text messages from leads with debouncing.
-    Groups messages sent within 5 seconds into a single AI request.
+    Groups messages sent within the debounce window into a single AI request.
     """
     user_id = message.from_user.id
     business_connection_id = getattr(message, "business_connection_id", None)
@@ -2639,7 +2640,7 @@ async def handle_lead_message(message: Message):
 
 async def process_debounced_message(conversation_key: str):
     """Wait for quiet period and then process all accumulated messages."""
-    await asyncio.sleep(5.0) # 5 second window
+    await asyncio.sleep(LEAD_MESSAGE_DEBOUNCE_SECONDS)
     
     if conversation_key not in pending_updates:
         return
@@ -2826,7 +2827,11 @@ async def process_debounced_message(conversation_key: str):
             
             # Technical constraints to prevent breakage
             system_prompt = normalize_system_prompt_template(system_prompt)
-            technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
+            technical_rules = (
+                "\n\nCRITICAL: Always respond in valid JSON format. "
+                "If you need to speak to the user, put your text in the \"message\" field of the JSON. "
+                "Keep user-facing message concise: normally 1-4 short sentences."
+            )
             identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
             system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
             if outside_business_hours:
@@ -2915,8 +2920,9 @@ async def process_debounced_message(conversation_key: str):
                         "field": direct_prompt.field,
                     }
 
+            outbound_text = direct_prompt.text if direct_prompt else response_text
             sent_message = await message.answer(
-                response_text,
+                outbound_text,
                 reply_markup=direct_prompt.keyboard if direct_prompt else None,
             )
             logger.info(
@@ -2929,7 +2935,7 @@ async def process_debounced_message(conversation_key: str):
             await chat_service.send_outbound_message(
                 db=db,
                 lead_id=lead.id,
-                content=response_text,
+                content=outbound_text,
                 telegram_message_id=sent_message.message_id,
                 sender_name="AI",
                 ai_metadata=ai_metadata
@@ -3178,7 +3184,11 @@ async def handle_lead_photo(message: Message):
             system_prompt = await build_system_prompt(db, org_id, company_name)
         
         system_prompt = normalize_system_prompt_template(system_prompt)
-        technical_rules = "\n\nCRITICAL: Always respond in valid JSON format. If you need to speak to the user, put your text in the \"message\" field of the JSON."
+        technical_rules = (
+            "\n\nCRITICAL: Always respond in valid JSON format. "
+            "If you need to speak to the user, put your text in the \"message\" field of the JSON. "
+            "Keep user-facing message concise: normally 1-4 short sentences."
+        )
         identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
         system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
         if outside_business_hours:
