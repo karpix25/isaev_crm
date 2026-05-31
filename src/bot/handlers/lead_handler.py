@@ -1242,6 +1242,11 @@ async def _try_handle_pending_measurement_update(
             ai_metadata={
                 "source": "measurement_change",
                 "type": "measurement_address_updated",
+                "crm_tool_action": "update_measurement_address",
+                "tool_call": {
+                    "action": "update_measurement_address",
+                    "channel": _telegram_tool_channel(message),
+                },
                 "old_address": old_address,
             },
         )
@@ -1501,6 +1506,11 @@ async def _handle_direct_measurement_address_correction(
         ai_metadata={
             "source": "bot_scenario",
             "type": "measurement_address_directly_updated",
+            "crm_tool_action": "update_measurement_address",
+            "tool_call": {
+                "action": "update_measurement_address",
+                "channel": _telegram_tool_channel(message),
+            },
             "old_address": old_address,
         },
     )
@@ -2040,7 +2050,12 @@ async def _execute_ai_tool_action(
                 content=text,
                 telegram_message_id=sent.message_id,
                 sender_name="Bot",
-                ai_metadata={"source": "bot_scenario", "type": "measurement_existing_booking_guard"},
+                ai_metadata=_crm_tool_message_metadata(
+                    message,
+                    action,
+                    "measurement_existing_booking_guard",
+                    source="bot_scenario",
+                ),
             )
             return True
         return await _send_measurement_slot_dates(message, db, lead)
@@ -2060,7 +2075,7 @@ async def _execute_ai_tool_action(
                 content=text,
                 telegram_message_id=sent.message_id,
                 sender_name="Bot",
-                ai_metadata={"source": "crm_tool", "type": "measurement_address_update_request"},
+                ai_metadata=_crm_tool_message_metadata(message, action, "measurement_address_update_request"),
             )
             return True
         return False
@@ -2099,6 +2114,28 @@ async def _execute_ai_tool_action(
         return await _send_manager_handoff_notice(message, db, lead)
 
     return False
+
+
+def _crm_tool_message_metadata(
+    message: Message,
+    action: str,
+    tool_type: str,
+    *,
+    source: str = "crm_tool",
+) -> dict:
+    return {
+        "source": source,
+        "type": tool_type,
+        "crm_tool_action": action,
+        "tool_call": {
+            "action": action,
+            "channel": _telegram_tool_channel(message),
+        },
+    }
+
+
+def _telegram_tool_channel(message: Message) -> str:
+    return "telegram_business" if getattr(message, "business_connection_id", None) else "telegram"
 
 
 async def _try_execute_llm_crm_tool(

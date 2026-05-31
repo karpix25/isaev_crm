@@ -83,7 +83,7 @@ async def send_ready_estimate_from_crm(db: AsyncSession, message: Message, lead:
         media_url=str(final_file["url"]),
         telegram_message_id=sent.message_id,
         sender_name="AI",
-        ai_metadata={"source": "ai_tool", "type": "final_estimate_resent"},
+        ai_metadata=_tool_metadata(message, "send_final_estimate", "final_estimate_resent"),
         status=MessageStatus.SENT,
         transport=MessageTransport.TELEGRAM,
     )
@@ -122,10 +122,23 @@ async def _reply_and_log(
         content=text,
         telegram_message_id=sent.message_id,
         sender_name="AI",
-        ai_metadata={"source": "ai_tool", **metadata},
+        ai_metadata={**_tool_metadata(message, "send_final_estimate", str(metadata.get("type") or "")), **metadata},
         status=MessageStatus.SENT,
         transport=MessageTransport.TELEGRAM,
     )
+
+
+def _tool_metadata(message: Message, action: str, tool_type: str) -> dict[str, Any]:
+    channel = "telegram_business" if getattr(message, "business_connection_id", None) else "telegram"
+    return {
+        "source": "ai_tool",
+        "type": tool_type,
+        "crm_tool_action": action,
+        "tool_call": {
+            "action": action,
+            "channel": channel,
+        },
+    }
 
 
 def _parse_data(value: str | None) -> dict[str, Any]:

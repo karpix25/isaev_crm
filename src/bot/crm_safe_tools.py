@@ -109,11 +109,24 @@ async def _reply_and_log(
         content=text,
         telegram_message_id=sent.message_id,
         sender_name="AI",
-        ai_metadata={"source": "crm_safe_tool", "type": tool_type},
+        ai_metadata=_tool_metadata(message, tool_type),
         status=MessageStatus.SENT,
         transport=MessageTransport.TELEGRAM,
     )
     return True
+
+
+def _tool_metadata(message: Message, tool_type: str) -> dict[str, Any]:
+    channel = "telegram_business" if getattr(message, "business_connection_id", None) else "telegram"
+    return {
+        "source": "crm_safe_tool",
+        "type": tool_type,
+        "crm_tool_action": tool_type,
+        "tool_call": {
+            "action": tool_type,
+            "channel": channel,
+        },
+    }
 
 
 def _parse_data(value: str | None) -> dict[str, Any]:

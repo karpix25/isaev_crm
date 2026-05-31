@@ -4,6 +4,7 @@ import { useChatHistory, useSendBusinessCard, useSendMessage } from '@/hooks/use
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
 import { LeadStatus, MessageDirection, MessageTransport, type Lead } from '@/types'
+import { MessageToolCallBadge } from '@/components/chat/MessageToolCallBadge'
 import { formatTimeAgo } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
@@ -1441,6 +1442,10 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                                     Отправлено из CRM
                                                 </div>
                                             )}
+                                            <MessageToolCallBadge
+                                                message={msg}
+                                                leadSource={lead.source}
+                                            />
                                             <span className="px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
                                                 {getMessageLabel(msg)} • {(msg.transport === MessageTransport.WHATSAPP ? 'WA' : 'TG')} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
