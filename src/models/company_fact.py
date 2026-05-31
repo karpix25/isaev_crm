@@ -32,7 +32,7 @@ class CompanyFact(BaseModel):
     display_order = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
 
-    organization = relationship("Organization")
+    organization = relationship("Organization", back_populates="company_facts")
 
     def __repr__(self) -> str:
         return f"<CompanyFact(key={self.key}, org_id={self.org_id})>"

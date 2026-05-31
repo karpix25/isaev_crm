@@ -199,10 +199,13 @@ def _looks_like_existing_measurement_lookup(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
         return False
-    booking_context = any(word in normalized for word in ("замер", "запис", "брон", "выезд", "инженер", "встреч"))
+    booking_context = any(word in normalized for word in ("замер", "запис", "брон", "выезд", "инженер", "встреч", "адрес"))
     lookup_context = any(
         phrase in normalized
         for phrase in (
+            "адрес запис",
+            "адрес мой",
+            "мой адрес",
             "какое число",
             "на какое",
             "когда",
@@ -215,6 +218,35 @@ def _looks_like_existing_measurement_lookup(text: str) -> bool:
         )
     )
     return booking_context and lookup_context
+
+
+def _looks_like_question(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return "?" in normalized or any(
+        word in normalized
+        for word in (
+            "когда",
+            "какой",
+            "какое",
+            "какая",
+            "куда",
+            "где",
+            "напомн",
+            "записали",
+            "есть",
+            "видите",
+            "сохранили",
+        )
+    )
+
+
+def _looks_like_address_or_booking_question(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    has_question = _looks_like_question(normalized)
+    booking_context = any(word in normalized for word in ("замер", "запис", "брон", "адрес", "выезд"))
+    return has_question and booking_context
 
 
 def _looks_like_measurement_cancel_request(text: str) -> bool:
@@ -242,13 +274,33 @@ def _looks_like_measurement_booking_request(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
         return False
+    if _looks_like_existing_measurement_lookup(normalized) or _looks_like_address_or_booking_question(normalized):
+        return False
 
     direct_calendar_words = ("calpro", "cal pro", "cal.com", "calcom", "календар", "слот", "окн")
     booking_words = ("запис", "заброн", "брон", "замер", "выезд", "инженер")
-    request_words = ("дай", "дайте", "скинь", "скиньте", "пришли", "пришлите", "можно", "хочу", "запис")
+    request_words = ("дай", "дайте", "скинь", "скиньте", "пришли", "пришлите", "можно", "хочу")
+    explicit_booking_phrases = (
+        "хочу запис",
+        "запишите",
+        "запиши",
+        "забронируйте",
+        "забронируй",
+        "можно запис",
+        "можно брон",
+        "давайте замер",
+        "давайте выезд",
+        "подберите время",
+        "выбрать время",
+        "выбрать слот",
+    )
     if any(word in normalized for word in direct_calendar_words) and any(word in normalized for word in request_words):
         return True
-    return any(word in normalized for word in booking_words) and any(word in normalized for word in request_words)
+    if any(phrase in normalized for phrase in explicit_booking_phrases):
+        return True
+    return any(word in normalized for word in ("замер", "выезд", "инженер")) and any(
+        word in normalized for word in request_words
+    )
 
 
 def _looks_like_support_question(text: str) -> bool:
@@ -1262,6 +1314,19 @@ async def _try_handle_pending_measurement_address(
         return False
 
     clean_address = address.strip()
+    if _looks_like_address_or_booking_question(clean_address):
+        answer = _build_measurement_status_answer(lead, clean_address)
+        sent = await message.answer(answer)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=answer,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "bot_scenario", "type": "pending_measurement_question"},
+        )
+        return True
+
     if len(clean_address) < 5:
         text = "Похоже, адрес получился неполным. Напишите, пожалуйста: город, улицу, дом и квартиру/офис."
         sent = await message.answer(text)

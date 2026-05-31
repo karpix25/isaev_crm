@@ -24,7 +24,7 @@ class Organization(BaseModel):
     leads = relationship("Lead", back_populates="organization", cascade="all, delete-orphan")
     projects = relationship("Project", back_populates="organization", cascade="all, delete-orphan")
     custom_fields = relationship("CustomField", back_populates="organization", cascade="all, delete-orphan")
-    company_facts = relationship("CompanyFact", cascade="all, delete-orphan")
+    company_facts = relationship("CompanyFact", back_populates="organization", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Organization(id={self.id}, name={self.name})>"
