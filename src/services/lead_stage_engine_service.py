@@ -133,10 +133,12 @@ class LeadStageEngineService:
         quiz = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
         answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
         measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+        estimate_request = data.get("estimate_request") if isinstance(data.get("estimate_request"), dict) else {}
 
         design_answer = str(answers.get("design") or "").lower()
         has_quiz = bool(answers)
         has_design_file = bool(quiz.get("design_project_file_url")) or "design_file_uploaded" in event_types
+        needs_estimate = str(estimate_request.get("status") or "").lower() == "needs_estimate"
         design_later = "design_upload_skipped" in event_types
         has_inbound = bool(event_types & {"telegram_message_received", "whatsapp_message_received"})
         has_messenger_click = bool(event_types & {"telegram_clicked", "whatsapp_clicked"})
@@ -165,7 +167,7 @@ class LeadStageEngineService:
             return StageDecision(LeadStatus.ESTIMATE_SENT, "estimate_sent")
         if "estimate_review_requested" in event_types or "estimate_ai_created" in event_types:
             return StageDecision(LeadStatus.ESTIMATE_REVIEW, "estimate_review_requested")
-        if "estimate_preparing" in event_types:
+        if needs_estimate or "estimate_preparing" in event_types:
             return StageDecision(LeadStatus.ESTIMATE_PREPARING, "estimate_preparing")
         if "measurement_done" in event_types:
             return StageDecision(LeadStatus.MEASUREMENT_DONE, "measurement_done")

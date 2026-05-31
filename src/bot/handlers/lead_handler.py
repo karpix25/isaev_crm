@@ -44,6 +44,7 @@ from src.bot.measurement_slots import (
     slot_local_datetime as _slot_local_datetime,
     slot_time_label as _slot_time_label,
 )
+from src.bot.telegram_file_service import save_telegram_document
 from src.models import AuthSession, ChatMessage, Lead, MessageDirection, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
 from src.models.user import UserRole
 
@@ -3316,6 +3317,115 @@ async def handle_lead_photo(message: Message):
         
         if update_fields:
             await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
+
+
+@router.business_message(F.document)
+@router.message(F.document)
+async def handle_lead_document(message: Message):
+    """Save client files for estimate preparation and notify estimators."""
+    if not message.document:
+        return
+
+    async with AsyncSessionLocal() as db:
+        org_id = await get_default_org_id(db)
+
+        from src.services.quiz_service import quiz_service
+        lead = await quiz_service.link_telegram_message(
+            db=db,
+            org_id=org_id,
+            text=message.caption or "",
+            telegram_id=message.from_user.id,
+            full_name=message.from_user.full_name,
+            username=message.from_user.username,
+        )
+        if not lead:
+            lead = await quiz_service.link_telegram_identity(
+                db=db,
+                org_id=org_id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+            )
+        if not lead:
+            lead = await lead_service.create_or_get_lead(
+                db=db,
+                org_id=org_id,
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+            )
+
+        caption = (message.caption or "").strip()
+        filename = message.document.file_name or "Файл для расчета"
+        content = f"[Файл для расчета] {filename}"
+        if caption:
+            content += f"\n{caption}"
+
+        await chat_service.save_incoming_message(
+            db=db,
+            lead_id=lead.id,
+            content=content,
+            telegram_message_id=message.message_id,
+            media_url=f"tg://document/{message.document.file_id}",
+            sender_name=message.from_user.full_name,
+            ai_metadata={"source": "telegram_document", "file_name": filename},
+        )
+
+        try:
+            url, display_name = await save_telegram_document(bot, message.document)
+            from src.services.estimate_request_service import estimate_request_service
+
+            await estimate_request_service.register_file(
+                db=db,
+                lead=lead,
+                url=url,
+                filename=display_name,
+                source="telegram_document",
+                telegram_file_id=message.document.file_id,
+            )
+        except ValueError as exc:
+            text = (
+                "Файл не получилось принять. Пришлите, пожалуйста, PDF, фото, архив, DWG или Excel до 50 МБ."
+                if str(exc) in {"unsupported_file_type", "file_too_large"}
+                else "Файл не получилось принять. Попробуйте отправить его еще раз."
+            )
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="Bot",
+                ai_metadata={"source": "telegram_document", "type": "estimate_file_rejected"},
+            )
+            return
+        except Exception:
+            logger.warning("Failed to save Telegram estimate document for lead %s", lead.id, exc_info=True)
+            text = "Файл получили в чате, но не смогли сохранить в карточке. Менеджер проверит вручную."
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="Bot",
+                ai_metadata={"source": "telegram_document", "type": "estimate_file_save_failed"},
+            )
+            return
+
+        text = (
+            "Файл получили, передали сметчику на просчет ✅\n"
+            "Обычно расчет занимает до 24 часов."
+        )
+        sent = await message.answer(text)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "telegram_document", "type": "estimate_file_received"},
+        )
 
 
 # Register router with dispatcher

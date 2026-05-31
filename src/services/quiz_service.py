@@ -426,12 +426,15 @@ class QuizService:
             result = await db.execute(select(Lead).where(Lead.id == session.lead_id))
             lead = result.scalar_one_or_none()
             if lead:
-                data = self._parse_extracted_data(lead.extracted_data)
-                data.setdefault("quiz", {})["design_project_file_url"] = url
-                lead.extracted_data = json.dumps(data, ensure_ascii=False)
-                if lead.status in self.AUTO_QUIZ_STATUSES:
-                    lead.status = LeadStatus.DESIGN_REVIEW.value
-                await db.commit()
+                from src.services.estimate_request_service import estimate_request_service
+
+                await estimate_request_service.register_file(
+                    db=db,
+                    lead=lead,
+                    url=url,
+                    filename=filename,
+                    source="quiz_design_project",
+                )
 
     def extract_session_token(self, text: str | None) -> str | None:
         if not text:

@@ -9,10 +9,16 @@ import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
     ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History,
-    CalendarClock, ChevronDown
+    CalendarClock, ChevronDown, FileText
 } from 'lucide-react'
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
+
+function getMediaUrl(url?: string | null): string | null {
+    if (!url) return null
+    if (/^https?:\/\//i.test(url)) return url
+    return `${API_URL}${url.startsWith('/') ? url : `/${url}`}`
+}
 
 const columns = [
     { id: LeadStatus.NEW, title: 'Новый лид', color: 'bg-sky-500' },
@@ -844,6 +850,20 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const quizAnswerRows = getQuizAnswerRows(savedExtractedData)
     const quizPrice = savedExtractedData?.quiz?.price
     const quizPreferredMessenger = savedExtractedData?.quiz?.preferred_messenger
+    const estimateRequest = savedExtractedData?.estimate_request && typeof savedExtractedData.estimate_request === 'object'
+        ? savedExtractedData.estimate_request
+        : null
+    const latestEstimateFile = estimateRequest?.latest_file && typeof estimateRequest.latest_file === 'object'
+        ? estimateRequest.latest_file
+        : null
+    const estimateFileUrl = getMediaUrl(latestEstimateFile?.url ? String(latestEstimateFile.url) : null)
+    const estimateFileName = latestEstimateFile?.filename ? String(latestEstimateFile.filename) : 'Файл для расчета'
+    const estimateStatusLabel = estimateRequest?.status === 'needs_estimate'
+        ? 'Нужен просчет'
+        : estimateRequest?.status
+            ? String(estimateRequest.status)
+            : 'Не запрошен'
+    const estimateSlaLabel = estimateRequest?.sla_hours ? `До ${estimateRequest.sla_hours} часов` : 'До 24 часов'
     const measurement = savedExtractedData?.measurement && typeof savedExtractedData.measurement === 'object'
         ? savedExtractedData.measurement
         : null
@@ -1051,6 +1071,35 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                     </div>
                                 )}
                             </section>
+
+                            {estimateRequest && (
+                                <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                                    <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                                        <FileText className="h-3.5 w-3.5" /> Просчет сметы
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-y-5 gap-x-4">
+                                        <DataField label="Статус" value={estimateStatusLabel} />
+                                        <DataField label="Срок" value={estimateSlaLabel} icon={<Clock className="h-3 w-3" />} />
+                                        <div className="col-span-2 space-y-1">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-80">
+                                                <FileText className="h-3 w-3" /> Файл клиента
+                                            </div>
+                                            {estimateFileUrl ? (
+                                                <a
+                                                    href={estimateFileUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/5"
+                                                >
+                                                    <span className="truncate">{estimateFileName}</span>
+                                                </a>
+                                            ) : (
+                                                <div className="text-xs font-medium text-slate-800">{estimateFileName}</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </section>
+                            )}
 
                             {/* Client Data Section */}
                             <section className="rounded-2xl border bg-white p-5 shadow-sm">
