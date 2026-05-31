@@ -5,6 +5,8 @@ import type {
     KnowledgeItemResponse, KnowledgeItemCreate,
     KnowledgeSearchRequest,
     TelegramBusinessCardTemplateSettings,
+    CompanyFact,
+    CompanyFactPayload,
 } from '@/types'
 
 export function useAI() {
@@ -104,6 +106,37 @@ export function useAI() {
         },
     })
 
+    const companyFacts = useQuery({
+        queryKey: ['ai', 'company-facts'],
+        queryFn: async () => {
+            const { data } = await api.get<CompanyFact[]>('/ai/company-facts')
+            return data
+        },
+    })
+
+    const createCompanyFact = useMutation({
+        mutationFn: async (payload: CompanyFactPayload) => {
+            const { data } = await api.post<CompanyFact>('/ai/company-facts', payload)
+            return data
+        },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ai', 'company-facts'] }),
+    })
+
+    const updateCompanyFact = useMutation({
+        mutationFn: async ({ id, payload }: { id: string; payload: Partial<CompanyFactPayload> }) => {
+            const { data } = await api.put<CompanyFact>(`/ai/company-facts/${id}`, payload)
+            return data
+        },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ai', 'company-facts'] }),
+    })
+
+    const deleteCompanyFact = useMutation({
+        mutationFn: async (id: string) => {
+            await api.delete(`/ai/company-facts/${id}`)
+        },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ai', 'company-facts'] }),
+    })
+
     const updateTelegramBusinessCardTemplate = useMutation({
         mutationFn: async (payload: { template: string }) => {
             const { data } = await api.put<TelegramBusinessCardTemplateSettings>('/ai/telegram-business-card-template', payload)
@@ -126,5 +159,9 @@ export function useAI() {
         knowledge,
         telegramBusinessCardTemplate,
         updateTelegramBusinessCardTemplate,
+        companyFacts,
+        createCompanyFact,
+        updateCompanyFact,
+        deleteCompanyFact,
     }
 }

@@ -154,5 +154,14 @@ async def enrich_system_prompt(
             )
     else:
         enhanced_prompt = enhanced_prompt.replace("{custom_fields}", "")
-        
+
+    try:
+        from src.services.company_fact_service import company_fact_service
+
+        company_facts_text = await company_fact_service.build_prompt_section(db, org_uuid, limit=20)
+    except Exception:
+        company_facts_text = ""
+    if company_facts_text:
+        enhanced_prompt = f"{enhanced_prompt}{company_facts_text}"
+
     return enhanced_prompt

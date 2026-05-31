@@ -103,6 +103,39 @@ export interface DashboardMetrics {
     recent_ai_actions: RecentAIAction[];
 }
 
+export type CompanyFactCategory =
+    | 'company'
+    | 'pricing'
+    | 'measurement'
+    | 'estimate'
+    | 'portfolio'
+    | 'warranty'
+    | 'payment'
+    | 'regions'
+    | 'services'
+    | 'communication'
+
+export interface CompanyFact {
+    id: string
+    org_id: string
+    key: string
+    title: string
+    value: string
+    category: CompanyFactCategory
+    value_type: 'text' | 'number' | 'url' | 'boolean' | 'list'
+    priority: 'core' | 'scenario'
+    tags: string[]
+    stages: string[]
+    questions: string[]
+    hint?: string | null
+    display_order: number
+    is_active: boolean
+    created_at: string
+    updated_at: string
+}
+
+export type CompanyFactPayload = Omit<CompanyFact, 'id' | 'org_id' | 'created_at' | 'updated_at'>
+
 export interface FunnelStepMetric {
     key: string
     label: string

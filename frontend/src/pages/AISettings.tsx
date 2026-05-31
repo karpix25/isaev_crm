@@ -12,6 +12,7 @@ import {
 } from '@/hooks/useOperators'
 import UserBotSettings from '@/components/UserBotSettings'
 import CustomFieldsManager from '@/components/CustomFieldsManager'
+import { CompanyFactsManager } from '@/components/CompanyFactsManager'
 import type {
     OperatorCreatePayload,
     OperatorUpdatePayload,
@@ -38,7 +39,7 @@ import {
 import { cn } from '@/lib/utils'
 
 export function AISettings() {
-    const [activeTab, setActiveTab] = useState<'config' | 'fields' | 'knowledge' | 'history' | 'userbot' | 'operators'>('config')
+    const [activeTab, setActiveTab] = useState<'config' | 'facts' | 'fields' | 'knowledge' | 'history' | 'userbot' | 'operators'>('config')
     const {
         activePrompt,
         prompts,
@@ -49,6 +50,10 @@ export function AISettings() {
         knowledge,
         uploadFile,
         deleteKnowledge,
+        companyFacts,
+        createCompanyFact,
+        updateCompanyFact,
+        deleteCompanyFact,
         telegramBusinessCardTemplate,
         updateTelegramBusinessCardTemplate,
     } = useAI()
@@ -80,6 +85,12 @@ export function AISettings() {
                     onClick={() => setActiveTab('config')}
                     icon={Cpu}
                     label="Конфигурация"
+                />
+                <TabButton
+                    active={activeTab === 'facts'}
+                    onClick={() => setActiveTab('facts')}
+                    icon={BookOpen}
+                    label="Факты компании"
                 />
                 <TabButton
                     active={activeTab === 'fields'}
@@ -145,6 +156,33 @@ export function AISettings() {
                                 }}
                             />
                         </>
+                    )}
+                    {activeTab === 'facts' && (
+                        <div className="bg-card border rounded-3xl p-8 shadow-xl">
+                            <CompanyFactsManager
+                                facts={companyFacts.data || []}
+                                isLoading={companyFacts.isLoading}
+                                isSaving={createCompanyFact.isPending || updateCompanyFact.isPending || deleteCompanyFact.isPending}
+                                onCreate={(payload) => {
+                                    createCompanyFact.mutate(payload, {
+                                        onSuccess: () => toast.success('Факт добавлен'),
+                                        onError: (error: any) => toast.error(String(error?.response?.data?.detail || 'Ошибка добавления факта')),
+                                    })
+                                }}
+                                onUpdate={(id, payload) => {
+                                    updateCompanyFact.mutate({ id, payload }, {
+                                        onSuccess: () => toast.success('Факт обновлен'),
+                                        onError: (error: any) => toast.error(String(error?.response?.data?.detail || 'Ошибка обновления факта')),
+                                    })
+                                }}
+                                onDelete={(id) => {
+                                    deleteCompanyFact.mutate(id, {
+                                        onSuccess: () => toast.success('Факт удален'),
+                                        onError: () => toast.error('Ошибка удаления факта'),
+                                    })
+                                }}
+                            />
+                        </div>
                     )}
                     {activeTab === 'fields' && (
                         <div className="bg-card border rounded-3xl p-8 shadow-xl">

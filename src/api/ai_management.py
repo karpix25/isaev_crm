@@ -13,6 +13,9 @@ from src.schemas.ai import (
     TelegramBusinessCardTemplateResponse,
     TelegramBusinessCardTemplateUpdate,
 )
+from src.schemas.company_fact import CompanyFactCreate, CompanyFactResponse, CompanyFactUpdate
+from src.models.company_fact import CompanyFact
+from src.services.company_fact_service import company_fact_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
 from src.dependencies.auth import require_role
@@ -113,6 +116,64 @@ async def update_telegram_business_card_template(
     )
 
 # --- Knowledge Base Management ---
+
+@router.get("/company-facts", response_model=List[CompanyFactResponse])
+async def list_company_facts(
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    return await company_fact_service.list_facts(db, current_user.org_id)
+
+
+@router.post("/company-facts", response_model=CompanyFactResponse, status_code=status.HTTP_201_CREATED)
+async def create_company_fact(
+    data: CompanyFactCreate,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    exists = await db.execute(
+        select(CompanyFact).where(CompanyFact.org_id == current_user.org_id, CompanyFact.key == data.key)
+    )
+    if exists.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"Факт с ключом '{data.key}' уже существует")
+
+    fact = CompanyFact(org_id=current_user.org_id, **data.model_dump())
+    db.add(fact)
+    await db.commit()
+    await db.refresh(fact)
+    return fact
+
+
+@router.put("/company-facts/{fact_id}", response_model=CompanyFactResponse)
+async def update_company_fact(
+    fact_id: uuid.UUID,
+    data: CompanyFactUpdate,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    fact = await company_fact_service.get_fact(db, current_user.org_id, fact_id)
+    if not fact:
+        raise HTTPException(status_code=404, detail="Факт не найден")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(fact, key, value)
+    await db.commit()
+    await db.refresh(fact)
+    return fact
+
+
+@router.delete("/company-facts/{fact_id}")
+async def delete_company_fact(
+    fact_id: uuid.UUID,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    fact = await company_fact_service.get_fact(db, current_user.org_id, fact_id)
+    if not fact:
+        raise HTTPException(status_code=404, detail="Факт не найден")
+    await db.delete(fact)
+    await db.commit()
+    return {"status": "success"}
 
 @router.post("/knowledge", response_model=KnowledgeItemResponse)
 async def add_knowledge(
