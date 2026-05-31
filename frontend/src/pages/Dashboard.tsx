@@ -1,7 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardAPI } from '@/lib/api'
-import { Users, Calendar, TrendingUp, Briefcase, Trash2 } from 'lucide-react'
+import { Users, Calendar, TrendingUp, Briefcase, Trash2, Timer } from 'lucide-react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatTimeAgo } from '@/lib/utils'
 import { LeadStatus } from '@/types'
@@ -19,7 +19,7 @@ export function Dashboard() {
     return (
         <div className="space-y-6">
             {/* Metrics Cards */}
-            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
                 <MetricCard
                     title="Всего лидов"
                     value={metrics.total_leads}
@@ -49,6 +49,17 @@ export function Dashboard() {
                     value={metrics.spam_count}
                     icon={Trash2}
                     color="bg-slate-800"
+                />
+                <MetricCard
+                    title="Скорость смет"
+                    value={metrics.avg_estimate_hours !== null && metrics.avg_estimate_hours !== undefined
+                        ? `${metrics.avg_estimate_hours} ч`
+                        : '—'}
+                    icon={Timer}
+                    color="bg-indigo-500"
+                    helper={metrics.estimates_tracked_count
+                        ? `${metrics.estimates_tracked_count} смет, SLA ${metrics.estimate_sla_met_rate ?? 0}%`
+                        : 'Пока нет данных'}
                 />
             </div>
 
@@ -118,15 +129,17 @@ interface MetricCardProps {
     value: string | number
     icon: React.ElementType
     color: string
+    helper?: string
 }
 
-function MetricCard({ title, value, icon: Icon, color }: MetricCardProps) {
+function MetricCard({ title, value, icon: Icon, color, helper }: MetricCardProps) {
     return (
         <div className="rounded-lg border bg-card p-6">
             <div className="flex items-center justify-between">
                 <div>
                     <p className="text-sm text-muted-foreground">{title}</p>
                     <p className="mt-2 text-3xl font-bold">{value}</p>
+                    {helper && <p className="mt-1 text-[11px] text-muted-foreground">{helper}</p>}
                 </div>
                 <div className={`rounded-lg ${color} p-3`}>
                     <Icon className="h-6 w-6 text-white" />

@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, cast, Date
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
+import json
 import uuid
 from typing import List
 
@@ -70,6 +71,7 @@ class DashboardService:
             Lead.status == LeadStatus.SPAM
         )
         spam_count = (await db.execute(spam_query)).scalar() or 0
+        estimate_speed = await DashboardService._estimate_speed_metrics(db, org_id)
 
         # 5. Activity Chart (Last 7 days) — single GROUP BY query instead of N+1
         seven_days_ago = datetime.now() - timedelta(days=6)
@@ -158,9 +160,79 @@ class DashboardService:
             conversion_rate=conversion_rate,
             in_progress=in_progress,
             spam_count=spam_count,
+            avg_estimate_hours=estimate_speed["avg_hours"],
+            estimate_sla_met_rate=estimate_speed["sla_met_rate"],
+            estimates_tracked_count=estimate_speed["count"],
             activity_chart=activity_chart,
             conversion_chart=conversion_chart,
             recent_ai_actions=recent_ai_actions
         )
+
+    @staticmethod
+    async def _estimate_speed_metrics(db: AsyncSession, org_id: uuid.UUID) -> dict[str, float | int | None]:
+        result = await db.execute(
+            select(Lead.extracted_data).where(
+                Lead.org_id == org_id,
+                Lead.extracted_data.is_not(None),
+            )
+        )
+        durations: list[float] = []
+        sla_values: list[bool] = []
+        for raw_data in result.scalars().all():
+            estimate_request = DashboardService._estimate_request(raw_data)
+            if not estimate_request:
+                continue
+            duration = estimate_request.get("duration_minutes")
+            if duration is None:
+                duration = DashboardService._duration_minutes(
+                    estimate_request.get("requested_at"),
+                    estimate_request.get("prepared_at") or estimate_request.get("final_uploaded_at"),
+                )
+            if duration is None:
+                continue
+            durations.append(float(duration))
+            if estimate_request.get("sla_met") is not None:
+                sla_values.append(bool(estimate_request.get("sla_met")))
+            else:
+                sla_hours = int(estimate_request.get("sla_hours") or 24)
+                sla_values.append(duration <= sla_hours * 60)
+
+        if not durations:
+            return {"avg_hours": None, "sla_met_rate": None, "count": 0}
+
+        avg_hours = round((sum(durations) / len(durations)) / 60, 1)
+        sla_met_rate = round((sum(1 for value in sla_values if value) / len(sla_values)) * 100, 1) if sla_values else None
+        return {"avg_hours": avg_hours, "sla_met_rate": sla_met_rate, "count": len(durations)}
+
+    @staticmethod
+    def _estimate_request(raw_data: str | dict | None) -> dict | None:
+        if not raw_data:
+            return None
+        try:
+            data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
+        except json.JSONDecodeError:
+            return None
+        estimate_request = data.get("estimate_request") if isinstance(data, dict) else None
+        return estimate_request if isinstance(estimate_request, dict) else None
+
+    @staticmethod
+    def _duration_minutes(start_value: str | None, end_value: str | None) -> int | None:
+        start = DashboardService._parse_datetime(start_value)
+        end = DashboardService._parse_datetime(end_value)
+        if not start or not end:
+            return None
+        return max(0, round((end - start).total_seconds() / 60))
+
+    @staticmethod
+    def _parse_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
 dashboard_service = DashboardService()

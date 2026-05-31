@@ -92,11 +92,22 @@ class EstimateRequestService:
         estimate_request = data.get("estimate_request")
         if not isinstance(estimate_request, dict):
             estimate_request = {}
+        prepared_at = uploaded_at
+        duration_minutes = self._duration_minutes(
+            estimate_request.get("requested_at"),
+            prepared_at,
+        )
         estimate_request.update(
             {
                 "status": "ready_to_send",
                 "final_file": file_record,
                 "final_uploaded_at": uploaded_at,
+                "prepared_at": prepared_at,
+                "duration_minutes": duration_minutes,
+                "duration_hours": round(duration_minutes / 60, 2) if duration_minutes is not None else None,
+                "sla_met": duration_minutes <= (int(estimate_request.get("sla_hours") or 24) * 60)
+                if duration_minutes is not None
+                else None,
             }
         )
         data["estimate_request"] = estimate_request
@@ -220,6 +231,24 @@ class EstimateRequestService:
         if not url.startswith("/media/"):
             raise ValueError("unsupported_media_url")
         return Path.cwd() / url.lstrip("/")
+
+    def _duration_minutes(self, start_value: Any, end_value: str) -> int | None:
+        start = self._parse_datetime(start_value)
+        end = self._parse_datetime(end_value)
+        if not start or not end:
+            return None
+        return max(0, round((end - start).total_seconds() / 60))
+
+    def _parse_datetime(self, value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
 
 estimate_request_service = EstimateRequestService()

@@ -95,6 +95,9 @@ export interface DashboardMetrics {
     conversion_rate: number;
     in_progress: number;
     spam_count: number;
+    avg_estimate_hours?: number | null;
+    estimate_sla_met_rate?: number | null;
+    estimates_tracked_count: number;
     activity_chart: ActivityChartItem[];
     conversion_chart: ConversionChartItem[];
     recent_ai_actions: RecentAIAction[];

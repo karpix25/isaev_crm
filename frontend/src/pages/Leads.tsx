@@ -5,6 +5,7 @@ import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
 import { LeadStatus, MessageDirection, MessageTransport, type Lead } from '@/types'
 import { formatTimeAgo } from '@/lib/utils'
+import { toast } from 'sonner'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
@@ -813,6 +814,10 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
             {
                 onSuccess: (updatedLead) => {
                     setSavedExtractedData(parseExtractedData(updatedLead.extracted_data))
+                    toast.success('Смета загружена')
+                },
+                onError: (error: any) => {
+                    toast.error(error?.response?.data?.detail || 'Не удалось загрузить смету')
                 },
             }
         )
@@ -825,6 +830,10 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
             {
                 onSuccess: (updatedLead) => {
                     setSavedExtractedData(parseExtractedData(updatedLead.extracted_data))
+                    toast.success('Смета отправлена клиенту')
+                },
+                onError: (error: any) => {
+                    toast.error(error?.response?.data?.detail || 'Не удалось отправить смету')
                 },
             }
         )

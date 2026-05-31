@@ -25,23 +25,41 @@ class EstimateDeliveryService:
             raise ValueError("lead_has_no_telegram")
 
         if lead.source in {"userbot", "CRM"}:
-            await self._send_userbot_file(
-                db=db,
-                org_id=lead.org_id,
-                telegram_id=int(lead.telegram_id),
-                file_path=file_path,
-                caption=text,
-                username=lead.username,
-            )
-            return None
+            try:
+                await self._send_userbot_file(
+                    db=db,
+                    org_id=lead.org_id,
+                    telegram_id=int(lead.telegram_id),
+                    file_path=file_path,
+                    caption=text,
+                    username=lead.username,
+                )
+                return None
+            except ValueError:
+                if lead.source == "userbot":
+                    raise
 
+                official_message_id = await self._send_official_bot_file(
+                    telegram_id=int(lead.telegram_id),
+                    text=text,
+                    file_path=file_path,
+                )
+                return official_message_id
+
+        return await self._send_official_bot_file(
+            telegram_id=int(lead.telegram_id),
+            text=text,
+            file_path=file_path,
+        )
+
+    async def _send_official_bot_file(self, *, telegram_id: int, text: str, file_path: Path) -> int:
         from src.bot import bot
 
         if not bot:
             raise ValueError("telegram_bot_unavailable")
 
         sent = await bot.send_document(
-            chat_id=int(lead.telegram_id),
+            chat_id=telegram_id,
             document=FSInputFile(file_path),
             caption=text,
         )

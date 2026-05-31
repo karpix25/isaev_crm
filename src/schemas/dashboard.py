@@ -23,6 +23,9 @@ class DashboardMetrics(BaseModel):
     conversion_rate: float
     in_progress: int
     spam_count: int
+    avg_estimate_hours: Optional[float] = None
+    estimate_sla_met_rate: Optional[float] = None
+    estimates_tracked_count: int = 0
     activity_chart: List[ActivityChartItem]
     conversion_chart: List[ConversionChartItem]
     recent_ai_actions: List[RecentAIAction]
