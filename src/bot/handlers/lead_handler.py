@@ -2919,11 +2919,12 @@ async def process_debounced_message(conversation_key: str):
                 user_id=str(message.from_user.id)
             )
 
+            is_support_question = _looks_like_support_question(combined_text)
             requested_tool_action = _extract_ai_tool_action(ai_response.get("extracted_data"))
             if requested_tool_action:
                 ai_metadata["requested_tool_action"] = requested_tool_action
                 ai_metadata["source"] = "ai_requested_tool"
-                if _looks_like_support_question(combined_text):
+                if is_support_question:
                     ai_metadata["ignored_tool_action"] = requested_tool_action
                     requested_tool_action = ""
                 elif await _execute_ai_tool_action(db, message, lead, requested_tool_action):
@@ -3013,7 +3014,7 @@ async def process_debounced_message(conversation_key: str):
                     )
                 
                 # Check if handoff is needed
-                if openrouter_service.should_handoff(extracted_data) and not direct_prompt:
+                if openrouter_service.should_handoff(extracted_data) and not direct_prompt and not is_support_question:
                     # Update lead status to handoff if not already set by AI
                     if update_fields.get("ai_qualification_status") != "handoff_required":
                         await lead_service.update_lead(
