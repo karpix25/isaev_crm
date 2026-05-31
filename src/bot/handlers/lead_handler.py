@@ -45,6 +45,8 @@ from src.bot.measurement_slots import (
     slot_time_label as _slot_time_label,
 )
 from src.bot.telegram_file_service import save_telegram_document
+from src.bot.crm_safe_tools import answer_estimate_status, answer_lead_summary, answer_measurement_booking
+from src.bot.estimate_actions import looks_like_estimate_file_request, send_ready_estimate_from_crm
 from src.models import AuthSession, ChatMessage, Lead, MessageDirection, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
 from src.models.user import UserRole
 
@@ -163,7 +165,7 @@ def _looks_like_measurement_reschedule_request(text: str) -> bool:
     if not normalized:
         return False
 
-    measurement_words = ("замер", "выезд", "инженер", "встреч")
+    measurement_words = ("замер", "выезд", "инженер", "встреч", "запис", "брон")
     reschedule_words = (
         "перен",
         "поменять",
@@ -191,6 +193,28 @@ def _looks_like_measurement_reschedule_request(text: str) -> bool:
             "поменять время",
         )
     )
+
+
+def _looks_like_existing_measurement_lookup(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    booking_context = any(word in normalized for word in ("замер", "запис", "брон", "выезд", "инженер", "встреч"))
+    lookup_context = any(
+        phrase in normalized
+        for phrase in (
+            "какое число",
+            "на какое",
+            "когда",
+            "во сколько",
+            "напомн",
+            "есть запись",
+            "у нас запись",
+            "перенести запись",
+            "перенести брон",
+        )
+    )
+    return booking_context and lookup_context
 
 
 def _looks_like_measurement_cancel_request(text: str) -> bool:
@@ -441,6 +465,26 @@ def _build_measurement_context_answer(lead, text: str) -> str | None:
     return "\n".join(lines)
 
 
+def _build_measurement_status_answer(lead, text: str) -> str:
+    measurement = _lead_measurement_data(lead)
+    measurement_date = _format_measurement_start(measurement.get("start"))
+    measurement_address = str(measurement.get("address") or "").strip()
+    has_active_booking = bool(measurement.get("booking_uid") and measurement.get("status") == "booked")
+    wants_reschedule = _looks_like_measurement_reschedule_request(text)
+
+    if has_active_booking or measurement_date:
+        lines = [f"Да, вижу запись на замер: {measurement_date or 'дата не указана'}."]
+        if measurement_address:
+            lines.append(f"Адрес: {measurement_address}.")
+        if wants_reschedule:
+            lines.append("Можем перенести. Показать свободные дни?")
+        return "\n".join(lines)
+
+    if wants_reschedule:
+        return "Активной записи у вас пока не вижу. Можем записать на бесплатный замер — показать свободные окна?"
+    return "Активной записи у вас пока не вижу. Можем записать на бесплатный замер, если удобно."
+
+
 def _extract_measurement_context_from_text(text: str) -> tuple[str | None, str | None]:
     date_match = re.search(r"Дата:\s*([^\n]+)", text or "", flags=re.IGNORECASE)
     address_match = re.search(r"Адрес:\s*([^\n]+)", text or "", flags=re.IGNORECASE)
@@ -658,19 +702,6 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
         )
         return True
 
-    data = _lead_extracted_data(lead)
-    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
-    if measurement and not measurement.get("booking_uid"):
-        data["measurement"] = {
-            key: value
-            for key, value in measurement.items()
-            if key in {"history"} or key.startswith("last_")
-        }
-        lead.extracted_data = json.dumps(data, ensure_ascii=False)
-        if lead.status in {LeadStatus.MEASUREMENT_BOOKED.value, LeadStatus.MEASUREMENT.value}:
-            lead.status = LeadStatus.MEASUREMENT_PENDING.value
-        await db.commit()
-
     text = (
         "Выберите удобный день бесплатного замера. "
         "Так мы спокойно посмотрим объект и посчитаем работы без догадок 📍"
@@ -855,23 +886,6 @@ async def _confirm_measurement_reschedule(
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
     address = str(measurement.get("address") or data.get("measurement_address") or data.get("address") or "").strip()
 
-    if not session_token:
-        text = (
-            "Новое окно выбрали. Не нашел код заявки для автоматического переноса — "
-            "менеджер закрепит слот вручную и подтвердит вам здесь."
-        )
-        if query.message:
-            await query.message.edit_text(text)
-        await chat_service.send_outbound_message(
-            db=db,
-            lead_id=lead.id,
-            content=text,
-            telegram_message_id=query.message.message_id if query.message else None,
-            sender_name="AI",
-            ai_metadata={"source": "measurement_reschedule", "type": "measurement_reschedule_no_session"},
-        )
-        return True
-
     if not address:
         await _store_pending_measurement_slot(db, lead, start)
         text = (
@@ -945,7 +959,7 @@ async def _confirm_measurement_reschedule(
                 address=address,
                 booking_uid=booking_uid,
             )
-        else:
+        elif session_token:
             booking, _ = await quiz_service.book_measurement(
                 db=db,
                 payload=MeasurementBookingRequest(
@@ -966,6 +980,15 @@ async def _confirm_measurement_reschedule(
                 ),
             )
             booking_uid = quiz_service.extract_booking_uid(booking)
+        else:
+            booking, booking_uid = await _book_measurement_directly(
+                db=db,
+                lead=lead,
+                start=start,
+                address=address,
+                contact=contact,
+                source="telegram_reschedule_direct",
+            )
     except Exception:
         logger.warning("Failed to reschedule Telegram measurement for lead %s", lead.id, exc_info=True)
         text = (
@@ -1008,6 +1031,66 @@ async def _confirm_measurement_reschedule(
         },
     )
     return True
+
+
+async def _book_measurement_directly(
+    db: AsyncSession,
+    lead,
+    *,
+    start: str,
+    address: str,
+    contact: QuizContact,
+    source: str,
+) -> tuple[dict, str | None]:
+    booking = await cal_pro_service.create_booking(
+        start=start,
+        contact=contact,
+        answers=_lead_quiz_answers(lead),
+        metadata={
+            "selected_slot_label": f"{_slot_date_button_label(_slot_date_key(start))} {_slot_time_label(start)}",
+            "selected_messenger": "telegram",
+            "measurement_address": address,
+            "lead_id": str(lead.id),
+            "source": source,
+        },
+    )
+    booking_uid = str(cal_pro_service._extract_booking_uid(booking) or "").strip()
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    measurement.update(
+        {
+            "start": start,
+            "status": "booked" if booking_uid else "requested",
+            "address": address,
+            "phone": contact.phone,
+            "booking_uid": booking_uid,
+            "booking": booking.get("data") or booking,
+            "booked_at": datetime.now(timezone.utc).isoformat(),
+            "source": source,
+        }
+    )
+    data["measurement"] = measurement
+    data["measurement_address"] = address
+    data["address"] = address
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    lead.status = LeadStatus.MEASUREMENT_BOOKED.value if booking_uid else LeadStatus.MEASUREMENT_PENDING.value
+    await db.commit()
+    await db.refresh(lead)
+
+    try:
+        from src.services.quiz_service import quiz_service
+
+        await quiz_service._enqueue_measurement_reminder(
+            db=db,
+            lead=lead,
+            start=start,
+            address=address,
+            booking_uid=booking_uid,
+        )
+    except Exception:
+        logger.warning("Failed to enqueue direct measurement reminder for lead %s", lead.id, exc_info=True)
+
+    return booking, booking_uid
 
 
 async def _pop_pending_measurement_slot(db: AsyncSession, lead) -> str:
@@ -1193,23 +1276,6 @@ async def _try_handle_pending_measurement_address(
         return True
 
     session_token = _lead_session_token(lead)
-    if not session_token:
-        text = (
-            "Не нашел код заявки для автоматического бронирования. Ничего страшного: "
-            "напишите удобное время, и менеджер закрепит слот вручную."
-        )
-        sent = await message.answer(text)
-        await chat_service.send_outbound_message(
-            db=db,
-            lead_id=lead.id,
-            content=text,
-            telegram_message_id=sent.message_id,
-            sender_name="AI",
-            ai_metadata={"source": "telegram_inline_slots", "type": "measurement_booking_no_session"},
-        )
-        return True
-
-    from src.services.quiz_service import quiz_service
 
     contact = QuizContact(
         name=lead.full_name or message.from_user.full_name or "Клиент квиза",
@@ -1218,23 +1284,36 @@ async def _try_handle_pending_measurement_address(
         preferred_messenger="telegram",
     )
     try:
-        booking, _ = await quiz_service.book_measurement(
-            db=db,
-            payload=MeasurementBookingRequest(
-                session_token=session_token,
-                lead_id=lead.id,
+        if session_token:
+            from src.services.quiz_service import quiz_service
+
+            booking, _ = await quiz_service.book_measurement(
+                db=db,
+                payload=MeasurementBookingRequest(
+                    session_token=session_token,
+                    lead_id=lead.id,
+                    start=pending_start,
+                    address=clean_address,
+                    contact=contact,
+                    answers=_lead_quiz_answers(lead),
+                    metadata={
+                        "selected_slot_label": f"{_slot_date_button_label(_slot_date_key(pending_start))} {_slot_time_label(pending_start)}",
+                        "selected_messenger": "telegram",
+                        "measurement_address": clean_address,
+                        "source": "telegram_inline_slots",
+                    },
+                ),
+            )
+            booking_uid = quiz_service.extract_booking_uid(booking)
+        else:
+            booking, booking_uid = await _book_measurement_directly(
+                db=db,
+                lead=lead,
                 start=pending_start,
                 address=clean_address,
                 contact=contact,
-                answers=_lead_quiz_answers(lead),
-                metadata={
-                    "selected_slot_label": f"{_slot_date_button_label(_slot_date_key(pending_start))} {_slot_time_label(pending_start)}",
-                    "selected_messenger": "telegram",
-                    "measurement_address": clean_address,
-                    "source": "telegram_inline_slots",
-                },
-            ),
-        )
+                source="telegram_inline_slots_direct",
+            )
     except Exception:
         logger.warning("Failed to book Telegram measurement slot for lead %s", lead.id, exc_info=True)
         text = (
@@ -1253,7 +1332,6 @@ async def _try_handle_pending_measurement_address(
         return True
 
     await _pop_pending_measurement_slot(db, lead)
-    booking_uid = quiz_service.extract_booking_uid(booking)
     booked = bool(booking_uid) or booking.get("status") == "ok"
     text = (
         "Готово, записали вас на замер ✅\n\n"
@@ -1720,6 +1798,10 @@ SCENARIO_ORCHESTRATION:
 - Если клиент просит перенести существующий замер: tool_action = "reschedule_measurement".
 - Если клиент просит отменить существующий замер: tool_action = "cancel_measurement".
 - Если клиент просит изменить дату, адрес, телефон или данные брони: tool_action = "change_measurement_booking".
+- Если клиент просит прислать, повторить, скинуть или найти готовую смету файлом: tool_action = "send_final_estimate".
+- Если клиент спрашивает, есть ли у него запись на замер, на какое число/время записан или какой адрес в записи: tool_action = "read_measurement_booking".
+- Если клиент спрашивает статус сметы, готова ли смета, где расчет, но не просит именно файл: tool_action = "read_estimate_status".
+- Если клиент спрашивает, какие данные по заявке уже есть в CRM: tool_action = "read_lead_summary".
 - Если клиент просит менеджера/оператора/живого человека: tool_action = "handoff_to_manager".
 - Если клиент спрашивает портфолио, кейсы, примеры работ, фото, отзывы, гарантии, оплату, сроки, материалы или цены: ответь в message и ставь tool_action = "none".
 - Если клиент отказался от ремонта или просит больше не писать: tool_action = "none", status = "LOST", message должен быть коротким без продолжения продажи.
@@ -1733,6 +1815,10 @@ AVAILABLE_TOOL_ACTIONS:
 - reschedule_measurement
 - cancel_measurement
 - change_measurement_booking
+- send_final_estimate
+- read_measurement_booking
+- read_estimate_status
+- read_lead_summary
 - handoff_to_manager
 - none
 
@@ -1770,6 +1856,21 @@ def _extract_ai_tool_action(extracted_data: dict | None) -> str:
         "cancel_measurement_slots": "cancel_measurement",
         "update_measurement_data": "change_measurement_booking",
         "change_booking": "change_measurement_booking",
+        "estimate": "send_final_estimate",
+        "send_estimate": "send_final_estimate",
+        "send_final_estimate_file": "send_final_estimate",
+        "resend_estimate": "send_final_estimate",
+        "repeat_estimate": "send_final_estimate",
+        "final_estimate": "send_final_estimate",
+        "measurement_booking": "read_measurement_booking",
+        "booking_status": "read_measurement_booking",
+        "read_booking": "read_measurement_booking",
+        "get_booking": "read_measurement_booking",
+        "estimate_status": "read_estimate_status",
+        "read_estimate": "read_estimate_status",
+        "lead_summary": "read_lead_summary",
+        "read_lead": "read_lead_summary",
+        "crm_lead": "read_lead_summary",
         "manager_handoff": "handoff_to_manager",
         "human_handoff": "handoff_to_manager",
         "operator_handoff": "handoff_to_manager",
@@ -1785,6 +1886,18 @@ async def _execute_ai_tool_action(
     action: str,
 ) -> bool:
     if action == "show_measurement_slots":
+        if _lead_measurement_data(lead).get("start"):
+            text = _build_measurement_status_answer(lead, "запись")
+            sent = await message.answer(text)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                telegram_message_id=sent.message_id,
+                sender_name="Bot",
+                ai_metadata={"source": "bot_scenario", "type": "measurement_existing_booking_guard"},
+            )
+            return True
         return await _send_measurement_slot_dates(message, db, lead)
 
     if action == "reschedule_measurement":
@@ -1804,6 +1917,18 @@ async def _execute_ai_tool_action(
         if measurement.get("start"):
             return await _send_measurement_change_choices(message, db, lead)
         return await _send_measurement_slot_dates(message, db, lead)
+
+    if action == "send_final_estimate":
+        return await send_ready_estimate_from_crm(db, message, lead)
+
+    if action == "read_measurement_booking":
+        return await answer_measurement_booking(db, message, lead)
+
+    if action == "read_estimate_status":
+        return await answer_estimate_status(db, message, lead)
+
+    if action == "read_lead_summary":
+        return await answer_lead_summary(db, message, lead)
 
     if action == "handoff_to_manager":
         return await _send_manager_handoff_notice(message, db, lead)
@@ -1835,6 +1960,22 @@ async def _try_route_scenario_before_ai(
 
     if _looks_like_manager_handoff_request(text):
         return await _send_manager_handoff_notice(message, db, lead)
+
+    if looks_like_estimate_file_request(text):
+        return await send_ready_estimate_from_crm(db, message, lead)
+
+    if _looks_like_existing_measurement_lookup(text):
+        answer = _build_measurement_status_answer(lead, text)
+        sent = await message.answer(answer)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=answer,
+            telegram_message_id=sent.message_id,
+            sender_name="Bot",
+            ai_metadata={"source": "bot_scenario", "type": "measurement_status_lookup"},
+        )
+        return True
 
     if _looks_like_measurement_cancel_request(text) and (measurement_data.get("start") or measurement_data.get("booking_uid")):
         return await _handle_measurement_cancel_request(db, message, lead)

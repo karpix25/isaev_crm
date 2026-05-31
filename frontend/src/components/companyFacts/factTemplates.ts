@@ -1,244 +1,105 @@
 import type { CompanyFactCategory, CompanyFactPayload } from '@/types'
 
-export type FactTemplate = {
+export type FactSection = {
+    category: CompanyFactCategory
     key: string
     title: string
     label: string
+    description: string
     placeholder: string
     help: string
-    category: CompanyFactCategory
-    value_type?: CompanyFactPayload['value_type']
     priority?: CompanyFactPayload['priority']
     tags?: string[]
     questions?: string[]
-    hint?: string
-    multiline?: boolean
-}
-
-export type FactSection = {
-    category: CompanyFactCategory
-    label: string
-    description: string
-    fields: FactTemplate[]
 }
 
 export const FACT_SECTIONS: FactSection[] = [
     {
         category: 'pricing',
+        key: 'pricing_rules',
+        title: 'Цены и правила расчета',
         label: 'Цены',
-        description: 'Тут задаются правила, по которым ИИ отвечает на вопросы про стоимость.',
-        fields: [
-            {
-                key: 'price_from_per_m2',
-                title: 'Минимальная цена работ за м²',
-                label: 'Цена работ от, ₽/м²',
-                placeholder: '15000',
-                help: 'Если клиент спрашивает “от какой цены”, ИИ даст этот ориентир.',
-                category: 'pricing',
-                value_type: 'number',
-                priority: 'core',
-                tags: ['цена', 'стоимость', 'прайс'],
-                questions: ['сколько стоит', 'цена за метр', 'расценки'],
-            },
-            {
-                key: 'price_scope',
-                title: 'Что входит в предварительную цену',
-                label: 'Что входит в предварительный расчет',
-                placeholder: 'Ремонтные работы без строительных материалов',
-                help: 'Важно, чтобы ИИ не включал материалы в цену работ.',
-                category: 'pricing',
-                priority: 'core',
-                multiline: true,
-            },
-            {
-                key: 'price_fix_period_days',
-                title: 'Фиксация цены',
-                label: 'На сколько дней фиксируем цену',
-                placeholder: '30',
-                help: 'ИИ сможет сказать, что цена работ фиксируется за клиентом на месяц.',
-                category: 'pricing',
-                value_type: 'number',
-                priority: 'core',
-                tags: ['цена', 'смета'],
-            },
-            {
-                key: 'price_discussion_rule',
-                title: 'Как говорить о цене',
-                label: 'Правило ответа про цену',
-                placeholder: 'Дать вилку, объяснить что это работы без материалов, затем предложить замер или проект для точной сметы',
-                help: 'Это не текст для клиента слово в слово, а инструкция для ИИ.',
-                category: 'pricing',
-                priority: 'core',
-                multiline: true,
-            },
-        ],
+        description: 'Свободно опишите, как отвечать про стоимость, вилки, материалы и фиксацию цены.',
+        help: 'Можно писать обычным языком. Например: работы от 15000 ₽/м², материалы не входят, предварительную цену фиксируем на 30 дней.',
+        placeholder: 'Работы начинаются от ... ₽/м². Предварительный расчет показываем как вилку без стройматериалов. Цена фиксируется на ... дней. Если клиент просит точную смету, просим проект или предлагаем замер.',
+        priority: 'core',
+        tags: ['цена', 'стоимость', 'прайс', 'смета'],
+        questions: ['сколько стоит', 'цена за метр', 'расценки', 'вилка цен'],
     },
     {
         category: 'estimate',
+        key: 'estimate_rules',
+        title: 'Смета и готовый расчет',
         label: 'Смета',
-        description: 'Сроки, формат и правила передачи сметы клиенту.',
-        fields: [
-            {
-                key: 'estimate_sla_hours',
-                title: 'Срок подготовки сметы',
-                label: 'Сколько часов готовится смета',
-                placeholder: '24',
-                help: 'Используется в ответах и follow-up логике.',
-                category: 'estimate',
-                value_type: 'number',
-                priority: 'core',
-                tags: ['смета', 'срок'],
-                questions: ['когда будет смета', 'сколько ждать смету'],
-            },
-            {
-                key: 'estimate_delivery_format',
-                title: 'Формат сметы',
-                label: 'В каком формате отправляем смету',
-                placeholder: 'PDF или Excel файлом в Telegram',
-                help: 'Чтобы клиент понимал, что получит.',
-                category: 'estimate',
-            },
-            {
-                key: 'estimate_without_project_rule',
-                title: 'Если нет дизайн-проекта',
-                label: 'Что говорить без проекта',
-                placeholder: 'Дать предварительную вилку по работам и предложить бесплатный замер для точного расчета',
-                help: 'Защищает от обещания точной сметы вслепую.',
-                category: 'estimate',
-                priority: 'core',
-                multiline: true,
-            },
-        ],
+        description: 'Опишите сроки, формат сметы, кто ее готовит и что делать, если клиент просит файл.',
+        help: 'Подходит для правил: смета готовится до 24 часов, файл отправляем в Telegram, без проекта даем только ориентир.',
+        placeholder: 'Сметчик обычно готовит расчет в течение 24 часов. Готовую смету отправляем файлом в Telegram. Если клиент просит прислать смету повторно, нужно отправить готовый файл из CRM, если он уже загружен.',
+        priority: 'core',
+        tags: ['смета', 'расчет', 'файл'],
+        questions: ['когда будет смета', 'пришлите смету', 'скиньте смету', 'смета готова'],
     },
     {
         category: 'portfolio',
+        key: 'portfolio_rules',
+        title: 'Портфолио и примеры работ',
         label: 'Портфолио',
-        description: 'Ссылки и правило, как показывать клиенту примеры работ.',
-        fields: [
-            {
-                key: 'portfolio_url',
-                title: 'Ссылка на портфолио',
-                label: 'Ссылка на портфолио',
-                placeholder: 'https://isaevgroup.ru/portfolio/',
-                help: 'ИИ даст эту ссылку, если клиент попросит примеры.',
-                category: 'portfolio',
-                value_type: 'url',
-                priority: 'core',
-                tags: ['портфолио', 'кейсы'],
-                questions: ['портфолио', 'примеры работ', 'кейсы'],
-            },
-            {
-                key: 'portfolio_usage_rule',
-                title: 'Как предлагать портфолио',
-                label: 'Как ИИ должен предлагать кейсы',
-                placeholder: 'Дать ссылку и предложить показать похожие объекты под тип ремонта клиента',
-                help: 'Чтобы ответ был полезнее простой ссылки.',
-                category: 'portfolio',
-                multiline: true,
-            },
-        ],
+        description: 'Ссылки на портфолио, кейсы, фото работ и правило, как их предлагать клиенту.',
+        help: 'Сюда можно вставить несколько ссылок и пояснить, что лучше показывать похожие объекты.',
+        placeholder: 'Портфолио: https://... Также есть кейсы по вторичке: https://... Если клиент просит примеры, дать ссылку и предложить подобрать похожий объект под его тип ремонта.',
+        priority: 'core',
+        tags: ['портфолио', 'кейсы', 'примеры', 'фото'],
+        questions: ['портфолио', 'примеры работ', 'кейсы', 'фото ремонта'],
     },
     {
         category: 'measurement',
+        key: 'measurement_rules',
+        title: 'Замер',
         label: 'Замер',
-        description: 'Как объяснять клиенту замер без давления и лишней воды.',
-        fields: [
-            {
-                key: 'measurement_price',
-                title: 'Стоимость замера',
-                label: 'Стоимость замера',
-                placeholder: 'Бесплатно',
-                help: 'ИИ будет уверенно отвечать, платный замер или нет.',
-                category: 'measurement',
-                priority: 'core',
-                tags: ['замер'],
-            },
-            {
-                key: 'measurement_value',
-                title: 'Зачем нужен замер',
-                label: 'Зачем клиенту замер',
-                placeholder: 'Инженер фиксирует реальные размеры и нюансы, чтобы смета была точной',
-                help: 'Короткое объяснение пользы без спора с клиентом.',
-                category: 'measurement',
-                multiline: true,
-            },
-        ],
+        description: 'Как объяснять замер, сколько он стоит и в каких случаях его предлагать.',
+        help: 'Пишите без скрипта продаж: зачем инженеру приехать, что он фиксирует, почему после этого расчет точнее.',
+        placeholder: 'Замер бесплатный. Инженер смотрит объект, размеры, коммуникации и нюансы, чтобы смета была честной и без сюрпризов. Замер предлагаем, когда нет дизайн-проекта или клиент хочет точнее понять бюджет.',
+        priority: 'core',
+        tags: ['замер', 'выезд', 'инженер'],
+        questions: ['зачем замер', 'замер платный', 'нужен замер'],
     },
     {
         category: 'services',
+        key: 'service_rules',
+        title: 'Услуги и объекты',
         label: 'Услуги',
-        description: 'Типы объектов и ремонтов, с которыми работает компания.',
-        fields: [
-            {
-                key: 'object_types',
-                title: 'Типы объектов',
-                label: 'Какие объекты делаете',
-                placeholder: 'Квартиры, дома, коммерческие помещения',
-                help: 'Помогает отвечать на вопросы про квартиры, дома и коммерцию.',
-                category: 'services',
-                priority: 'core',
-                tags: ['объекты', 'коммерция'],
-                questions: ['коммерческие делаете', 'дома делаете'],
-            },
-            {
-                key: 'repair_types',
-                title: 'Типы ремонта',
-                label: 'Какие ремонты делаете',
-                placeholder: 'Косметический, капитальный, под ключ',
-                help: 'Список услуг без подробной методологии.',
-                category: 'services',
-            },
-        ],
+        description: 'Какие объекты, ремонты и работы компания берет, а что не делает.',
+        help: 'Это широкий блок для вопросов вроде “коммерцию делаете?”, “дома берете?”, “только отделка?”.',
+        placeholder: 'Работаем с квартирами, домами и коммерческими помещениями. Делаем косметический, капитальный ремонт и ремонт под ключ. Не берем ...',
+        priority: 'core',
+        tags: ['услуги', 'объекты', 'коммерция', 'квартиры', 'дома'],
+        questions: ['коммерческие делаете', 'дома делаете', 'какие ремонты'],
     },
     {
         category: 'company',
+        key: 'company_rules',
+        title: 'Компания',
         label: 'Компания',
-        description: 'Базовая информация, которую ИИ может использовать почти всегда.',
-        fields: [
-            {
-                key: 'company_name',
-                title: 'Название компании',
-                label: 'Название компании',
-                placeholder: 'ISAEV GROUP',
-                help: 'Используется в приветствиях и объяснениях.',
-                category: 'company',
-                priority: 'core',
-            },
-            {
-                key: 'company_short_description',
-                title: 'Короткое описание компании',
-                label: 'Чем занимается компания',
-                placeholder: 'Ремонт квартир, домов и коммерческих помещений под ключ',
-                help: 'Одно-два предложения без рекламной воды.',
-                category: 'company',
-                priority: 'core',
-                multiline: true,
-            },
-            {
-                key: 'working_hours',
-                title: 'Рабочее время',
-                label: 'Рабочее время',
-                placeholder: 'Пн-Сб 10:00-19:00',
-                help: 'Когда менеджер или команда обычно на связи.',
-                category: 'company',
-                tags: ['график', 'режим'],
-            },
-        ],
+        description: 'Кто вы, как представляться, график, контакты и важные особенности сервиса.',
+        help: 'Этот блок нужен для респектабельного тона и базовых ответов о компании.',
+        placeholder: 'Компания ISAEV GROUP занимается ремонтом ... Общаемся спокойно и уважительно. Рабочее время ... Если вопрос требует менеджера, передаем без лишних обещаний.',
+        priority: 'core',
+        tags: ['компания', 'контакты', 'график'],
+        questions: ['кто вы', 'как работаете', 'контакты'],
     },
 ]
 
-export function templateToPayload(template: FactTemplate, value: string): CompanyFactPayload {
+export function sectionToPayload(section: FactSection, value: string): CompanyFactPayload {
     return {
-        key: template.key,
-        title: template.title,
+        key: section.key,
+        title: section.title,
         value,
-        category: template.category,
-        value_type: template.value_type || 'text',
-        priority: template.priority || 'scenario',
-        tags: template.tags || [],
+        category: section.category,
+        value_type: 'text',
+        priority: section.priority || 'scenario',
+        tags: section.tags || [],
         stages: [],
-        questions: template.questions || [],
-        hint: template.hint || template.help,
+        questions: section.questions || [],
+        hint: section.help,
         display_order: 0,
         is_active: true,
     }

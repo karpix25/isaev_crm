@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from typing import Any
 from pathlib import Path
 
 from aiogram.types import FSInputFile
@@ -24,6 +26,14 @@ class EstimateDeliveryService:
         if not lead.telegram_id:
             raise ValueError("lead_has_no_telegram")
 
+        business_chat = self._business_chat_data(lead)
+        if business_chat:
+            return await self._send_business_bot_file(
+                text=text,
+                file_path=file_path,
+                business_chat=business_chat,
+            )
+
         if lead.source in {"userbot", "CRM"}:
             await self._send_userbot_file(
                 db=db,
@@ -40,6 +50,26 @@ class EstimateDeliveryService:
             text=text,
             file_path=file_path,
         )
+
+    async def _send_business_bot_file(
+        self,
+        *,
+        text: str,
+        file_path: Path,
+        business_chat: dict[str, Any],
+    ) -> int:
+        from src.bot import bot
+
+        if not bot:
+            raise ValueError("telegram_bot_unavailable")
+
+        sent = await bot.send_document(
+            chat_id=int(business_chat["chat_id"]),
+            document=FSInputFile(file_path),
+            caption=text,
+            business_connection_id=str(business_chat["business_connection_id"]),
+        )
+        return sent.message_id
 
     async def _send_official_bot_file(self, *, telegram_id: int, text: str, file_path: Path) -> int:
         from src.bot import bot
@@ -94,6 +124,24 @@ class EstimateDeliveryService:
             raise ValueError("userbot_unavailable")
         user_bot_service.clients[org_id] = client
         return client
+
+    def _business_chat_data(self, lead: Lead) -> dict[str, Any] | None:
+        data = self._parse_data(lead.extracted_data)
+        business_chat = data.get("telegram_business_chat")
+        if not isinstance(business_chat, dict):
+            return None
+        if not business_chat.get("business_connection_id") or not business_chat.get("chat_id"):
+            return None
+        return business_chat
+
+    def _parse_data(self, value: str | None) -> dict[str, Any]:
+        if not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
 
 
 estimate_delivery_service = EstimateDeliveryService()

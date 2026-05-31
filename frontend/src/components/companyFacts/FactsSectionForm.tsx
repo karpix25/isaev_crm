@@ -1,7 +1,6 @@
+import { useEffect, useMemo, useState } from 'react'
 import type { CompanyFact, CompanyFactPayload } from '@/types'
-import { useEffect, useState } from 'react'
-import type { ChangeEvent } from 'react'
-import { FACT_SECTIONS, type FactSection, templateToPayload } from './factTemplates'
+import { FACT_SECTIONS, type FactSection, sectionToPayload } from './factTemplates'
 
 const INPUT_CLASS = "w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 
@@ -22,22 +21,27 @@ export function FactsSectionForm({
     onCreate,
     onUpdate,
 }: Props) {
-    const factsByKey = new Map(facts.map((fact) => [fact.key, fact]))
+    const sectionFact = useMemo(
+        () => facts.find((fact) => fact.key === activeSection.key),
+        [facts, activeSection.key]
+    )
+    const [value, setValue] = useState(sectionFact?.value || '')
 
-    const saveField = (templateKey: string, value: string) => {
-        const template = activeSection.fields.find((field) => field.key === templateKey)
-        if (!template) return
+    useEffect(() => {
+        setValue(sectionFact?.value || '')
+    }, [sectionFact?.id, sectionFact?.value])
 
-        const existing = factsByKey.get(template.key)
-        if (!value && !existing) return
-        if (!value && existing) {
-            onUpdate(existing.id, { value: '', is_active: false })
+    const saveSection = () => {
+        const trimmed = value.trim()
+        if (!trimmed && !sectionFact) return
+        if (!trimmed && sectionFact) {
+            onUpdate(sectionFact.id, { value: '', is_active: false })
             return
         }
 
-        const payload = templateToPayload(template, value)
-        if (existing) {
-            onUpdate(existing.id, { ...payload, is_active: true })
+        const payload = sectionToPayload(activeSection, trimmed)
+        if (sectionFact) {
+            onUpdate(sectionFact.id, { ...payload, is_active: true })
             return
         }
         onCreate(payload)
@@ -63,78 +67,35 @@ export function FactsSectionForm({
 
             <section className="rounded-2xl border bg-card p-5">
                 <div>
-                    <h4 className="text-lg font-bold">{activeSection.label}</h4>
+                    <h4 className="text-lg font-bold">{activeSection.title}</h4>
                     <p className="mt-1 text-sm text-muted-foreground">{activeSection.description}</p>
                 </div>
 
-                <div className="mt-5 grid gap-4">
-                    {activeSection.fields.map((template) => (
-                        <FactInput
-                            key={template.key}
-                            label={template.label}
-                            help={template.help}
-                            placeholder={template.placeholder}
-                            multiline={template.multiline}
-                            defaultValue={factsByKey.get(template.key)?.value || ''}
-                            disabled={isSaving}
-                            onSave={(value) => saveField(template.key, value)}
-                        />
-                    ))}
+                <div className="mt-4 rounded-xl border bg-blue-50 p-4 text-sm text-blue-900">
+                    {activeSection.help}
+                </div>
+
+                <textarea
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    placeholder={activeSection.placeholder}
+                    className={`${INPUT_CLASS} mt-4 min-h-56 leading-6`}
+                />
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                        Можно писать свободно: ссылки, правила, исключения, тон ответа. Это попадет в ИИ как источник правды.
+                    </p>
+                    <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={saveSection}
+                        className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                    >
+                        Сохранить раздел
+                    </button>
                 </div>
             </section>
         </div>
-    )
-}
-
-function FactInput({
-    label,
-    help,
-    placeholder,
-    multiline,
-    defaultValue,
-    disabled,
-    onSave,
-}: {
-    label: string
-    help: string
-    placeholder: string
-    multiline?: boolean
-    defaultValue: string
-    disabled: boolean
-    onSave: (value: string) => void
-}) {
-    const [value, setValue] = useState(defaultValue)
-
-    useEffect(() => {
-        setValue(defaultValue)
-    }, [defaultValue])
-
-    const inputProps = {
-        value,
-        onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setValue(event.target.value),
-        placeholder,
-        className: `${INPUT_CLASS} ${multiline ? 'min-h-24' : ''}`,
-    }
-
-    return (
-        <label className="block rounded-xl border bg-background/60 p-4">
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <div className="text-sm font-bold">{label}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{help}</div>
-                </div>
-                <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onSave(value.trim())}
-                    className="shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
-                >
-                    Сохранить
-                </button>
-            </div>
-            <div className="mt-3">
-                {multiline ? <textarea {...inputProps} /> : <input {...inputProps} />}
-            </div>
-        </label>
     )
 }
