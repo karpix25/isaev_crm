@@ -249,6 +249,34 @@ def _looks_like_address_or_booking_question(text: str) -> bool:
     return has_question and booking_context
 
 
+def _extract_direct_address_correction(text: str) -> str:
+    normalized = (text or "").strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    correction_markers = (
+        "нет адрес",
+        "адрес мой",
+        "мой адрес",
+        "поменяйте мой адрес",
+        "поменяйте адрес",
+        "измени адрес",
+        "измените адрес",
+        "адрес:",
+    )
+    if not any(marker in lowered for marker in correction_markers):
+        return ""
+    if _looks_like_question(lowered):
+        return ""
+
+    cleaned = re.sub(
+        r"(?i)^(нет[,\\s]*)?(поменяйте|поменять|измени|измените|исправьте|исправь)?\\s*(мой\\s*)?адрес(\\s*(на|:|-))?",
+        "",
+        normalized,
+    ).strip(" .,:;-")
+    return cleaned if len(cleaned) >= 5 else ""
+
+
 def _looks_like_measurement_cancel_request(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -1429,6 +1457,50 @@ async def _try_handle_pending_measurement_address(
     return True
 
 
+async def _handle_direct_measurement_address_correction(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    address: str,
+) -> bool:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    if not measurement.get("start") and not measurement.get("booking_uid"):
+        return False
+
+    old_address = str(measurement.get("address") or data.get("measurement_address") or data.get("address") or "").strip()
+    measurement["address"] = address
+    measurement["address_updated_at"] = datetime.now(timezone.utc).isoformat()
+    measurement["address_update_source"] = "telegram_direct_correction"
+    data["measurement"] = measurement
+    data["address"] = address
+    data["measurement_address"] = address
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    await db.commit()
+
+    date_text = _format_measurement_start(measurement.get("start"))
+    text = (
+        "Да, поправил адрес замера ✅\n\n"
+        f"Дата: {date_text or 'не выбрана'}\n"
+        f"Адрес: {address}\n"
+        f"Телефон для связи: {_format_phone(lead.phone or measurement.get('phone'))}"
+    )
+    sent = await message.answer(text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={
+            "source": "bot_scenario",
+            "type": "measurement_address_directly_updated",
+            "old_address": old_address,
+        },
+    )
+    return True
+
+
 async def _quiz_estimate_already_sent(db: AsyncSession, lead_id: uuid.UUID, session_token: str) -> bool:
     result = await db.execute(select(ChatMessage).where(ChatMessage.lead_id == lead_id))
     for chat_message in result.scalars().all():
@@ -2028,6 +2100,10 @@ async def _try_route_scenario_before_ai(
 
     if looks_like_estimate_file_request(text):
         return await send_ready_estimate_from_crm(db, message, lead)
+
+    corrected_address = _extract_direct_address_correction(text)
+    if corrected_address and await _handle_direct_measurement_address_correction(db, message, lead, corrected_address):
+        return True
 
     if _looks_like_existing_measurement_lookup(text):
         answer = _build_measurement_status_answer(lead, text)
