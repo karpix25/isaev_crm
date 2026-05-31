@@ -36,6 +36,14 @@ from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS,
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
 from src.bot.utils import get_default_org_id, download_user_avatar
+from src.bot.measurement_slots import (
+    build_measurement_date_keyboard as _build_measurement_date_keyboard,
+    build_measurement_time_keyboard as _build_measurement_time_keyboard,
+    slot_date_button_label as _slot_date_button_label,
+    slot_date_key as _slot_date_key,
+    slot_local_datetime as _slot_local_datetime,
+    slot_time_label as _slot_time_label,
+)
 from src.models import AuthSession, ChatMessage, Lead, MessageDirection, OperatorAccessRequest, OperatorAccessRequestStatus, Organization, User
 from src.models.user import UserRole
 
@@ -56,7 +64,6 @@ QUIZ_SUMMARY_FIELDS = [
     ("rtype", "Ремонт"),
     ("design", "Дизайн"),
 ]
-RU_WEEKDAYS_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 DEFAULT_ORG_NAME = "Default Organization"
 FALLBACK_COMPANY_NAME = "Исаев Групп"
 
@@ -545,80 +552,6 @@ def _build_quiz_estimate_text(lead) -> str:
             "Инженер посмотрит объект, замерит нюансы и после этого мы точнее посчитаем работы."
         )
     return text
-
-
-def _slot_local_datetime(value: str) -> datetime | None:
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(ZoneInfo("Europe/Moscow"))
-
-
-def _slot_date_key(value: str) -> str:
-    dt = _slot_local_datetime(value)
-    return dt.strftime("%Y-%m-%d") if dt else value[:10]
-
-
-def _slot_date_button_label(date_key: str) -> str:
-    try:
-        dt = datetime.fromisoformat(date_key).replace(tzinfo=ZoneInfo("Europe/Moscow"))
-    except ValueError:
-        return date_key
-    return f"{dt.strftime('%d.%m')} {RU_WEEKDAYS_SHORT[dt.weekday()]}"
-
-
-def _slot_time_label(value: str) -> str:
-    dt = _slot_local_datetime(value)
-    return dt.strftime("%H:%M") if dt else value
-
-
-def _group_slots_by_date(slots) -> dict[str, list]:
-    grouped: dict[str, list] = {}
-    for slot in slots:
-        grouped.setdefault(_slot_date_key(slot.start), []).append(slot)
-    return grouped
-
-
-def _build_measurement_date_keyboard(slots) -> InlineKeyboardMarkup:
-    grouped = _group_slots_by_date(slots)
-    buttons: list[list[InlineKeyboardButton]] = []
-    row: list[InlineKeyboardButton] = []
-    for date_key in list(grouped.keys())[:7]:
-        row.append(
-            InlineKeyboardButton(
-                text=_slot_date_button_label(date_key),
-                callback_data=f"quiz_measure_date:{date_key}",
-            )
-        )
-        if len(row) == 2:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def _build_measurement_time_keyboard(slots, date_key: str) -> InlineKeyboardMarkup:
-    matching_slots = [slot for slot in slots if _slot_date_key(slot.start) == date_key]
-    buttons: list[list[InlineKeyboardButton]] = []
-    row: list[InlineKeyboardButton] = []
-    for slot in matching_slots[:10]:
-        row.append(
-            InlineKeyboardButton(
-                text=_slot_time_label(slot.start),
-                callback_data=f"quiz_measure_time:{slot.start}",
-            )
-        )
-        if len(row) == 3:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="← Выбрать другой день", callback_data="quiz_measure_back")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def _build_measurement_change_keyboard() -> InlineKeyboardMarkup:

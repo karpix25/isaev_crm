@@ -41,7 +41,6 @@ class DirectQualificationAnswer:
     label: str
     updated_data: dict[str, Any]
     next_prompt: DirectQualificationPrompt | None
-    completion_text: str | None
 
 
 STEPS: tuple[DirectQualificationStep, ...] = (
@@ -76,7 +75,7 @@ STEPS: tuple[DirectQualificationStep, ...] = (
         field="renovation_type",
         question="Какой ремонт хотите?",
         options=(
-            DirectQualificationOption("cosmetic", "Косметический", {"renovation_type": "косметический"}),
+            DirectQualificationOption("cosm", "Косметический", {"renovation_type": "косметический"}),
             DirectQualificationOption("finish", "Чистовая отделка", {"renovation_type": "чистовая отделка"}),
             DirectQualificationOption("full", "Под ключ", {"renovation_type": "под ключ"}),
         ),
@@ -105,6 +104,16 @@ OPTION_BY_FIELD = {
     step.field: {option.value: option for option in step.options}
     for step in STEPS
 }
+OPTION_BY_FIELD["renovation_type"]["cosmetic"] = OPTION_BY_FIELD["renovation_type"]["cosm"]
+QUIZ_FIELD_BY_FIELD = {
+    "area": "area",
+    "property_type": "type",
+    "renovation_type": "rtype",
+    "design": "design",
+}
+QUIZ_VALUE_BY_FIELD = {
+    "renovation_type": {"cosmetic": "cosm"},
+}
 PRICE_WORDS = (
     "цен",
     "стоим",
@@ -119,9 +128,9 @@ PRICE_WORDS = (
 
 
 def should_offer_qualification(text: str, extracted_data: dict[str, Any]) -> bool:
-    if _has_quiz_answers(extracted_data):
-        return False
     state = _state(extracted_data)
+    if _has_quiz_answers(extracted_data) and not state.get("active"):
+        return False
     if state.get("active") and not state.get("completed"):
         return True
     completed_fields = _completed_fields(extracted_data)
@@ -132,7 +141,8 @@ def should_offer_qualification(text: str, extracted_data: dict[str, Any]) -> boo
 
 
 def build_next_prompt(extracted_data: dict[str, Any]) -> DirectQualificationPrompt | None:
-    if _has_quiz_answers(extracted_data):
+    state = _state(extracted_data)
+    if _has_quiz_answers(extracted_data) and not state.get("active"):
         return None
     completed_fields = _completed_fields(extracted_data)
     for step in STEPS:
@@ -177,14 +187,13 @@ def apply_callback_answer(
     )
     updated[STATE_KEY] = state
     updated.update(option.data)
+    _sync_quiz_answer(updated, field, value)
 
     next_prompt = build_next_prompt(updated)
-    completion_text = None
     if next_prompt is None:
         state["completed"] = True
         state["completed_at"] = _now_iso()
         updated[STATE_KEY] = state
-        completion_text = _completion_text(updated)
 
     return DirectQualificationAnswer(
         field=field,
@@ -192,7 +201,6 @@ def apply_callback_answer(
         label=option.label,
         updated_data=updated,
         next_prompt=next_prompt,
-        completion_text=completion_text,
     )
 
 
@@ -237,6 +245,16 @@ def _completed_fields(extracted_data: dict[str, Any]) -> set[str]:
     answers = _state(extracted_data).get("answers")
     if isinstance(answers, dict):
         fields.update(key for key, value in answers.items() if value)
+    quiz = extracted_data.get("quiz") if isinstance(extracted_data.get("quiz"), dict) else {}
+    quiz_answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
+    if quiz_answers.get("area"):
+        fields.add("area")
+    if quiz_answers.get("type"):
+        fields.add("property_type")
+    if quiz_answers.get("rtype"):
+        fields.add("renovation_type")
+    if quiz_answers.get("design"):
+        fields.add("design")
     if extracted_data.get("area_sqm") or extracted_data.get("area_range"):
         fields.add("area")
     if extracted_data.get("property_type"):
@@ -252,11 +270,19 @@ def _completed_fields(extracted_data: dict[str, Any]) -> set[str]:
     return fields
 
 
-def _completion_text(extracted_data: dict[str, Any]) -> str:
-    return (
-        "Спасибо, вводные собрали ✅\n\n"
-        "Теперь менеджер увидит картину сразу и сможет сориентировать без повторных вопросов."
-    )
+def _sync_quiz_answer(extracted_data: dict[str, Any], field: str, value: str) -> None:
+    quiz_field = QUIZ_FIELD_BY_FIELD.get(field)
+    if not quiz_field:
+        return
+
+    quiz = extracted_data.get("quiz") if isinstance(extracted_data.get("quiz"), dict) else {}
+    answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
+    answers = dict(answers)
+    answers[quiz_field] = QUIZ_VALUE_BY_FIELD.get(field, {}).get(value, value)
+    quiz["answers"] = answers
+    quiz.setdefault("source", "telegram_inline")
+    quiz["updated_at"] = _now_iso()
+    extracted_data["quiz"] = quiz
 
 
 def _now_iso() -> str:
