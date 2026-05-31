@@ -76,6 +76,33 @@ export function useUpdateLead() {
     })
 }
 
+export function useUploadFinalEstimate() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ id, file }: { id: string; file: File }) =>
+            leadsAPI.uploadFinalEstimate(id, file),
+        onSuccess: (_data, variables) => {
+            invalidateLeadQueries(queryClient)
+            queryClient.invalidateQueries({ queryKey: ['lead-history', variables.id] })
+        },
+    })
+}
+
+export function useSendFinalEstimate() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ id, message }: { id: string; message?: string }) =>
+            leadsAPI.sendFinalEstimate(id, message),
+        onSuccess: (_data, variables) => {
+            invalidateLeadQueries(queryClient)
+            queryClient.invalidateQueries({ queryKey: ['chat', variables.id] })
+            queryClient.invalidateQueries({ queryKey: ['lead-history', variables.id] })
+        },
+    })
+}
+
 export function useDeleteLead() {
     const queryClient = useQueryClient()
 

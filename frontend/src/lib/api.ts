@@ -188,6 +188,24 @@ export const leadsAPI = {
         return response.data
     },
 
+    uploadFinalEstimate: async (id: string, file: File): Promise<Lead> => {
+        const formData = new FormData()
+        formData.append('file', file)
+        const response = await api.post<Lead>(`/leads/${id}/estimate/final-file`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        return response.data
+    },
+
+    sendFinalEstimate: async (id: string, message?: string): Promise<Lead> => {
+        const formData = new FormData()
+        if (message) formData.append('message', message)
+        const response = await api.post<Lead>(`/leads/${id}/estimate/send`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        return response.data
+    },
+
     delete: async (id: string): Promise<void> => {
         await api.delete(`/leads/${id}`)
     },

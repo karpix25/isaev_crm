@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import Lead, User
+from src.models import Lead, MessageStatus, MessageTransport, User
 from src.models.lead import LeadStatus
 from src.models.user import UserRole
+from src.services.chat_service import chat_service
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,89 @@ class EstimateRequestService:
 
         await self.notify_estimators(db=db, lead=lead, file_record=file_record)
         return file_record
+
+    async def register_final_file(
+        self,
+        db: AsyncSession,
+        lead: Lead,
+        *,
+        url: str,
+        filename: str | None = None,
+    ) -> dict[str, Any]:
+        data = self._parse_extracted_data(lead.extracted_data)
+        uploaded_at = datetime.now(timezone.utc).isoformat()
+        file_record = {
+            "url": url,
+            "filename": filename or "Готовая смета",
+            "uploaded_at": uploaded_at,
+            "source": "crm_estimator_upload",
+        }
+
+        estimate_request = data.get("estimate_request")
+        if not isinstance(estimate_request, dict):
+            estimate_request = {}
+        estimate_request.update(
+            {
+                "status": "ready_to_send",
+                "final_file": file_record,
+                "final_uploaded_at": uploaded_at,
+            }
+        )
+        data["estimate_request"] = estimate_request
+
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        lead.status = LeadStatus.ESTIMATE.value
+        await db.commit()
+        await db.refresh(lead)
+        return file_record
+
+    async def send_final_file_to_lead(
+        self,
+        db: AsyncSession,
+        lead: Lead,
+        *,
+        message_text: str,
+    ) -> dict[str, Any]:
+        data = self._parse_extracted_data(lead.extracted_data)
+        estimate_request = data.get("estimate_request") if isinstance(data.get("estimate_request"), dict) else {}
+        final_file = estimate_request.get("final_file") if isinstance(estimate_request.get("final_file"), dict) else None
+        if not final_file or not final_file.get("url"):
+            raise ValueError("final_estimate_file_missing")
+
+        file_path = self._local_media_path(str(final_file["url"]))
+        if not file_path.exists():
+            raise ValueError("final_estimate_file_not_found")
+
+        from src.services.estimate_delivery_service import estimate_delivery_service
+
+        telegram_message_id = await estimate_delivery_service.send_telegram_document(
+            db=db,
+            lead=lead,
+            text=message_text,
+            file_path=file_path,
+        )
+
+        sent_at = datetime.now(timezone.utc).isoformat()
+        estimate_request["status"] = "sent"
+        estimate_request["sent_at"] = sent_at
+        data["estimate_request"] = estimate_request
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        lead.status = LeadStatus.ESTIMATE_SENT.value
+        await db.commit()
+        await db.refresh(lead)
+
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=message_text,
+            media_url=str(final_file["url"]),
+            telegram_message_id=telegram_message_id,
+            sender_name="CRM",
+            ai_metadata={"source": "CRM", "type": "final_estimate_sent"},
+            status=MessageStatus.SENT,
+            transport=MessageTransport.TELEGRAM,
+        )
+        return final_file
 
     async def notify_estimators(self, db: AsyncSession, lead: Lead, file_record: dict[str, Any]) -> None:
         recipient_ids = await self._estimator_chat_ids(db, lead)
@@ -130,6 +215,11 @@ class EstimateRequestService:
             return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
             return {}
+
+    def _local_media_path(self, url: str) -> Path:
+        if not url.startswith("/media/"):
+            raise ValueError("unsupported_media_url")
+        return Path.cwd() / url.lstrip("/")
 
 
 estimate_request_service = EstimateRequestService()

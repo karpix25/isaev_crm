@@ -138,7 +138,10 @@ class LeadStageEngineService:
         design_answer = str(answers.get("design") or "").lower()
         has_quiz = bool(answers)
         has_design_file = bool(quiz.get("design_project_file_url")) or "design_file_uploaded" in event_types
-        needs_estimate = str(estimate_request.get("status") or "").lower() == "needs_estimate"
+        estimate_status = str(estimate_request.get("status") or "").lower()
+        needs_estimate = estimate_status == "needs_estimate"
+        final_estimate_ready = estimate_status == "ready_to_send" and bool(estimate_request.get("final_file"))
+        final_estimate_sent = estimate_status == "sent" and bool(estimate_request.get("final_file"))
         design_later = "design_upload_skipped" in event_types
         has_inbound = bool(event_types & {"telegram_message_received", "whatsapp_message_received"})
         has_messenger_click = bool(event_types & {"telegram_clicked", "whatsapp_clicked"})
@@ -163,8 +166,10 @@ class LeadStageEngineService:
             return StageDecision(LeadStatus.CONTRACT, "contract_signed")
         if "contract_sent" in event_types:
             return StageDecision(LeadStatus.CONTRACT_NEGOTIATION, "contract_sent")
-        if "estimate_sent" in event_types:
+        if final_estimate_sent or "estimate_sent" in event_types:
             return StageDecision(LeadStatus.ESTIMATE_SENT, "estimate_sent")
+        if final_estimate_ready:
+            return StageDecision(LeadStatus.ESTIMATE, "estimate_ready_to_send")
         if "estimate_review_requested" in event_types or "estimate_ai_created" in event_types:
             return StageDecision(LeadStatus.ESTIMATE_REVIEW, "estimate_review_requested")
         if needs_estimate or "estimate_preparing" in event_types:

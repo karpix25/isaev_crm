@@ -4,6 +4,7 @@ from sqlalchemy import select
 from typing import Optional
 import uuid
 import json
+import os
 
 from src.database import get_db
 from src.models import User, UserRole, LeadStatus, LeadChangeLog
@@ -21,6 +22,7 @@ from src.schemas.lead import (
 from src.services.lead_service import lead_service
 from src.services.lead_import_service import lead_import_service
 from src.services.lead_audit_service import lead_audit_service
+from src.services.estimate_request_service import estimate_request_service
 from src.dependencies.auth import require_role
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -264,6 +266,124 @@ async def update_lead(
     await db.commit()
     await db.refresh(lead)
     
+    return LeadResponse.model_validate(lead)
+
+
+@router.post("/{lead_id}/estimate/final-file", response_model=LeadResponse)
+async def upload_final_estimate_file(
+    lead_id: uuid.UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Attach a finished estimate file to a lead."""
+    lead = await lead_service.get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
+    if str(lead.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Файл не выбран.")
+
+    safe_ext = os.path.splitext(file.filename)[1].lower()
+    if safe_ext not in {".pdf", ".xlsx", ".xls", ".docx"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Можно загрузить PDF, Excel или DOCX.",
+        )
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Файл больше 50 МБ.")
+
+    media_dir = os.path.join(os.getcwd(), "media", "final_estimates")
+    os.makedirs(media_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4()}{safe_ext}"
+    full_path = os.path.join(media_dir, stored_name)
+    with open(full_path, "wb") as out:
+        out.write(content)
+
+    before_status = lead.status
+    before_data = lead.extracted_data
+    url = f"/media/final_estimates/{stored_name}"
+    await estimate_request_service.register_final_file(
+        db=db,
+        lead=lead,
+        url=url,
+        filename=file.filename,
+    )
+
+    await lead_audit_service.log_change(
+        db=db,
+        lead=lead,
+        action="estimate_final_file_uploaded",
+        source="manual",
+        user_id=current_user.id,
+        changes={
+            "status": {"old": before_status, "new": lead.status},
+            "extracted_data": {"old": before_data, "new": lead.extracted_data},
+        },
+    )
+    await db.commit()
+    await db.refresh(lead)
+    return LeadResponse.model_validate(lead)
+
+
+@router.post("/{lead_id}/estimate/send", response_model=LeadResponse)
+async def send_final_estimate_to_lead(
+    lead_id: uuid.UUID,
+    message: str = Form(
+        "Подготовили расчет по вашему объекту. Прикрепляю смету файлом. "
+        "Если удобно, можем коротко пройтись по ней и показать, где можно оптимизировать бюджет."
+    ),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send the finished estimate file to the lead and mark it as sent."""
+    lead = await lead_service.get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
+    if str(lead.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if not lead.telegram_id:
+        await lead_service.sync_telegram_identity_from_extracted(db, lead)
+    if not lead.telegram_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="У лида нет Telegram для отправки.")
+
+    before_status = lead.status
+    before_data = lead.extracted_data
+    try:
+        await estimate_request_service.send_final_file_to_lead(
+            db=db,
+            lead=lead,
+            message_text=message.strip(),
+        )
+    except ValueError as exc:
+        details = {
+            "final_estimate_file_missing": "Сначала загрузите готовую смету.",
+            "final_estimate_file_not_found": "Файл сметы не найден на сервере.",
+            "lead_has_no_telegram": "У лида нет Telegram для отправки.",
+            "telegram_bot_unavailable": "Telegram-бот недоступен.",
+            "userbot_unavailable": "Бизнес-аккаунт Telegram недоступен.",
+        }
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=details.get(str(exc), str(exc)),
+        )
+
+    await lead_audit_service.log_change(
+        db=db,
+        lead=lead,
+        action="estimate_sent",
+        source="manual",
+        user_id=current_user.id,
+        changes={
+            "status": {"old": before_status, "new": lead.status},
+            "extracted_data": {"old": before_data, "new": lead.extracted_data},
+        },
+    )
+    await db.commit()
+    await db.refresh(lead)
     return LeadResponse.model_validate(lead)
 
 

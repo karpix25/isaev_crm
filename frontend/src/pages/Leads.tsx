@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads } from '@/hooks/useLeads'
+import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads, useUploadFinalEstimate, useSendFinalEstimate } from '@/hooks/useLeads'
 import { useChatHistory, useSendBusinessCard, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
@@ -678,12 +678,15 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const [selectedTransport, setSelectedTransport] = useState<MessageTransport>(getDefaultTransport(lead))
     const [sendChannelError, setSendChannelError] = useState<string | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const finalEstimateInputRef = useRef<HTMLInputElement>(null)
     const { data: chatData } = useChatHistory(lead.id, 1, selectedTransport)
     const { data: historyData, isLoading: isHistoryLoading } = useLeadHistory(lead.id, 100)
     const sendMessage = useSendMessage()
     const sendBusinessCard = useSendBusinessCard()
     const deleteLead = useDeleteLead()
     const updateLead = useUpdateLead()
+    const uploadFinalEstimate = useUploadFinalEstimate()
+    const sendFinalEstimate = useSendFinalEstimate()
     const [isEditingExtracted, setIsEditingExtracted] = useState(false)
     const [savedExtractedData, setSavedExtractedData] = useState<Record<string, any>>(parseExtractedData(lead.extracted_data))
     const [extractedDraft, setExtractedDraft] = useState<Record<string, string>>({})
@@ -800,6 +803,33 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         )
     }
 
+    const handleFinalEstimateFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (!file || uploadFinalEstimate.isPending) return
+
+        uploadFinalEstimate.mutate(
+            { id: lead.id, file },
+            {
+                onSuccess: (updatedLead) => {
+                    setSavedExtractedData(parseExtractedData(updatedLead.extracted_data))
+                },
+            }
+        )
+    }
+
+    const handleSendFinalEstimate = () => {
+        if (sendFinalEstimate.isPending) return
+        sendFinalEstimate.mutate(
+            { id: lead.id },
+            {
+                onSuccess: (updatedLead) => {
+                    setSavedExtractedData(parseExtractedData(updatedLead.extracted_data))
+                },
+            }
+        )
+    }
+
     const getMessageLabel = (msg: any) => {
         if (msg.direction === MessageDirection.INBOUND) return 'Клиент'
         if (msg.sender_name === 'AI' || msg.sender_name === 'Bot') return 'ИИ Ассистент'
@@ -858,8 +888,18 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         : null
     const estimateFileUrl = getMediaUrl(latestEstimateFile?.url ? String(latestEstimateFile.url) : null)
     const estimateFileName = latestEstimateFile?.filename ? String(latestEstimateFile.filename) : 'Файл для расчета'
+    const finalEstimateFile = estimateRequest?.final_file && typeof estimateRequest.final_file === 'object'
+        ? estimateRequest.final_file
+        : null
+    const finalEstimateUrl = getMediaUrl(finalEstimateFile?.url ? String(finalEstimateFile.url) : null)
+    const finalEstimateName = finalEstimateFile?.filename ? String(finalEstimateFile.filename) : 'Готовая смета'
+    const canSendFinalEstimate = Boolean(finalEstimateUrl && lead.telegram_id)
     const estimateStatusLabel = estimateRequest?.status === 'needs_estimate'
         ? 'Нужен просчет'
+        : estimateRequest?.status === 'ready_to_send'
+            ? 'Готова к отправке'
+            : estimateRequest?.status === 'sent'
+                ? 'Отправлена'
         : estimateRequest?.status
             ? String(estimateRequest.status)
             : 'Не запрошен'
@@ -1080,6 +1120,13 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                     <div className="grid grid-cols-2 gap-y-5 gap-x-4">
                                         <DataField label="Статус" value={estimateStatusLabel} />
                                         <DataField label="Срок" value={estimateSlaLabel} icon={<Clock className="h-3 w-3" />} />
+                                        <input
+                                            ref={finalEstimateInputRef}
+                                            type="file"
+                                            accept=".pdf,.xlsx,.xls,.docx"
+                                            onChange={handleFinalEstimateFile}
+                                            className="hidden"
+                                        />
                                         <div className="col-span-2 space-y-1">
                                             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-80">
                                                 <FileText className="h-3 w-3" /> Файл клиента
@@ -1095,6 +1142,48 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                                 </a>
                                             ) : (
                                                 <div className="text-xs font-medium text-slate-800">{estimateFileName}</div>
+                                            )}
+                                        </div>
+                                        <div className="col-span-2 space-y-2 border-t pt-4">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-80">
+                                                        <FileText className="h-3 w-3" /> Готовая смета
+                                                    </div>
+                                                    {finalEstimateUrl ? (
+                                                        <a
+                                                            href={finalEstimateUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="mt-1 block truncate text-xs font-semibold text-primary hover:underline"
+                                                        >
+                                                            {finalEstimateName}
+                                                        </a>
+                                                    ) : (
+                                                        <div className="mt-1 text-xs text-slate-400">Файл еще не загружен</div>
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => finalEstimateInputRef.current?.click()}
+                                                    disabled={uploadFinalEstimate.isPending}
+                                                    className="inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-slate-50 disabled:opacity-50"
+                                                >
+                                                    <Upload className="h-3.5 w-3.5" />
+                                                    {uploadFinalEstimate.isPending ? 'Загрузка...' : 'Загрузить'}
+                                                </button>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleSendFinalEstimate}
+                                                disabled={!canSendFinalEstimate || sendFinalEstimate.isPending}
+                                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <Send className="h-3.5 w-3.5" />
+                                                {sendFinalEstimate.isPending ? 'Отправляем...' : 'Отправить смету клиенту'}
+                                            </button>
+                                            {!lead.telegram_id && (
+                                                <div className="text-[11px] text-amber-600">Для отправки нужен Telegram у лида.</div>
                                             )}
                                         </div>
                                     </div>
