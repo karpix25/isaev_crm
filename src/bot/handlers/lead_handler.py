@@ -362,6 +362,28 @@ def _looks_like_support_question(text: str) -> bool:
     return any(word in normalized for word in support_words) and any(word in normalized for word in question_words)
 
 
+def _looks_like_estimate_file_content_question(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("ё", "е")
+    if "смет" not in normalized:
+        return False
+    content_words = (
+        "сумм",
+        "итог",
+        "тотал",
+        "total",
+        "сколько",
+        "какая",
+        "какой",
+        "цена",
+        "стоим",
+        "пункт",
+        "позици",
+        "что внутри",
+        "что там",
+    )
+    return any(word in normalized for word in content_words)
+
+
 def _looks_like_measurement_slot_reply(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -1952,6 +1974,7 @@ SCENARIO_ORCHESTRATION:
 - Если клиент просит отменить существующий замер: tool_action = "cancel_measurement".
 - Если клиент просит изменить дату, адрес, телефон или данные брони: tool_action = "change_measurement_booking".
 - Если клиент просит прислать, повторить, скинуть или найти готовую смету файлом: tool_action = "send_final_estimate".
+- Если клиент спрашивает сумму, итог, позиции или содержимое сметы-файла: не делай вид, что прочитал файл; ответь, что передашь вопрос менеджеру/сметчику, tool_action = "none".
 - Если клиент спрашивает, есть ли у него запись на замер, на какое число/время записан или какой адрес в записи: tool_action = "read_measurement_booking".
 - Если клиент спрашивает статус сметы, готова ли смета, где расчет, но не просит именно файл: tool_action = "read_estimate_status".
 - Если клиент спрашивает, какие данные по заявке уже есть в CRM: tool_action = "read_lead_summary".
@@ -2221,6 +2244,23 @@ async def _try_route_scenario_before_ai(
 
     if _looks_like_not_interested(text):
         return await _handle_not_interested(db, message, lead, text)
+
+    if _looks_like_estimate_file_content_question(text):
+        text_reply = "Я не читаю содержимое Excel-сметы в чате, поэтому сумму называть не буду. Передам вопрос менеджеру или сметчику, чтобы ответили точно."
+        sent = await message.answer(text_reply)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text_reply,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={
+                "source": "bot_scenario",
+                "type": "estimate_file_content_question",
+                "skip_knowledge_index": True,
+            },
+        )
+        return True
 
     if await _try_execute_llm_crm_tool(db, message, lead, text, stage_context):
         return True
