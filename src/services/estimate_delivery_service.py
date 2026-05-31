@@ -25,26 +25,15 @@ class EstimateDeliveryService:
             raise ValueError("lead_has_no_telegram")
 
         if lead.source in {"userbot", "CRM"}:
-            try:
-                await self._send_userbot_file(
-                    db=db,
-                    org_id=lead.org_id,
-                    telegram_id=int(lead.telegram_id),
-                    file_path=file_path,
-                    caption=text,
-                    username=lead.username,
-                )
-                return None
-            except ValueError:
-                if lead.source == "userbot":
-                    raise
-
-                official_message_id = await self._send_official_bot_file(
-                    telegram_id=int(lead.telegram_id),
-                    text=text,
-                    file_path=file_path,
-                )
-                return official_message_id
+            await self._send_userbot_file(
+                db=db,
+                org_id=lead.org_id,
+                telegram_id=int(lead.telegram_id),
+                file_path=file_path,
+                caption=text,
+                username=lead.username,
+            )
+            return None
 
         return await self._send_official_bot_file(
             telegram_id=int(lead.telegram_id),
