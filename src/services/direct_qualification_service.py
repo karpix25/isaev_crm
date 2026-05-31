@@ -47,7 +47,7 @@ class DirectQualificationAnswer:
 STEPS: tuple[DirectQualificationStep, ...] = (
     DirectQualificationStep(
         field="area",
-        question="Чтобы сориентировать по бюджету точнее, выберите площадь объекта:",
+        question="Окей. По площади ближе к чему?",
         options=(
             DirectQualificationOption("xs", "До 40 м²", {"area_range": "до 40 м²"}),
             DirectQualificationOption("sm", "40–70 м²", {"area_range": "40–70 м²"}),
@@ -57,7 +57,7 @@ STEPS: tuple[DirectQualificationStep, ...] = (
     ),
     DirectQualificationStep(
         field="property_type",
-        question="Понял. Что ремонтируем?",
+        question="А сам объект какой?",
         options=(
             DirectQualificationOption("flat", "Квартира", {"property_type": "квартира"}),
             DirectQualificationOption("house", "Дом", {"property_type": "дом"}),
@@ -66,7 +66,7 @@ STEPS: tuple[DirectQualificationStep, ...] = (
     ),
     DirectQualificationStep(
         field="housing_type",
-        question="Это новостройка или вторичное жилье?",
+        question="Это новостройка или вторичка?",
         options=(
             DirectQualificationOption("new", "Новостройка", {"housing_type": "новостройка"}),
             DirectQualificationOption("secondary", "Вторичка", {"housing_type": "вторичное жилье"}),
@@ -74,7 +74,7 @@ STEPS: tuple[DirectQualificationStep, ...] = (
     ),
     DirectQualificationStep(
         field="renovation_type",
-        question="Какой формат ремонта рассматриваете?",
+        question="Какой ремонт хотите?",
         options=(
             DirectQualificationOption("cosmetic", "Косметический", {"renovation_type": "косметический"}),
             DirectQualificationOption("finish", "Чистовая отделка", {"renovation_type": "чистовая отделка"}),
@@ -83,7 +83,7 @@ STEPS: tuple[DirectQualificationStep, ...] = (
     ),
     DirectQualificationStep(
         field="design",
-        question="Есть дизайн-проект?",
+        question="С дизайн-проектом как сейчас?",
         options=(
             DirectQualificationOption("yes", "Да, готов", {"design_project_status": "готов"}),
             DirectQualificationOption("wip", "В работе", {"design_project_status": "в работе"}),
@@ -92,7 +92,7 @@ STEPS: tuple[DirectQualificationStep, ...] = (
     ),
     DirectQualificationStep(
         field="timeline",
-        question="Когда планируете начинать ремонт?",
+        question="И по старту: когда примерно хотите начинать?",
         options=(
             DirectQualificationOption("asap", "Как можно скорее", {"timeline": "как можно скорее"}),
             DirectQualificationOption("month", "В течение месяца", {"timeline": "в течение месяца"}),
@@ -254,9 +254,8 @@ def _completed_fields(extracted_data: dict[str, Any]) -> set[str]:
 
 def _completion_text(extracted_data: dict[str, Any]) -> str:
     return (
-        "Спасибо, собрали базовые вводные ✅\n\n"
-        "Менеджер уже увидит их в заявке и сможет точнее сориентировать вас "
-        "по ремонту без лишних повторных вопросов."
+        "Спасибо, вводные собрали ✅\n\n"
+        "Теперь менеджер увидит картину сразу и сможет сориентировать без повторных вопросов."
     )
 
 
