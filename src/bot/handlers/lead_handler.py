@@ -28,6 +28,10 @@ from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
+from src.services.direct_qualification_service import (
+    build_next_prompt,
+    should_offer_qualification,
+)
 from src.services.prompts import SALES_AGENT_SYSTEM_PROMPT, IDENTITY_GUARDRAILS, get_initial_message, build_system_prompt, normalize_system_prompt_template
 from src.services.business_hours import is_business_hours, get_business_now
 from src.config import settings
@@ -2828,12 +2832,20 @@ async def process_debounced_message(conversation_key: str):
         
         # Check if AI should handle this lead
         if lead.ai_qualification_status == "handoff_required":
-            measurement_answer = _build_measurement_context_answer(lead, combined_text)
-            await message.answer(
-                measurement_answer
-                or "✅ Спасибо, сообщение получили. Менеджер уже видит вашу заявку и скоро свяжется с вами."
-            )
-            return
+            direct_data = _lead_extracted_data(lead)
+            if (
+                stage_context.next_action == "direct_chat_qualification"
+                and should_offer_qualification(combined_text, direct_data)
+            ):
+                lead.ai_qualification_status = "in_progress"
+                await db.commit()
+            else:
+                measurement_answer = _build_measurement_context_answer(lead, combined_text)
+                await message.answer(
+                    measurement_answer
+                    or "✅ Спасибо, сообщение получили. Менеджер уже видит вашу заявку и скоро свяжется с вами."
+                )
+                return
 
         try:
             # Get conversation history
@@ -2952,7 +2964,28 @@ async def process_debounced_message(conversation_key: str):
                 ai_text=ai_response["text"],
                 company_name=company_name
             )
-            sent_message = await message.answer(response_text)
+            extracted_data = ai_response.get("extracted_data")
+            direct_prompt = None
+            effective_extracted_data = _lead_extracted_data(lead)
+            if extracted_data:
+                effective_extracted_data = _parse_extracted_data(
+                    _merge_ai_extracted_data(lead.extracted_data, extracted_data)
+                )
+            if (
+                stage_context.next_action == "direct_chat_qualification"
+                and should_offer_qualification(combined_text, effective_extracted_data)
+            ):
+                direct_prompt = build_next_prompt(effective_extracted_data)
+                if direct_prompt:
+                    ai_metadata["direct_qualification"] = {
+                        "type": "inline_prompt",
+                        "field": direct_prompt.field,
+                    }
+
+            sent_message = await message.answer(
+                response_text,
+                reply_markup=direct_prompt.keyboard if direct_prompt else None,
+            )
             logger.info(
                 "AI reply sent: lead_id=%s telegram_message_id=%s",
                 lead.id,
@@ -2970,7 +3003,6 @@ async def process_debounced_message(conversation_key: str):
             )
             
             # Update lead with extracted data
-            extracted_data = ai_response.get("extracted_data")
             if extracted_data:
                 # 1. Sync structured fields if present
                 update_fields = {}
@@ -3009,7 +3041,7 @@ async def process_debounced_message(conversation_key: str):
                     )
                 
                 # Check if handoff is needed
-                if openrouter_service.should_handoff(extracted_data):
+                if openrouter_service.should_handoff(extracted_data) and not direct_prompt:
                     # Update lead status to handoff if not already set by AI
                     if update_fields.get("ai_qualification_status") != "handoff_required":
                         await lead_service.update_lead(

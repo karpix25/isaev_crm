@@ -174,13 +174,14 @@ class LeadStageContextService:
                 "Дать короткий следующий шаг по смете.",
                 "Задать максимум один уточняющий вопрос, если он действительно нужен.",
             ]
-        elif source in {"userbot", "telegram", "quiz_telegram"} and not has_quiz_answers:
+        elif source in {"userbot", "telegram", "telegram_business", "quiz_telegram"} and not has_quiz_answers:
             next_action = "direct_chat_qualification"
             expected_from_client = "answer_in_chat_or_open_quiz"
             client_expects = "consultation"
             response_policy = [
                 "Консультировать прямо в чате.",
-                "Если клиент спрашивает про цену, сроки, замер или дал мало данных, предложить персональную ссылку на квиз.",
+                "Если клиент спрашивает про цену, сроки, замер или дал мало данных, задай один уточняющий вопрос.",
+                "Не отправляй ссылку на квиз в Telegram Business: система покажет клиенту быстрые кнопки сама.",
                 "Не заставлять проходить квиз, если клиент явно хочет общаться здесь.",
             ]
         else:
