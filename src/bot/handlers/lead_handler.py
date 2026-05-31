@@ -3014,7 +3014,7 @@ async def process_debounced_message(conversation_key: str):
                     )
                 
                 # Check if handoff is needed
-                if openrouter_service.should_handoff(extracted_data) and not direct_prompt and not is_support_question:
+                if openrouter_service.should_handoff(extracted_data) and not direct_prompt:
                     # Update lead status to handoff if not already set by AI
                     if update_fields.get("ai_qualification_status") != "handoff_required":
                         await lead_service.update_lead(
@@ -3046,11 +3046,7 @@ async def process_debounced_message(conversation_key: str):
                         except Exception as notify_err:
                             logger.warning("Failed to notify manager: %s", notify_err)
                     
-                    # Send handoff message to user
-                    await message.answer(
-                        "Отлично, передал вашу заявку менеджеру ✅ "
-                        "Он свяжется с вами в ближайшее время, уточнит детали и подскажет следующий шаг. 📞"
-                    )
+                    ai_metadata["silent_manager_handoff"] = True
         
         except Exception as e:
             logger.error("Error in AI handler for user %s: %s", user_id, e, exc_info=True)
