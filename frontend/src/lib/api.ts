@@ -198,11 +198,10 @@ export const leadsAPI = {
     },
 
     sendFinalEstimate: async (id: string, message?: string): Promise<Lead> => {
-        const formData = new FormData()
-        if (message) formData.append('message', message)
-        const response = await api.post<Lead>(`/leads/${id}/estimate/send`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        })
+        const body = message ? new URLSearchParams({ message }) : undefined
+        const response = await api.post<Lead>(`/leads/${id}/estimate/send`, body, message ? {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        } : undefined)
         return response.data
     },
 

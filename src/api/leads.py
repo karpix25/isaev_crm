@@ -26,6 +26,10 @@ from src.services.estimate_request_service import estimate_request_service
 from src.dependencies.auth import require_role
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
+DEFAULT_ESTIMATE_MESSAGE = (
+    "Подготовили расчет по вашему объекту. Прикрепляю смету файлом. "
+    "Если удобно, можем коротко пройтись по ней и показать, где можно оптимизировать бюджет."
+)
 
 
 @router.get("/", response_model=LeadListResponse)
@@ -332,10 +336,7 @@ async def upload_final_estimate_file(
 @router.post("/{lead_id}/estimate/send", response_model=LeadResponse)
 async def send_final_estimate_to_lead(
     lead_id: uuid.UUID,
-    message: str = Form(
-        "Подготовили расчет по вашему объекту. Прикрепляю смету файлом. "
-        "Если удобно, можем коротко пройтись по ней и показать, где можно оптимизировать бюджет."
-    ),
+    message: str | None = Form(None),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
@@ -356,7 +357,7 @@ async def send_final_estimate_to_lead(
         await estimate_request_service.send_final_file_to_lead(
             db=db,
             lead=lead,
-            message_text=message.strip(),
+            message_text=(message or DEFAULT_ESTIMATE_MESSAGE).strip(),
         )
     except ValueError as exc:
         details = {
