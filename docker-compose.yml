@@ -87,6 +87,17 @@ services:
       app:
         condition: service_started
 
+  quiz_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.quiz
+    restart: always
+    expose:
+      - "80"
+    depends_on:
+      app:
+        condition: service_started
+
 volumes:
   postgres_data:
   redis_data:
