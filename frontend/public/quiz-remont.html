@@ -1931,6 +1931,13 @@ async function submitFinalQuiz(contactOverride = null) {
     return;
   }
 
+  if (selectedMessenger) {
+    const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
+    trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
+    window.location.href = messengerUrl;
+    return;
+  }
+
   // Заполняем экран результата
   document.getElementById('resultRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
   document.getElementById('resultItems').innerHTML = resultFields.map(([k, title]) => `
@@ -1951,11 +1958,6 @@ async function submitFinalQuiz(contactOverride = null) {
   showScreen('screen-result');
   const slotSection = document.getElementById('slotsSection');
   if (slotSection) slotSection.classList.remove('active');
-  if (selectedMessenger) {
-    const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
-    trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
-    setTimeout(() => { window.location.href = messengerUrl; }, 450);
-  }
 }
 
 function selectMessenger(messenger) {
