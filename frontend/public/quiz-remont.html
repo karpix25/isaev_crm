@@ -1123,7 +1123,8 @@ function resolveQuizApiBase() {
   const host = window.location.hostname;
   const isLocal = host === 'localhost' || host === '127.0.0.1';
   const isCrmHost = host === 'isaev-crm.karpix.com';
-  return isLocal || isCrmHost ? '/api' : PUBLIC_API_BASE;
+  const isQuizHost = host === 'quiz.isaevremont.ru';
+  return isLocal || isCrmHost || isQuizHost ? '/api' : PUBLIC_API_BASE;
 }
 
 const API_BASE = resolveQuizApiBase();

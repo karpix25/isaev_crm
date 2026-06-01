@@ -83,6 +83,19 @@ services:
     restart: always
     expose:
       - "80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.quiz-frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.http-quiz-frontend.entryPoints=http"
+      - "traefik.http.routers.http-quiz-frontend.rule=Host(`quiz.isaevremont.ru`) && PathPrefix(`/`)"
+      - "traefik.http.routers.http-quiz-frontend.middlewares=redirect-to-https"
+      - "traefik.http.routers.http-quiz-frontend.service=quiz-frontend"
+      - "traefik.http.routers.https-quiz-frontend.entryPoints=https"
+      - "traefik.http.routers.https-quiz-frontend.rule=Host(`quiz.isaevremont.ru`) && PathPrefix(`/`)"
+      - "traefik.http.routers.https-quiz-frontend.middlewares=gzip"
+      - "traefik.http.routers.https-quiz-frontend.service=quiz-frontend"
+      - "traefik.http.routers.https-quiz-frontend.tls=true"
+      - "traefik.http.routers.https-quiz-frontend.tls.certresolver=letsencrypt"
     depends_on:
       app:
         condition: service_started
