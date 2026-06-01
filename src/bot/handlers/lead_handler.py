@@ -102,6 +102,14 @@ async def _send_typing_action(message: Message) -> None:
         logger.debug("Failed to send typing action: %s", exc)
 
 
+def _is_business_author_message(message: Message) -> bool:
+    if not getattr(message, "business_connection_id", None):
+        return False
+    from_user_id = getattr(getattr(message, "from_user", None), "id", None)
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
+    return bool(from_user_id and chat_id and int(from_user_id) != int(chat_id))
+
+
 async def _typing_indicator_loop(message: Message, interval_seconds: float = 4.0) -> None:
     while True:
         await _send_typing_action(message)
@@ -3086,6 +3094,15 @@ async def handle_lead_message(message: Message):
     Handle text messages from leads with debouncing.
     Groups messages sent within the debounce window into a single AI request.
     """
+    if _is_business_author_message(message):
+        logger.info(
+            "Ignoring Telegram business author message: chat_id=%s user_id=%s connection=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.from_user, "id", None),
+            getattr(message, "business_connection_id", None),
+        )
+        return
+
     user_id = message.from_user.id
     business_connection_id = getattr(message, "business_connection_id", None)
     conversation_key = (
@@ -3519,6 +3536,15 @@ async def handle_lead_voice(message: Message):
     Handle voice messages from leads.
     Downloads the file, transcribes it via AssemblyAI, and passes text to AI silently.
     """
+    if _is_business_author_message(message):
+        logger.info(
+            "Ignoring Telegram business author voice: chat_id=%s user_id=%s connection=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.from_user, "id", None),
+            getattr(message, "business_connection_id", None),
+        )
+        return
+
     import os
     import tempfile
     from src.services.voice_service import voice_service
@@ -3571,6 +3597,15 @@ async def handle_lead_photo(message: Message):
     Handle photo messages from leads.
     Downloads the photo and sends it to AI via vision API so AI can actually see the image.
     """
+    if _is_business_author_message(message):
+        logger.info(
+            "Ignoring Telegram business author photo: chat_id=%s user_id=%s connection=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.from_user, "id", None),
+            getattr(message, "business_connection_id", None),
+        )
+        return
+
     import base64
     import tempfile
     import os
@@ -3775,6 +3810,15 @@ async def handle_lead_photo(message: Message):
 @router.message(F.document)
 async def handle_lead_document(message: Message):
     """Save client files for estimate preparation and notify estimators."""
+    if _is_business_author_message(message):
+        logger.info(
+            "Ignoring Telegram business author document: chat_id=%s user_id=%s connection=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.from_user, "id", None),
+            getattr(message, "business_connection_id", None),
+        )
+        return
+
     if not message.document:
         return
 
