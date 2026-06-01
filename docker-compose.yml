@@ -56,7 +56,7 @@ services:
       - media_data:/app/media
     depends_on:
       app:
-        condition: service_healthy
+        condition: service_started
       db:
         condition: service_healthy
       redis:
@@ -71,7 +71,7 @@ services:
       - media_data:/app/media
     depends_on:
       app:
-        condition: service_healthy
+        condition: service_started
       db:
         condition: service_healthy
       redis:
@@ -85,7 +85,7 @@ services:
       - "80"
     depends_on:
       app:
-        condition: service_healthy
+        condition: service_started
 
 volumes:
   postgres_data:
