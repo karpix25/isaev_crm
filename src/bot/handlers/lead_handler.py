@@ -724,7 +724,7 @@ def _build_quiz_estimate_text(lead) -> str:
     answers = _lead_quiz_answers(lead)
     summary = _lead_quiz_summary_lines(lead)
     text = (
-        "Здравствуйте! Я Карло, ассистент ISAEV GROUP.\n\n"
+        "Здравствуйте! Я Александр, менеджер компании ISAEV GROUP.\n\n"
         "Предварительная цена по работам без стройматериалов:\n"
         f"{price_label}"
     )
