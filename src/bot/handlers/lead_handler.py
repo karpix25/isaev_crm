@@ -723,7 +723,11 @@ def _build_quiz_estimate_text(lead) -> str:
 
     answers = _lead_quiz_answers(lead)
     summary = _lead_quiz_summary_lines(lead)
-    text = f"Предварительный ориентир по работам без стройматериалов: {price_label}."
+    text = (
+        "Здравствуйте! Я Карло, ассистент ISAEV GROUP.\n\n"
+        "Предварительная цена по работам без стройматериалов:\n"
+        f"{price_label}"
+    )
     if summary:
         text += "\n\n" + "\n".join(summary)
 
