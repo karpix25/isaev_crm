@@ -111,6 +111,13 @@ def _is_business_author_message(message: Message) -> bool:
     return bool(from_user_id and chat_id and int(from_user_id) != int(chat_id))
 
 
+def _is_non_private_bot_message(message: Message) -> bool:
+    if getattr(message, "business_connection_id", None):
+        return False
+    chat_type = getattr(getattr(message, "chat", None), "type", None)
+    return bool(chat_type and chat_type != "private")
+
+
 async def _typing_indicator_loop(message: Message, interval_seconds: float = 4.0) -> None:
     while True:
         await _send_typing_action(message)
@@ -3236,6 +3243,14 @@ async def handle_lead_message(message: Message):
             getattr(message, "business_connection_id", None),
         )
         return
+    if _is_non_private_bot_message(message):
+        logger.info(
+            "Ignoring non-private Telegram lead message: chat_id=%s chat_type=%s user_id=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.chat, "type", None),
+            getattr(message.from_user, "id", None),
+        )
+        return
 
     user_id = message.from_user.id
     business_connection_id = getattr(message, "business_connection_id", None)
@@ -3681,6 +3696,14 @@ async def handle_lead_voice(message: Message):
             getattr(message, "business_connection_id", None),
         )
         return
+    if _is_non_private_bot_message(message):
+        logger.info(
+            "Ignoring non-private Telegram lead voice: chat_id=%s chat_type=%s user_id=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.chat, "type", None),
+            getattr(message.from_user, "id", None),
+        )
+        return
 
     import os
     import tempfile
@@ -3740,6 +3763,14 @@ async def handle_lead_photo(message: Message):
             getattr(message.chat, "id", None),
             getattr(message.from_user, "id", None),
             getattr(message, "business_connection_id", None),
+        )
+        return
+    if _is_non_private_bot_message(message):
+        logger.info(
+            "Ignoring non-private Telegram lead photo: chat_id=%s chat_type=%s user_id=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.chat, "type", None),
+            getattr(message.from_user, "id", None),
         )
         return
 
@@ -3953,6 +3984,14 @@ async def handle_lead_document(message: Message):
             getattr(message.chat, "id", None),
             getattr(message.from_user, "id", None),
             getattr(message, "business_connection_id", None),
+        )
+        return
+    if _is_non_private_bot_message(message):
+        logger.info(
+            "Ignoring non-private Telegram lead document: chat_id=%s chat_type=%s user_id=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.chat, "type", None),
+            getattr(message.from_user, "id", None),
         )
         return
 
