@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { chatAPI } from '@/lib/api'
-import type { MessageTransport } from '@/types'
+import type { MessageTransport, SendChatMessagePayload } from '@/types'
 
 export function useChatHistory(leadId: string, page = 1, transport?: MessageTransport) {
     return useQuery({
@@ -15,13 +15,20 @@ export function useSendMessage() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: ({ leadId, content, transport }: { leadId: string; content: string; transport: MessageTransport }) =>
-            chatAPI.sendMessage(leadId, content, transport),
+        mutationFn: ({ leadId, ...payload }: { leadId: string } & SendChatMessagePayload) =>
+            chatAPI.sendMessage(leadId, payload),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ['chat', variables.leadId] })
             queryClient.invalidateQueries({ queryKey: ['leads'] })
             queryClient.invalidateQueries({ queryKey: ['leads-infinite'] })
         },
+    })
+}
+
+export function useUploadChatMedia() {
+    return useMutation({
+        mutationFn: ({ leadId, file }: { leadId: string; file: File }) =>
+            chatAPI.uploadMedia(leadId, file),
     })
 }
 

@@ -17,6 +17,7 @@ from src.services.quiz_service import quiz_service
 from src.services.whatsapp.phone import normalize_phone, normalize_phone_digits
 from src.services.whatsapp.types import WhatsAppIncomingMessage
 from src.services.whatsapp.media_storage import whatsapp_media_storage
+from src.services.whatsapp.quiz_activation_service import whatsapp_quiz_activation_service
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,14 @@ class WhatsAppInboundMessageService:
             if not linked_by_quiz:
                 await self._record_generic_inbound_event(db, lead, item)
                 await self._apply_inbound_stage(db, lead, item)
+            else:
+                await whatsapp_quiz_activation_service.send_activation_reply(
+                    db=db,
+                    lead=lead,
+                    chat_id=item.chat_id,
+                    session_token=quiz_service.extract_session_token(item.text) or "",
+                    source=f"{item.provider}_quiz_token",
+                )
             await self._register_estimate_attachment(db, lead, item, media_url)
             saved += 1
         return saved

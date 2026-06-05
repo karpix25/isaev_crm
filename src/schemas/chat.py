@@ -12,7 +12,13 @@ class ChatMessageCreate(BaseModel):
     direction: MessageDirection
     content: str
     media_url: Optional[str] = None
+    media_filename: Optional[str] = None
+    media_mimetype: Optional[str] = None
+    media_size: Optional[int] = None
     telegram_message_id: Optional[int] = None
+    external_provider: Optional[str] = None
+    external_message_id: Optional[str] = None
+    external_chat_id: Optional[str] = None
     sender_name: Optional[str] = None
 
 
@@ -26,7 +32,13 @@ class ChatMessageResponse(BaseModel):
     transport: MessageTransport
     content: str
     media_url: Optional[str] = None
+    media_filename: Optional[str] = None
+    media_mimetype: Optional[str] = None
+    media_size: Optional[int] = None
     telegram_message_id: Optional[int] = None
+    external_provider: Optional[str] = None
+    external_message_id: Optional[str] = None
+    external_chat_id: Optional[str] = None
     is_read: bool
     sender_name: Optional[str] = None
     ai_metadata: Optional[dict] = None
@@ -45,4 +57,7 @@ class SendMessageRequest(BaseModel):
     """Admin sends message to lead"""
     content: str
     media_url: Optional[str] = None
+    media_filename: Optional[str] = None
+    media_mimetype: Optional[str] = None
+    media_size: Optional[int] = None
     transport: MessageTransport = MessageTransport.TELEGRAM

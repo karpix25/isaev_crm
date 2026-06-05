@@ -3,7 +3,7 @@ API route modules.
 """
 
 from fastapi import APIRouter
-from src.api import auth, organizations, chat, leads, webhook, dashboard, projects, ai_management, custom_fields, userbot, analytics, quiz
+from src.api import auth, organizations, chat, leads, webhook, dashboard, projects, ai_management, custom_fields, userbot, analytics, quiz, estimates
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -21,5 +21,6 @@ api_router.include_router(custom_fields.router)
 api_router.include_router(userbot.router)
 api_router.include_router(analytics.router)
 api_router.include_router(quiz.router)
+api_router.include_router(estimates.router)
 
 __all__ = ["api_router"]

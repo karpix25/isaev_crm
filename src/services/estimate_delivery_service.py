@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Lead
 from src.services.user_bot_service import user_bot_service
+from src.services.whatsapp.media import media_type_from_mimetype, mimetype_for, public_media_url
+from src.services.whatsapp.transport_service import WhatsAppTransportError, whatsapp_transport_service
 
 
 class EstimateDeliveryService:
@@ -50,6 +52,36 @@ class EstimateDeliveryService:
             text=text,
             file_path=file_path,
         )
+
+    async def send_whatsapp_document(
+        self,
+        lead: Lead,
+        *,
+        text: str,
+        media_url: str,
+        filename: str | None = None,
+    ) -> str | None:
+        if not lead.phone:
+            raise ValueError("lead_has_no_whatsapp")
+        public_url = public_media_url(media_url)
+        if not public_url:
+            raise ValueError("whatsapp_public_media_url_missing")
+        if not whatsapp_transport_service.is_configured():
+            raise ValueError("whatsapp_transport_unavailable")
+
+        mimetype = mimetype_for(filename)
+        try:
+            result = await whatsapp_transport_service.send_media(
+                chat_id=lead.phone,
+                media_url=public_url,
+                mediatype=media_type_from_mimetype(mimetype, filename),
+                mimetype=mimetype,
+                filename=filename,
+                caption=text,
+            )
+        except WhatsAppTransportError as exc:
+            raise ValueError(f"whatsapp_send_failed:{exc}") from exc
+        return result.message_id
 
     async def _send_business_bot_file(
         self,

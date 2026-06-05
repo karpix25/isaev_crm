@@ -1,26 +1,26 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useLeadsInfinite, useLeadHistory, useUpdateLead, useDeleteLead, useCreateLead, useImportLeads, useBulkDeleteLeads, useUploadFinalEstimate, useSendFinalEstimate } from '@/hooks/useLeads'
-import { useChatHistory, useSendBusinessCard, useSendMessage } from '@/hooks/useChat'
+import { useChatHistory, useSendBusinessCard, useSendMessage, useUploadChatMedia } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useConvertLeadToProject } from '@/hooks/useProjects'
-import { LeadStatus, MessageDirection, MessageTransport, type Lead } from '@/types'
-import { MessageToolCallBadge } from '@/components/chat/MessageToolCallBadge'
+import { LeadStatus, MessageTransport, type Lead } from '@/types'
+import { ChatComposer } from '@/components/chat/ChatComposer'
+import { ChatMessageList } from '@/components/chat/ChatMessageList'
 import { formatTimeAgo } from '@/lib/utils'
+import {
+    getMessengerPresence,
+    getTelegramChatUrl,
+    getWhatsAppChatUrl,
+} from '@/components/chat/chatUtils'
+import { useLeadChatTransport } from '@/components/chat/useLeadChatTransport'
+import { getMediaUrl } from '@/components/chat/mediaUtils'
 import { toast } from 'sonner'
 import {
     X, Phone, MapPin, Ruler, Home, Wallet, MessageSquare,
     Clock, ShieldCheck, Settings2, Search, Send,
-    ClipboardList, Sparkles, Trash2, Mic, Plus, Upload, MessageCircle, Square, CheckSquare, History,
+    ClipboardList, Sparkles, Trash2, Plus, Upload, MessageCircle, Square, CheckSquare, History,
     CalendarClock, ChevronDown, FileText
 } from 'lucide-react'
-
-const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8001'
-
-function getMediaUrl(url?: string | null): string | null {
-    if (!url) return null
-    if (/^https?:\/\//i.test(url)) return url
-    return `${API_URL}${url.startsWith('/') ? url : `/${url}`}`
-}
 
 const columns = [
     { id: LeadStatus.NEW, title: 'Новый лид', color: 'bg-sky-500' },
@@ -620,27 +620,6 @@ function parseExtractedData(raw: Lead['extracted_data']): Record<string, any> {
     }
 }
 
-function getLeadAvailableTransports(lead: Lead): MessageTransport[] {
-    const transports: MessageTransport[] = []
-    const presence = getMessengerPresence(lead)
-    if (lead.telegram_id) {
-        transports.push(MessageTransport.TELEGRAM)
-    }
-    if (presence.whatsapp) {
-        transports.push(MessageTransport.WHATSAPP)
-    }
-    if (transports.length === 0) {
-        transports.push(MessageTransport.TELEGRAM)
-    }
-    return transports
-}
-
-function getDefaultTransport(lead: Lead): MessageTransport {
-    const available = getLeadAvailableTransports(lead)
-    if (available.includes(MessageTransport.TELEGRAM)) return MessageTransport.TELEGRAM
-    return available[0]
-}
-
 function getQuizAnswerRows(extractedData: Record<string, any>): Array<{ key: string; label: string; value: string }> {
     const answers = extractedData?.quiz?.answers
     if (!answers || typeof answers !== 'object') return []
@@ -677,13 +656,19 @@ function getMeasurementStatusLabel(status?: string | null): string {
 
 function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWorkspaceProps) {
     const [message, setMessage] = useState('')
-    const [selectedTransport, setSelectedTransport] = useState<MessageTransport>(getDefaultTransport(lead))
+    const [chatAttachment, setChatAttachment] = useState<File | null>(null)
+    const {
+        selectedTransport,
+        availableTransports,
+        selectTransport,
+    } = useLeadChatTransport(lead)
     const [sendChannelError, setSendChannelError] = useState<string | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const finalEstimateInputRef = useRef<HTMLInputElement>(null)
     const { data: chatData } = useChatHistory(lead.id, 1, selectedTransport)
     const { data: historyData, isLoading: isHistoryLoading } = useLeadHistory(lead.id, 100)
     const sendMessage = useSendMessage()
+    const uploadChatMedia = useUploadChatMedia()
     const sendBusinessCard = useSendBusinessCard()
     const deleteLead = useDeleteLead()
     const updateLead = useUpdateLead()
@@ -736,18 +721,46 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     }, [lead.id, lead.extracted_data, lead.operator_comment, editableFields])
 
     const handleSendMessage = () => {
-        if (!message.trim() || !isSelectedTransportSendAvailable) return
+        if ((!message.trim() && !chatAttachment) || !isSelectedTransportSendAvailable) return
         setSendChannelError(null)
-        sendMessage.mutate(
-            { leadId: lead.id, content: message, transport: selectedTransport },
-            {
-                onSuccess: () => setMessage(''),
-                onError: (error: any) => {
-                    const detail = error?.response?.data?.detail || 'Ошибка отправки сообщения'
-                    setSendChannelError(String(detail))
+        const sendPayload = (media?: { url: string; filename: string; mimetype?: string | null; size: number }) => {
+            sendMessage.mutate(
+                {
+                    leadId: lead.id,
+                    content: message.trim() || (media ? media.filename : ''),
+                    transport: selectedTransport,
+                    media_url: media?.url,
+                    media_filename: media?.filename,
+                    media_mimetype: media?.mimetype,
+                    media_size: media?.size,
                 },
-            }
-        )
+                {
+                    onSuccess: () => {
+                        setMessage('')
+                        setChatAttachment(null)
+                    },
+                    onError: (error: any) => {
+                        const detail = error?.response?.data?.detail || 'Ошибка отправки сообщения'
+                        setSendChannelError(String(detail))
+                    },
+                }
+            )
+        }
+
+        if (chatAttachment) {
+            uploadChatMedia.mutate(
+                { leadId: lead.id, file: chatAttachment },
+                {
+                    onSuccess: sendPayload,
+                    onError: (error: any) => {
+                        const detail = error?.response?.data?.detail || 'Ошибка загрузки файла'
+                        setSendChannelError(String(detail))
+                    },
+                }
+            )
+            return
+        }
+        sendPayload()
     }
 
     const handleSendBusinessCard = () => {
@@ -840,12 +853,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         )
     }
 
-    const getMessageLabel = (msg: any) => {
-        if (msg.direction === MessageDirection.INBOUND) return 'Клиент'
-        if (msg.sender_name === 'AI' || msg.sender_name === 'Bot') return 'ИИ Ассистент'
-        return 'Вы'
-    }
-
     const getHistoryActionLabel = (action?: string) => {
         if (action === 'created') return 'Создание'
         if (action === 'updated') return 'Изменение'
@@ -879,8 +886,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     }
 
     const messengerPresence = getMessengerPresence(lead)
-    const availableTransports = getLeadAvailableTransports(lead)
-    const isWhatsappTransport = selectedTransport === MessageTransport.WHATSAPP
     const isSelectedTransportSendAvailable =
         selectedTransport === MessageTransport.TELEGRAM
             ? Boolean(lead.telegram_id)
@@ -903,7 +908,8 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
         : null
     const finalEstimateUrl = getMediaUrl(finalEstimateFile?.url ? String(finalEstimateFile.url) : null)
     const finalEstimateName = finalEstimateFile?.filename ? String(finalEstimateFile.filename) : 'Готовая смета'
-    const canSendFinalEstimate = Boolean(finalEstimateUrl && lead.telegram_id)
+    const hasEstimateMessenger = Boolean(lead.telegram_id || messengerPresence.whatsapp || lead.phone)
+    const canSendFinalEstimate = Boolean(finalEstimateUrl && hasEstimateMessenger)
     const shouldShowEstimatePanel = Boolean(
         estimateRequest
         || [
@@ -933,12 +939,6 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
     const measurementStatus = measurement?.status ? String(measurement.status) : null
     const hasMeasurementData = Boolean(measurementStart || measurementSlotLabel || measurementAddress || measurementStatus || measurement?.booking_uid)
 
-    useEffect(() => {
-        const nextAvailable = getLeadAvailableTransports(lead)
-        const nextDefault = getDefaultTransport(lead)
-        setSelectedTransport((prev) => (nextAvailable.includes(prev) ? prev : nextDefault))
-    }, [lead.id, lead.telegram_id, lead.extracted_data])
-
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="relative w-full max-w-[1240px] h-[90vh] overflow-hidden rounded-2xl bg-background shadow-2xl flex flex-col scale-in-center">
@@ -948,7 +948,7 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                     <div className="flex items-center gap-4">
                         {lead.avatar_url ? (
                             <img
-                                src={`${API_URL}${lead.avatar_url}`}
+                                src={getMediaUrl(lead.avatar_url) || ''}
                                 alt={lead.full_name || 'U'}
                                 className="h-10 w-10 rounded-full object-cover ring-2 ring-primary/20"
                             />
@@ -1213,8 +1213,8 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
                                                 <Send className="h-3.5 w-3.5" />
                                                 {sendFinalEstimate.isPending ? 'Отправляем...' : 'Отправить смету клиенту'}
                                             </button>
-                                            {!lead.telegram_id && (
-                                                <div className="text-[11px] text-amber-600">Для отправки нужен Telegram у лида.</div>
+                                            {!hasEstimateMessenger && (
+                                                <div className="text-[11px] text-amber-600">Для отправки нужен Telegram или WhatsApp у лида.</div>
                                             )}
                                         </div>
                                     </div>
@@ -1395,124 +1395,27 @@ function LeadWorkspace({ lead, customFields, onClose, onUpdateStatus }: LeadWork
 
                     {/* Right Panel: Chat integration */}
                     <div className="flex-1 flex flex-col bg-background relative">
-                        {/* Chat Messages */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-slate-50/30">
-                            {messages.length === 0 ? (
-                                <div className="flex h-full items-center justify-center text-muted-foreground flex-col gap-2">
-                                    <MessageSquare className="h-8 w-8 opacity-20" />
-                                    <p className="text-sm">История диалога пуста</p>
-                                </div>
-                            ) : (
-                                [...messages].reverse().map((msg) => (
-                                    <div
-                                        key={msg.id}
-                                        className={`flex flex-col ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}
-                                    >
-                                        <div
-                                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm text-[13px] relative group ${msg.direction === MessageDirection.OUTBOUND
-                                                ? 'bg-primary text-primary-foreground rounded-br-none'
-                                                : 'bg-slate-100 text-slate-900 border rounded-bl-none'
-                                                }`}
-                                        >
-                                            {msg.ai_metadata?.is_voice && (
-                                                <div className={`flex items-center gap-1 mb-1.5 text-xs font-semibold ${msg.direction === MessageDirection.OUTBOUND ? 'text-primary-foreground/80' : 'text-slate-500'}`}>
-                                                    <Mic className="h-3 w-3" />
-                                                    Голосовое сообщение
-                                                </div>
-                                            )}
-                                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                                        </div>
-
-                                        <div className={`flex flex-col mt-1.5 gap-1.5 ${msg.direction === MessageDirection.OUTBOUND ? 'items-end' : 'items-start'}`}>
-                                            {/* AI Status Change Indicators */}
-                                            {msg.ai_metadata?.status_changed_to && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-[11px] font-medium border border-primary/20 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                                                    <ShieldCheck className="h-3.5 w-3.5" />
-                                                    ИИ перевел на стадию: {msg.ai_metadata.status_changed_to}
-                                                </div>
-                                            )}
-                                            {msg.ai_metadata?.qualification_changed_to && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[11px] font-medium border border-emerald-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                                                    <Sparkles className="h-3.5 w-3.5" />
-                                                    ИИ квалифицировал лида
-                                                </div>
-                                            )}
-                                            {msg.ai_metadata?.source === 'CRM' && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-medium border border-slate-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                                                    Отправлено из CRM
-                                                </div>
-                                            )}
-                                            <MessageToolCallBadge
-                                                message={msg}
-                                                leadSource={lead.source}
-                                            />
-                                            <span className="px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                                {getMessageLabel(msg)} • {(msg.transport === MessageTransport.WHATSAPP ? 'WA' : 'TG')} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        {/* Input Area */}
-                        <div className="border-t p-4 bg-card">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Канал</span>
-                                    <div className="flex rounded-lg border bg-background p-0.5">
-                                        {availableTransports.map((transport) => (
-                                            <button
-                                                key={transport}
-                                                onClick={() => setSelectedTransport(transport)}
-                                                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${selectedTransport === transport
-                                                        ? 'bg-primary text-primary-foreground'
-                                                        : 'text-muted-foreground hover:bg-accent'
-                                                    }`}
-                                            >
-                                                {transport === MessageTransport.TELEGRAM ? 'Telegram' : 'WhatsApp'}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={handleSendBusinessCard}
-                                    disabled={!lead.telegram_id || sendBusinessCard.isPending}
-                                    className="rounded-lg border bg-background px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                                    title={lead.telegram_id ? 'Отправить шаблон визитки в Telegram' : 'Для отправки нужен Telegram у лида'}
-                                >
-                                    {sendBusinessCard.isPending ? 'Отправляем визитку…' : 'Отправить визитку (TG)'}
-                                </button>
-                            </div>
-                            {isWhatsappTransport && (
-                                <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-                                    Канал WhatsApp выбран. Сообщение уйдёт через интеграцию Wazzup.
-                                </div>
-                            )}
-                            {sendChannelError && (
-                                <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
-                                    {sendChannelError}
-                                </div>
-                            )}
-                            <div className="flex gap-2 bg-background rounded-xl border p-1 focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-inner">
-                                <input
-                                    type="text"
-                                    value={message}
-                                    onChange={(e) => setMessage(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                                    placeholder="Напишите ответ клиенту..."
-                                    className="flex-1 bg-transparent px-4 py-2.5 text-sm focus:outline-none"
-                                />
-                                <button
-                                    onClick={handleSendMessage}
-                                    disabled={!message.trim() || sendMessage.isPending || !isSelectedTransportSendAvailable}
-                                    className="rounded-lg bg-primary p-2.5 text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
-                                >
-                                    <Send className="h-4 w-4" />
-                                </button>
-                            </div>
-                        </div>
+                        <ChatMessageList
+                            ref={messagesEndRef}
+                            messages={messages}
+                            leadSource={lead.source}
+                        />
+                        <ChatComposer
+                            message={message}
+                            selectedTransport={selectedTransport}
+                            availableTransports={availableTransports}
+                            sendChannelError={sendChannelError}
+                            isMessageSending={sendMessage.isPending}
+                            selectedFile={chatAttachment}
+                            isBusinessCardSending={sendBusinessCard.isPending}
+                            isBusinessCardAvailable={Boolean(lead.telegram_id)}
+                            isSelectedTransportSendAvailable={isSelectedTransportSendAvailable}
+                            onMessageChange={setMessage}
+                            onFileChange={setChatAttachment}
+                            onTransportChange={selectTransport}
+                            onSendMessage={handleSendMessage}
+                            onSendBusinessCard={handleSendBusinessCard}
+                        />
                     </div>
 
                 </div>
@@ -1549,7 +1452,7 @@ function LeadCard({
                 <div className="flex min-w-0 items-center gap-2">
                     {lead.avatar_url ? (
                         <img
-                            src={`${API_URL}${lead.avatar_url}`}
+                            src={getMediaUrl(lead.avatar_url) || ''}
                             alt={lead.full_name || 'U'}
                             className="h-8 w-8 rounded-full object-cover group-hover:scale-110 transition-transform"
                         />
@@ -1659,51 +1562,6 @@ function LeadCard({
             </div>
         </div >
     )
-}
-
-function getMessengerPresence(lead: Lead): { telegram: boolean; whatsapp: boolean } {
-    const parsed = getLeadExtractedData(lead)
-    const messengers = parsed?.messengers || {}
-    return {
-        telegram: Boolean(messengers.telegram),
-        whatsapp: Boolean(messengers.whatsapp),
-    }
-}
-
-function getLeadExtractedData(lead: Lead): Record<string, any> {
-    try {
-        return typeof lead.extracted_data === 'string'
-            ? JSON.parse(lead.extracted_data || '{}')
-            : (lead.extracted_data || {})
-    } catch {
-        return {}
-    }
-}
-
-function normalizePhoneDigits(phone?: string | null): string | null {
-    const digitsOnly = String(phone || '').replace(/\D/g, '')
-    if (!digitsOnly) return null
-    if (digitsOnly.length === 11 && digitsOnly.startsWith('8')) return `7${digitsOnly.slice(1)}`
-    if (digitsOnly.length === 10) return `7${digitsOnly}`
-    return digitsOnly.length >= 10 ? digitsOnly : null
-}
-
-function getTelegramChatUrl(lead: Lead): string | null {
-    const username = String(lead.username || '').replace(/^@/, '').trim()
-    if (username) return `https://t.me/${username}`
-
-    const telegramId = String((lead as any).telegram_id || '').trim()
-    if (telegramId) return `tg://user?id=${telegramId}`
-    return null
-}
-
-function getWhatsAppChatUrl(lead: Lead): string | null {
-    const extracted = getLeadExtractedData(lead)
-    const waId = String(extracted?.whatsapp_wa_id || '').replace(/\D/g, '')
-    const phoneDigits = normalizePhoneDigits(lead.phone)
-    const target = waId || phoneDigits
-    if (!target) return null
-    return `https://wa.me/${target}`
 }
 
 function DataField({ label, value, icon }: { label: string, value: string | null, icon?: React.ReactNode }) {

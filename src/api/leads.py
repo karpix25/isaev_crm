@@ -348,8 +348,6 @@ async def send_final_estimate_to_lead(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if not lead.telegram_id:
         await lead_service.sync_telegram_identity_from_extracted(db, lead)
-    if not lead.telegram_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="У лида нет Telegram для отправки.")
 
     before_status = lead.status
     before_data = lead.extracted_data
@@ -364,8 +362,12 @@ async def send_final_estimate_to_lead(
             "final_estimate_file_missing": "Сначала загрузите готовую смету.",
             "final_estimate_file_not_found": "Файл сметы не найден на сервере.",
             "lead_has_no_telegram": "У лида нет Telegram для отправки.",
+            "lead_has_no_whatsapp": "У лида нет WhatsApp/телефона для отправки.",
+            "lead_has_no_messenger": "У лида нет доступного мессенджера для отправки.",
             "telegram_bot_unavailable": "Telegram-бот недоступен.",
             "userbot_unavailable": "Бизнес-аккаунт Telegram недоступен.",
+            "whatsapp_transport_unavailable": "WhatsApp-интеграция недоступна.",
+            "whatsapp_public_media_url_missing": "Для отправки файла в WhatsApp нужен APP_PUBLIC_BASE_URL.",
         }
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

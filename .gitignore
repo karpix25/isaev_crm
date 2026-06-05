@@ -74,3 +74,4 @@ celerybeat.pid
 *.tmp
 *.bak
 .cache/
+outputs/

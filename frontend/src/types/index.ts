@@ -64,11 +64,33 @@ export interface ChatMessage {
     transport?: MessageTransport
     content: string
     media_url: string | null
+    media_filename?: string | null
+    media_mimetype?: string | null
+    media_size?: number | null
     telegram_message_id: number | null
+    external_provider?: string | null
+    external_message_id?: string | null
+    external_chat_id?: string | null
     is_read: boolean
     sender_name: string | null
     created_at: string
     ai_metadata?: Record<string, any>
+}
+
+export interface ChatMediaUpload {
+    url: string
+    filename: string
+    mimetype?: string | null
+    size: number
+}
+
+export interface SendChatMessagePayload {
+    content: string
+    transport: MessageTransport
+    media_url?: string | null
+    media_filename?: string | null
+    media_mimetype?: string | null
+    media_size?: number | null
 }
 
 export interface ActivityChartItem {

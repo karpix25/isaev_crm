@@ -1,16 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 import uuid
 import re
+import os
 
 from src.database import get_db
 from src.models import Lead, MessageDirection, MessageTransport, Organization, User, UserRole
 from src.schemas.chat import ChatHistoryResponse, ChatMessageResponse, ChatMessageCreate, SendMessageRequest
 from src.services.chat_service import chat_service
 from src.services.lead_service import lead_service
-from src.services.wazzup_service import WazzupError, wazzup_service
+from src.services.whatsapp.media import media_type_from_mimetype, mimetype_for, public_media_url
+from src.services.whatsapp.transport_service import WhatsAppTransportError, whatsapp_transport_service
 from src.dependencies.auth import get_current_user, require_role
 from src.bot import bot
 from src.config import settings
@@ -124,28 +126,37 @@ async def send_message_to_lead(
         )
 
     telegram_message_id = None
-    wa_message_id = None
+    whatsapp_result = None
     if message_data.transport == MessageTransport.WHATSAPP:
-        if not wazzup_service.is_configured():
+        if not whatsapp_transport_service.is_configured():
+            status_data = whatsapp_transport_service.configuration_status()
+            missing = ", ".join(status_data["missing"]) if status_data["missing"] else "unknown"
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="WhatsApp transport is not configured on server.",
+                detail=f"WhatsApp transport is not configured on server. Provider: {status_data['provider']}. Missing: {missing}.",
             )
         try:
-            wa_response = await wazzup_service.send_whatsapp_message(
-                chat_id=lead.phone or "",
-                text=message_data.content,
-            )
-            wa_message_id = (
-                wa_response.get("messageId")
-                or wa_response.get("id")
-                or (
-                    wa_response.get("data", {}).get("messageId")
-                    if isinstance(wa_response.get("data"), dict)
-                    else None
+            if message_data.media_url:
+                media_url = public_media_url(message_data.media_url)
+                if not media_url:
+                    raise WhatsAppTransportError(
+                        "WhatsApp media requires an absolute media URL or APP_PUBLIC_BASE_URL for local media"
+                    )
+                mimetype = mimetype_for(message_data.media_filename, message_data.media_mimetype)
+                whatsapp_result = await whatsapp_transport_service.send_media(
+                    chat_id=lead.phone or "",
+                    media_url=media_url,
+                    mediatype=media_type_from_mimetype(mimetype, message_data.media_filename),
+                    mimetype=mimetype,
+                    filename=message_data.media_filename,
+                    caption=message_data.content,
                 )
-            )
-        except WazzupError as exc:
+            else:
+                whatsapp_result = await whatsapp_transport_service.send_text(
+                    chat_id=lead.phone or "",
+                    text=message_data.content,
+                )
+        except WhatsAppTransportError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Failed to send WhatsApp message: {exc}",
@@ -181,13 +192,66 @@ async def send_message_to_lead(
         telegram_message_id=telegram_message_id,
         ai_metadata={
             "source": "CRM",
-            "wazzup_message_id": str(wa_message_id) if wa_message_id else None,
+            "provider": whatsapp_result.provider if whatsapp_result else None,
+            "external_message_id": whatsapp_result.message_id if whatsapp_result else None,
+            "external_chat_id": whatsapp_result.chat_id if whatsapp_result else None,
+            "wazzup_message_id": whatsapp_result.message_id if whatsapp_result and whatsapp_result.provider == "wazzup" else None,
         },
         transport=message_data.transport,
     )
+    if whatsapp_result:
+        if hasattr(message, "external_provider"):
+            message.external_provider = whatsapp_result.provider
+        if hasattr(message, "external_message_id"):
+            message.external_message_id = whatsapp_result.message_id
+        if hasattr(message, "external_chat_id"):
+            message.external_chat_id = whatsapp_result.chat_id
+        if hasattr(message, "media_filename"):
+            message.media_filename = message_data.media_filename
+        if hasattr(message, "media_mimetype"):
+            message.media_mimetype = message_data.media_mimetype
+        if hasattr(message, "media_size"):
+            message.media_size = message_data.media_size
+        await db.commit()
+        await db.refresh(message)
 
     
     return ChatMessageResponse.model_validate(message)
+
+
+@router.post("/{lead_id}/media")
+async def upload_chat_media(
+    lead_id: uuid.UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    lead = await lead_service.get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
+    if str(lead.org_id) != str(current_user.org_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Файл не выбран.")
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Файл больше 50 МБ.")
+
+    _, ext = os.path.splitext(file.filename)
+    media_dir = os.path.join(os.getcwd(), "media", "chat_uploads")
+    os.makedirs(media_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4()}{ext.lower()}"
+    full_path = os.path.join(media_dir, stored_name)
+    with open(full_path, "wb") as out:
+        out.write(content)
+
+    return {
+        "url": f"/media/chat_uploads/{stored_name}",
+        "filename": file.filename,
+        "mimetype": file.content_type,
+        "size": len(content),
+    }
 
 
 @router.post("/{lead_id}/send-business-card", response_model=ChatMessageResponse)

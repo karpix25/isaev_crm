@@ -13,7 +13,9 @@ class WhatsAppTransportError(Exception):
 class WhatsAppTransportService:
     def active_provider(self) -> str:
         provider = (settings.whatsapp_provider or "").strip().lower()
-        if provider in {"evolution", "wazzup"}:
+        if provider == "evolution":
+            return provider
+        if provider == "wazzup" and wazzup_service.is_configured():
             return provider
         if evolution_client.is_configured():
             return "evolution"
@@ -23,6 +25,32 @@ class WhatsAppTransportService:
         if self.active_provider() == "evolution":
             return evolution_client.is_configured()
         return wazzup_service.is_configured()
+
+    def configuration_status(self) -> dict[str, object]:
+        provider = self.active_provider()
+        return {
+            "provider": provider,
+            "configured": self.is_configured(),
+            "wazzup_configured": wazzup_service.is_configured(),
+            "evolution_configured": evolution_client.is_configured(),
+            "missing": self._missing_settings(provider),
+        }
+
+    def _missing_settings(self, provider: str) -> list[str]:
+        if provider == "evolution":
+            checks = {
+                "EVOLUTION_ENABLED": settings.evolution_enabled,
+                "EVOLUTION_API_BASE_URL": settings.evolution_api_base_url.strip(),
+                "EVOLUTION_API_KEY": settings.evolution_api_key.strip(),
+                "EVOLUTION_INSTANCE": settings.evolution_instance.strip(),
+            }
+        else:
+            checks = {
+                "WAZZUP_ENABLED": settings.wazzup_enabled,
+                "WAZZUP_API_KEY": settings.wazzup_api_key.strip(),
+                "WAZZUP_DEFAULT_CHANNEL_ID": settings.wazzup_default_channel_id.strip(),
+            }
+        return [name for name, value in checks.items() if not value]
 
     async def send_text(self, chat_id: str, text: str) -> WhatsAppSendResult:
         provider = self.active_provider()

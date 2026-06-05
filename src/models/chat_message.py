@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Enum as SQLEnum, Text, BigInteger, Boolean, JSON, Index
+from sqlalchemy import Column, String, ForeignKey, Enum as SQLEnum, Text, BigInteger, Boolean, JSON, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -33,6 +33,15 @@ class ChatMessage(BaseModel):
     __tablename__ = "chat_messages"
     __table_args__ = (
         Index('ix_chat_messages_lead_id_created_at', 'lead_id', 'created_at'),
+        Index(
+            'ux_chat_messages_external_provider_message_id',
+            'external_provider',
+            'external_message_id',
+            unique=True,
+            postgresql_where=text(
+                "external_provider IS NOT NULL AND external_message_id IS NOT NULL"
+            ),
+        ),
     )
     
     # Lead reference
@@ -65,9 +74,17 @@ class ChatMessage(BaseModel):
     
     # Media URL (if message contains photo/video/document)
     media_url = Column(String(500), nullable=True)
+    media_filename = Column(String(255), nullable=True)
+    media_mimetype = Column(String(100), nullable=True)
+    media_size = Column(BigInteger, nullable=True)
     
     # Telegram message ID for reference
     telegram_message_id = Column(BigInteger, nullable=True)
+
+    # External provider identifiers for idempotency and cross-channel references
+    external_provider = Column(String(50), nullable=True)
+    external_message_id = Column(String(255), nullable=True)
+    external_chat_id = Column(String(255), nullable=True, index=True)
     
     # Read status (for admin interface)
     is_read = Column(Boolean, nullable=False, default=False)

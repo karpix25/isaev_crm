@@ -198,9 +198,23 @@ class QuizService:
                 contact = QuizContact(name=lead.full_name, phone=lead.phone)
         if not contact:
             raise ValueError("Booking contact is required")
-        measurement_address = (payload.address or (payload.metadata or {}).get("measurement_address") or "").strip()
+        metadata = payload.metadata or {}
+        measurement_address = (payload.address or metadata.get("measurement_address") or "").strip()
         if not measurement_address:
             raise ValueError("Measurement address is required")
+        booking_source = str(metadata.get("source") or "quiz_inline_slots")
+        selected_messenger = str(metadata.get("selected_messenger") or "").strip() or None
+        analytics_base = {
+            "lead_id": str(lead_id) if lead_id else None,
+            "source": booking_source,
+            "booking_source": "messenger" if selected_messenger else "quiz",
+            "messenger": selected_messenger,
+            "selected_messenger": selected_messenger,
+            "selected_slot_label": metadata.get("selected_slot_label"),
+            "previous_start": metadata.get("previous_start"),
+            "previous_booking_uid": metadata.get("previous_booking_uid"),
+            "has_address": bool(measurement_address),
+        }
 
         logger.info(
             "Measurement booking requested: lead_id=%s start=%s address_present=%s contact_phone_present=%s",
@@ -229,8 +243,8 @@ class QuizService:
                     "requested_at": datetime.now(timezone.utc).isoformat(),
                     "address": measurement_address,
                     "phone": contact.phone,
-                    "selected_slot_label": (payload.metadata or {}).get("selected_slot_label"),
-                    "source": (payload.metadata or {}).get("source") or "quiz_inline_slots",
+                    "selected_slot_label": metadata.get("selected_slot_label"),
+                    "source": booking_source,
                 }
                 lead.extracted_data = json.dumps(data, ensure_ascii=False)
                 if lead.status in self.AUTO_QUIZ_STATUSES:
@@ -243,10 +257,8 @@ class QuizService:
             event_type="measurement_booking_requested",
             step_id="measurement",
             event_data={
+                **analytics_base,
                 "start": payload.start,
-                "lead_id": str(lead_id) if lead_id else None,
-                "selected_slot_label": (payload.metadata or {}).get("selected_slot_label"),
-                "address": measurement_address,
             },
         )
 
@@ -256,7 +268,7 @@ class QuizService:
             "client_name": contact.name,
             "client_phone": contact.phone,
             "measurement_address": measurement_address,
-            **(payload.metadata or {}),
+            **metadata,
         }
         try:
             booking = await cal_pro_service.create_booking(
@@ -297,9 +309,8 @@ class QuizService:
                 event_type="measurement_booking_failed",
                 step_id="measurement",
                 event_data={
+                    **analytics_base,
                     "start": payload.start,
-                    "lead_id": str(lead_id) if lead_id else None,
-                    "address": measurement_address,
                     "error": str(exc)[:500],
                 },
             )
@@ -343,9 +354,8 @@ class QuizService:
                 event_type="measurement_booking_uid_missing",
                 step_id="measurement",
                 event_data={
+                    **analytics_base,
                     "start": payload.start,
-                    "lead_id": str(lead_id) if lead_id else None,
-                    "address": measurement_address,
                 },
             )
             return {
@@ -394,10 +404,9 @@ class QuizService:
             event_type="measurement_booked",
             step_id="measurement",
             event_data={
+                **analytics_base,
                 "start": payload.start,
                 "booking_uid": booking_uid,
-                "lead_id": str(lead_id) if lead_id else None,
-                "address": measurement_address,
             },
         )
 

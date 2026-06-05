@@ -28,6 +28,7 @@ from src.services.agent_tool_log_service import agent_tool_log_service
 from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
+from src.services.measurement_analytics_service import measurement_analytics_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 from src.services.direct_qualification_service import (
     build_next_prompt,
@@ -1041,6 +1042,19 @@ async def _confirm_measurement_reschedule(
         preferred_messenger="telegram",
     )
 
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="measurement_reschedule_requested",
+        source="telegram_reschedule",
+        event_data={
+            "start": start,
+            "previous_start": previous_start or None,
+            "previous_booking_uid": previous_booking_uid or None,
+            "has_address": bool(address),
+        },
+    )
+
     try:
         if previous_booking_uid:
             booking = await cal_pro_service.reschedule_booking(
@@ -1107,6 +1121,18 @@ async def _confirm_measurement_reschedule(
             )
     except Exception:
         logger.warning("Failed to reschedule Telegram measurement for lead %s", lead.id, exc_info=True)
+        await measurement_analytics_service.record_event(
+            db=db,
+            lead=lead,
+            event_type="measurement_reschedule_failed",
+            source="telegram_reschedule",
+            event_data={
+                "start": start,
+                "previous_start": previous_start or None,
+                "previous_booking_uid": previous_booking_uid or None,
+                "has_address": bool(address),
+            },
+        )
         text = (
             "Новое окно выбрали, но календарь сейчас не закрепил перенос автоматически. "
             "Менеджер проверит слот вручную и подтвердит вам здесь."
@@ -1146,6 +1172,19 @@ async def _confirm_measurement_reschedule(
             "previous_booking_uid": previous_booking_uid,
         },
     )
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="measurement_rescheduled",
+        source="telegram_reschedule",
+        event_data={
+            "start": start,
+            "booking_uid": booking_uid or None,
+            "previous_start": previous_start or None,
+            "previous_booking_uid": previous_booking_uid or None,
+            "has_address": bool(address),
+        },
+    )
     return True
 
 
@@ -1158,6 +1197,16 @@ async def _book_measurement_directly(
     contact: QuizContact,
     source: str,
 ) -> tuple[dict, str | None]:
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="measurement_booking_requested",
+        source=source,
+        event_data={
+            "start": start,
+            "has_address": bool(address),
+        },
+    )
     booking = await cal_pro_service.create_booking(
         start=start,
         contact=contact,
@@ -1206,6 +1255,17 @@ async def _book_measurement_directly(
     except Exception:
         logger.warning("Failed to enqueue direct measurement reminder for lead %s", lead.id, exc_info=True)
 
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="measurement_booked" if booking_uid else "measurement_booking_uid_missing",
+        source=source,
+        event_data={
+            "start": start,
+            "booking_uid": booking_uid or None,
+            "has_address": bool(address),
+        },
+    )
     return booking, booking_uid
 
 
@@ -1454,6 +1514,16 @@ async def _try_handle_pending_measurement_address(
             )
     except Exception:
         logger.warning("Failed to book Telegram measurement slot for lead %s", lead.id, exc_info=True)
+        await measurement_analytics_service.record_event(
+            db=db,
+            lead=lead,
+            event_type="measurement_booking_failed",
+            source="telegram_inline_slots",
+            event_data={
+                "start": pending_start,
+                "has_address": bool(clean_address),
+            },
+        )
         text = (
             "Адрес сохранил. Календарь сейчас не закрепил слот автоматически — "
             "выберите, пожалуйста, другое окно. Если не получится, менеджер поможет записаться вручную."
@@ -1738,6 +1808,17 @@ async def _handle_measurement_cancel_request(
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
     booking_uid = str(measurement.get("booking_uid") or "").strip()
     measurement_date = _format_measurement_start(measurement.get("start"))
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="measurement_cancel_requested",
+        source="telegram_cancel",
+        event_data={
+            "start": measurement.get("start"),
+            "booking_uid": booking_uid or None,
+            "final_lost": final_lost,
+        },
+    )
 
     if not booking_uid:
         measurement["status"] = "cancelled" if measurement.get("start") else "cancel_requested"
@@ -1769,6 +1850,17 @@ async def _handle_measurement_cancel_request(
             sender_name="Bot",
             ai_metadata={"source": "bot_scenario", "type": "measurement_cancel_no_booking_uid"},
         )
+        await measurement_analytics_service.record_event(
+            db=db,
+            lead=lead,
+            event_type="measurement_cancelled" if measurement.get("start") else "measurement_cancel_pending",
+            source="telegram_cancel",
+            event_data={
+                "start": measurement.get("start"),
+                "booking_uid": None,
+                "final_lost": final_lost,
+            },
+        )
         return True
 
     try:
@@ -1797,6 +1889,17 @@ async def _handle_measurement_cancel_request(
             telegram_message_id=sent.message_id,
             sender_name="Bot",
             ai_metadata={"source": "bot_scenario", "type": "measurement_cancel_failed", "booking_uid": booking_uid},
+        )
+        await measurement_analytics_service.record_event(
+            db=db,
+            lead=lead,
+            event_type="measurement_cancel_failed",
+            source="telegram_cancel",
+            event_data={
+                "start": measurement.get("start"),
+                "booking_uid": booking_uid,
+                "final_lost": final_lost,
+            },
         )
         return True
 
@@ -1829,6 +1932,17 @@ async def _handle_measurement_cancel_request(
             "source": "bot_scenario",
             "type": "measurement_cancelled",
             "booking_uid": booking_uid,
+        },
+    )
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="measurement_cancelled",
+        source="telegram_cancel",
+        event_data={
+            "start": measurement.get("start"),
+            "booking_uid": booking_uid,
+            "final_lost": final_lost,
         },
     )
     return True

@@ -17,6 +17,8 @@ import type {
     MessageTransport,
     AnalyticsSummary,
     AnalyticsSummaryParams,
+    ChatMediaUpload,
+    SendChatMessagePayload,
 } from '@/types'
 
 const api = axios.create({
@@ -243,8 +245,17 @@ export const chatAPI = {
         return response.data
     },
 
-    sendMessage: async (leadId: string, content: string, transport: MessageTransport): Promise<ChatMessage> => {
-        const response = await api.post<ChatMessage>(`/chat/${leadId}/send`, { content, transport })
+    sendMessage: async (leadId: string, payload: SendChatMessagePayload): Promise<ChatMessage> => {
+        const response = await api.post<ChatMessage>(`/chat/${leadId}/send`, payload)
+        return response.data
+    },
+
+    uploadMedia: async (leadId: string, file: File): Promise<ChatMediaUpload> => {
+        const formData = new FormData()
+        formData.append('file', file)
+        const response = await api.post<ChatMediaUpload>(`/chat/${leadId}/media`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return response.data
     },
 

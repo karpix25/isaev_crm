@@ -137,12 +137,26 @@ class EstimateRequestService:
 
         from src.services.estimate_delivery_service import estimate_delivery_service
 
-        telegram_message_id = await estimate_delivery_service.send_telegram_document(
-            db=db,
-            lead=lead,
-            text=message_text,
-            file_path=file_path,
-        )
+        transport = MessageTransport.TELEGRAM
+        telegram_message_id = None
+        external_message_id = None
+        if lead.telegram_id:
+            telegram_message_id = await estimate_delivery_service.send_telegram_document(
+                db=db,
+                lead=lead,
+                text=message_text,
+                file_path=file_path,
+            )
+        elif lead.phone:
+            external_message_id = await estimate_delivery_service.send_whatsapp_document(
+                lead=lead,
+                text=message_text,
+                media_url=str(final_file["url"]),
+                filename=str(final_file.get("filename") or "Готовая смета"),
+            )
+            transport = MessageTransport.WHATSAPP
+        else:
+            raise ValueError("lead_has_no_messenger")
 
         sent_at = datetime.now(timezone.utc).isoformat()
         estimate_request["status"] = "sent"
@@ -153,17 +167,34 @@ class EstimateRequestService:
         await db.commit()
         await db.refresh(lead)
 
-        await chat_service.send_outbound_message(
+        message = await chat_service.send_outbound_message(
             db=db,
             lead_id=lead.id,
             content=message_text,
             media_url=str(final_file["url"]),
             telegram_message_id=telegram_message_id,
             sender_name="CRM",
-            ai_metadata={"source": "CRM", "type": "final_estimate_sent"},
+            ai_metadata={
+                "source": "CRM",
+                "type": "final_estimate_sent",
+                "provider": "evolution" if transport == MessageTransport.WHATSAPP else None,
+                "external_message_id": external_message_id,
+            },
             status=MessageStatus.SENT,
-            transport=MessageTransport.TELEGRAM,
+            transport=transport,
         )
+        if transport == MessageTransport.WHATSAPP:
+            if hasattr(message, "external_provider"):
+                message.external_provider = "evolution"
+            if hasattr(message, "external_message_id"):
+                message.external_message_id = external_message_id
+            if hasattr(message, "external_chat_id"):
+                message.external_chat_id = lead.phone
+        if hasattr(message, "media_filename"):
+            message.media_filename = str(final_file.get("filename") or "Готовая смета")
+        if hasattr(message, "media_mimetype"):
+            message.media_mimetype = None
+        await db.commit()
         return final_file
 
     async def notify_estimators(self, db: AsyncSession, lead: Lead, file_record: dict[str, Any]) -> None:
