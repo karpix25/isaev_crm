@@ -35,6 +35,9 @@ class DashboardService:
                 LeadStatus.ESTIMATE,
                 LeadStatus.CONTRACT_NEGOTIATION,
                 LeadStatus.CONTRACT,
+                LeadStatus.PAYMENT_PENDING,
+                LeadStatus.KEYS_PENDING,
+                LeadStatus.READY_TO_START,
                 LeadStatus.WON
             ])
         )
@@ -109,6 +112,9 @@ class DashboardService:
             LeadStatus.ESTIMATE,
             LeadStatus.CONTRACT_NEGOTIATION,
             LeadStatus.CONTRACT,
+            LeadStatus.PAYMENT_PENDING,
+            LeadStatus.KEYS_PENDING,
+            LeadStatus.READY_TO_START,
             LeadStatus.WON
         ]
         conversion_query = (

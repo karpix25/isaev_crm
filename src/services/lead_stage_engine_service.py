@@ -21,6 +21,9 @@ TERMINAL_STATUSES = {
 HUMAN_LOCKED_STATUSES = {
     LeadStatus.CONTRACT_NEGOTIATION.value,
     LeadStatus.CONTRACT.value,
+    LeadStatus.PAYMENT_PENDING.value,
+    LeadStatus.KEYS_PENDING.value,
+    LeadStatus.READY_TO_START.value,
     LeadStatus.WON.value,
     LeadStatus.LOST.value,
     LeadStatus.SPAM.value,
@@ -95,7 +98,12 @@ class LeadStageEngineService:
     ) -> StageDecision | None:
         if lead.status in TERMINAL_STATUSES:
             return None
-        if lead.status in HUMAN_LOCKED_STATUSES and event_type not in {"contract_signed", "payment_received"}:
+        if lead.status in HUMAN_LOCKED_STATUSES and event_type not in {
+            "contract_signed",
+            "payment_received",
+            "keys_received",
+            "work_started",
+        }:
             return None
         if lead.status and lead.status not in ENGINE_MANAGED_STATUSES:
             return None
@@ -160,10 +168,14 @@ class LeadStageEngineService:
         measurement_clicked = "cal_slot_selected" in event_types
         quiz_completed = bool(session and session.status == "completed") or "quiz_completed" in event_types
 
+        if "work_started" in event_types:
+            return StageDecision(LeadStatus.WON, "work_started")
+        if "keys_received" in event_types:
+            return StageDecision(LeadStatus.READY_TO_START, "keys_received")
         if "payment_received" in event_types:
-            return StageDecision(LeadStatus.WON, "payment_received")
+            return StageDecision(LeadStatus.KEYS_PENDING, "payment_received")
         if "contract_signed" in event_types:
-            return StageDecision(LeadStatus.CONTRACT, "contract_signed")
+            return StageDecision(LeadStatus.PAYMENT_PENDING, "contract_signed")
         if "contract_sent" in event_types:
             return StageDecision(LeadStatus.CONTRACT_NEGOTIATION, "contract_sent")
         if final_estimate_sent or "estimate_sent" in event_types:

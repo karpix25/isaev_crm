@@ -49,6 +49,10 @@ FOLLOWUP_STATUSES = {
     LeadStatus.ESTIMATE,
     LeadStatus.FOLLOW_UP,
     LeadStatus.CONTRACT_NEGOTIATION,
+    LeadStatus.CONTRACT,
+    LeadStatus.PAYMENT_PENDING,
+    LeadStatus.KEYS_PENDING,
+    LeadStatus.READY_TO_START,
 }
 
 STAGE_FOLLOWUP_THRESHOLDS = {
@@ -58,6 +62,10 @@ STAGE_FOLLOWUP_THRESHOLDS = {
     "estimate_internal_review": {0: 24, 1: 48, 2: 96},
     "needs_estimate_review": {0: 24, 1: 72, 2: 120},
     "contract_closing": {0: 24, 1: 72, 2: 120},
+    "awaiting_payment": {0: 24, 1: 72, 2: 120},
+    "awaiting_keys": {0: 24, 1: 72, 2: 120},
+    "prepare_project_start": {0: 24, 1: 72, 2: 120},
+    "project_in_work": {0: 72, 1: 120, 2: 168},
     "direct_chat_qualification": {0: 3, 1: 24, 2: 72},
     "general_consultation": {0: 24, 1: 72, 2: 168},
 }
@@ -86,6 +94,22 @@ STAGE_SCENARIOS = {
     "contract_closing": (
         "Ждем финальное решение по договору",
         "Мягко вернуть клиента к фиксации даты старта, бригады или условий договора.",
+    ),
+    "awaiting_payment": (
+        "Ждем оплату",
+        "Помочь клиенту завершить оплату и спокойно объяснить, что после нее согласуем передачу ключей или доступ на объект.",
+    ),
+    "awaiting_keys": (
+        "Ждем передачу ключей",
+        "Аккуратно вернуть клиента к передаче ключей/доступа: удобная дата, контакт на объекте или способ передачи.",
+    ),
+    "prepare_project_start": (
+        "Ключи получены",
+        "Подтвердить подготовку к старту работ: дату, прораба, бригаду или следующий организационный шаг.",
+    ),
+    "project_in_work": (
+        "Объект в работе",
+        "Отвечать по делу и при необходимости фиксировать вопрос для менеджера или прораба.",
     ),
     "direct_chat_qualification": (
         "Клиент пишет напрямую",

@@ -83,6 +83,42 @@ class LeadStageContextService:
                 "Не продавать ремонт и не продолжать диалог.",
                 "Если клиент сам пишет по ремонту — ответить коротко и попросить уточнить задачу.",
             ]
+        elif lead_status == LeadStatus.KEYS_PENDING.value:
+            next_action = "awaiting_keys"
+            expected_from_client = "confirm_key_handover_or_access"
+            client_expects = "start_preparation_after_keys"
+            response_policy = [
+                "Коротко вернуть клиента к передаче ключей или доступу на объект.",
+                "Уточнить удобный способ передачи ключей, контакт на объекте или дату доступа.",
+                "Не писать, что объект уже в работе, пока ключи/доступ не подтверждены.",
+            ]
+        elif lead_status == LeadStatus.PAYMENT_PENDING.value:
+            next_action = "awaiting_payment"
+            expected_from_client = "confirm_payment_or_ask_invoice_question"
+            client_expects = "payment_clarity_and_next_step"
+            response_policy = [
+                "Коротко помочь с финальным шагом оплаты.",
+                "Если клиент спрашивает про следующий этап, объяснить: после оплаты согласуем передачу ключей/доступ на объект.",
+                "Не писать, что объект уже в работе, пока оплата и ключи не подтверждены.",
+            ]
+        elif lead_status == LeadStatus.READY_TO_START.value:
+            next_action = "prepare_project_start"
+            expected_from_client = "wait_start_confirmation_or_answer_access_question"
+            client_expects = "start_date_or_team_confirmation"
+            response_policy = [
+                "Опирайся на то, что ключи или доступ уже получены.",
+                "Коротко подтвердить подготовку к старту работ: дата, прораб, бригада или организационный следующий шаг.",
+                "Не возвращать клиента к договору или оплате без явной причины.",
+            ]
+        elif lead_status == LeadStatus.WON.value:
+            next_action = "project_in_work"
+            expected_from_client = "project_questions_or_work_updates"
+            client_expects = "work_status_or_manager_handoff"
+            response_policy = [
+                "Отвечать как по объекту в работе.",
+                "Если вопрос про ход ремонта, сроки или работы — предложить передать менеджеру/прорабу или зафиксировать вопрос.",
+                "Не запускать продажную квалификацию заново.",
+            ]
         elif lead_status in {LeadStatus.CONTRACT.value, LeadStatus.CONTRACT_NEGOTIATION.value}:
             next_action = "contract_closing"
             expected_from_client = "confirm_contract_or_start_date"
@@ -90,6 +126,7 @@ class LeadStageContextService:
             response_policy = [
                 "Коротко вернуть клиента к финальному шагу.",
                 "Предложить спокойно разобрать условия, сроки старта и что закрепляется в договоре.",
+                "Если договор уже подписан — следующий этап оплата, затем передача ключей/доступа.",
                 "Не начинать заново квалификацию и не задавать вопросы из квиза.",
             ]
         elif lead_status in {LeadStatus.ESTIMATE.value, LeadStatus.ESTIMATE_SENT.value}:

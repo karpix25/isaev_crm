@@ -657,7 +657,10 @@ class LeadImportService:
             (["estimate", "смет"], LeadStatus.ESTIMATE),
             (["contract negotiation", "договор на соглас", "согласование договор"], LeadStatus.CONTRACT_NEGOTIATION),
             (["contract", "контракт"], LeadStatus.CONTRACT),
-            (["won", "успех", "выиг"], LeadStatus.WON),
+            (["payment pending", "ждем оплат", "ждём оплат", "ожидаем оплат"], LeadStatus.PAYMENT_PENDING),
+            (["keys pending", "ждем ключ", "ждём ключ", "ожидаем ключ", "передач ключ"], LeadStatus.KEYS_PENDING),
+            (["ready to start", "готов к старт", "ключи получ", "доступ получ"], LeadStatus.READY_TO_START),
+            (["won", "успех", "выиг", "в работе"], LeadStatus.WON),
             (["lost", "проиг", "отказ"], LeadStatus.LOST),
             (["spam", "спам"], LeadStatus.SPAM),
         ]

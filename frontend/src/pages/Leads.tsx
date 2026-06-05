@@ -41,7 +41,10 @@ const columns = [
     { id: LeadStatus.FOLLOW_UP, title: 'Дожим / прогрев', color: 'bg-stone-500' },
     { id: LeadStatus.CONTRACT_NEGOTIATION, title: 'Договор на согласовании', color: 'bg-teal-600' },
     { id: LeadStatus.CONTRACT, title: 'Договор подписан', color: 'bg-teal-700' },
-    { id: LeadStatus.WON, title: 'Оплачен / в работе', color: 'bg-green-600' },
+    { id: LeadStatus.PAYMENT_PENDING, title: 'Ждем оплату', color: 'bg-emerald-500' },
+    { id: LeadStatus.KEYS_PENDING, title: 'Ждем ключи', color: 'bg-lime-600' },
+    { id: LeadStatus.READY_TO_START, title: 'Готов к старту', color: 'bg-green-500' },
+    { id: LeadStatus.WON, title: 'В работе', color: 'bg-green-700' },
     { id: LeadStatus.LOST, title: 'Отказ', color: 'bg-red-500' },
     { id: LeadStatus.SPAM, title: 'Спам', color: 'bg-slate-800' },
 ]
@@ -65,7 +68,10 @@ const statusLabels: { [key in LeadStatus]: string } = {
     [LeadStatus.FOLLOW_UP]: 'Дожим / прогрев',
     [LeadStatus.CONTRACT_NEGOTIATION]: 'Договор на согласовании',
     [LeadStatus.CONTRACT]: 'Договор подписан',
-    [LeadStatus.WON]: 'Оплачен / в работе',
+    [LeadStatus.PAYMENT_PENDING]: 'Ждем оплату',
+    [LeadStatus.KEYS_PENDING]: 'Ждем передачу ключей',
+    [LeadStatus.READY_TO_START]: 'Ключи получены / готов к старту',
+    [LeadStatus.WON]: 'В работе',
     [LeadStatus.LOST]: 'Отказ',
     [LeadStatus.SPAM]: 'Спам',
 }
@@ -195,8 +201,8 @@ export function Leads() {
                 data: { status },
             })
 
-            // Auto convert to project if moved to CONTRACT or WON
-            if (status === LeadStatus.CONTRACT || status === LeadStatus.WON) {
+            // Auto convert to project when the deal reaches post-contract operations.
+            if ([LeadStatus.CONTRACT, LeadStatus.PAYMENT_PENDING, LeadStatus.KEYS_PENDING, LeadStatus.READY_TO_START, LeadStatus.WON].includes(status)) {
                 convertLead.mutate({ leadId }, {
                     onSuccess: () => {
                         setNotification({ message: 'Объект успешно создан и связан!', type: 'success' })
@@ -496,8 +502,8 @@ export function Leads() {
                         updateLead.mutate({ id: selectedLead.id, data: { status } })
                         setSelectedLead(prev => prev ? { ...prev, status } : null)
 
-                        // Auto convert if status changed to CONTRACT or WON
-                        if (status === LeadStatus.CONTRACT || status === LeadStatus.WON) {
+                        // Auto convert when status moves into post-contract operations.
+                        if ([LeadStatus.CONTRACT, LeadStatus.PAYMENT_PENDING, LeadStatus.KEYS_PENDING, LeadStatus.READY_TO_START, LeadStatus.WON].includes(status)) {
                             convertLead.mutate({ leadId: selectedLead.id }, {
                                 onSuccess: () => {
                                     setNotification({ message: 'Объект успешно создан и связан!', type: 'success' })
