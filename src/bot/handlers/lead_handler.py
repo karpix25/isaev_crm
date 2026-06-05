@@ -3612,9 +3612,10 @@ async def process_debounced_message(conversation_key: str):
                     
                     logger.info("🔥 HOT LEAD: %s (%s) - Ready for handoff!", lead.full_name, lead.telegram_id)
                     
-                    # Notify manager via Telegram if MANAGER_TELEGRAM_ID is configured
-                    manager_id = getattr(settings, 'manager_telegram_id', None)
-                    if manager_id and bot:
+                    # Notify managers/groups via Telegram if configured
+                    try:
+                        from src.services.telegram_notification_service import telegram_notification_service
+
                         try:
                             lead_info = (
                                 f"🔥 *Горячий лид!*\n"
@@ -3624,13 +3625,11 @@ async def process_debounced_message(conversation_key: str):
                                 f"📊 Статус: {lead.status}\n"
                                 f"💬 Данные: {extracted_data.get('budget', 'нет')} | {extracted_data.get('area_sqm', 'нет')} м²"
                             )
-                            await bot.send_message(
-                                chat_id=manager_id,
-                                text=lead_info,
-                                parse_mode="Markdown"
-                            )
+                            await telegram_notification_service.send_to_managers(lead_info, parse_mode="Markdown")
                         except Exception as notify_err:
                             logger.warning("Failed to notify manager: %s", notify_err)
+                    except Exception as notify_err:
+                        logger.warning("Failed to initialize manager notification service: %s", notify_err)
                     
                     ai_metadata["silent_manager_handoff"] = True
         

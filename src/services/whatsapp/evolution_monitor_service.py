@@ -83,17 +83,7 @@ class EvolutionMonitorService:
 
     async def _send_manager_alert(self, *, state: str, error: str | None = None, recovered: bool = False) -> None:
         try:
-            from src.bot import bot
-
-            manager_id = getattr(settings, "manager_telegram_id", None)
-            if not manager_id or not bot:
-                logger.warning(
-                    "Evolution monitor alert skipped: manager_id_present=%s bot_present=%s state=%s",
-                    bool(manager_id),
-                    bool(bot),
-                    state,
-                )
-                return
+            from src.services.telegram_notification_service import telegram_notification_service
 
             if recovered:
                 text = (
@@ -110,7 +100,7 @@ class EvolutionMonitorService:
                     "Переподключите WhatsApp в Evolution API Manager через QR. "
                     "Пока статус не станет open/connected, автоответы WhatsApp не уйдут."
                 )
-            await bot.send_message(chat_id=manager_id, text=text)
+            await telegram_notification_service.send_to_managers(text)
         except Exception:
             logger.warning("Failed to send Evolution monitor alert", exc_info=True)
 

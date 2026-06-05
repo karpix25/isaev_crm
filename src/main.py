@@ -90,9 +90,9 @@ async def startup():
         bool(settings.cal_pro_api_key),
     )
     logger.info(
-        "Telegram notification config: bot_present=%s manager_telegram_id_present=%s update_mode=%s",
+        "Telegram notification config: bot_present=%s manager_recipients_present=%s update_mode=%s",
         bool(bot),
-        bool(settings.manager_telegram_id),
+        bool(settings.manager_telegram_id or settings.manager_telegram_ids),
         settings.telegram_update_mode,
     )
     

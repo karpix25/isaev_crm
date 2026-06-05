@@ -759,15 +759,11 @@ class QuizService:
         if not lead:
             return
         try:
-            from src.bot import bot
-            from src.config import settings
+            from src.services.telegram_notification_service import telegram_notification_service
 
-            manager_id = getattr(settings, "manager_telegram_id", None)
-            if not manager_id or not bot:
+            if not telegram_notification_service.manager_chat_ids():
                 logger.warning(
-                    "Skipping measurement Telegram notification: manager_id_present=%s bot_present=%s lead_id=%s",
-                    bool(manager_id),
-                    bool(bot),
+                    "Skipping measurement Telegram notification: no manager recipients lead_id=%s",
                     getattr(lead, "id", None),
                 )
                 return
@@ -783,10 +779,10 @@ class QuizService:
             )
             if booking_uid:
                 text += f"\n🔖 Booking: {booking_uid}"
-            await bot.send_message(chat_id=manager_id, text=text)
+            sent = await telegram_notification_service.send_to_managers(text)
             logger.info(
-                "Measurement Telegram notification sent: manager_id=%s lead_id=%s status=%s",
-                manager_id,
+                "Measurement Telegram notification sent: recipients=%s lead_id=%s status=%s",
+                sent,
                 lead.id,
                 status,
             )

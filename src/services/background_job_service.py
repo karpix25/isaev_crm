@@ -220,17 +220,11 @@ class BackgroundJobService:
         await db.commit()
 
     async def _process_measurement_telegram_reminder(self, db: AsyncSession, payload: dict[str, Any]) -> None:
-        from src.bot import bot
-        from src.config import settings
         from src.models import Lead
+        from src.services.telegram_notification_service import telegram_notification_service
 
-        manager_id = getattr(settings, "manager_telegram_id", None)
-        if not manager_id or not bot:
-            logger.info(
-                "Skipping measurement reminder: manager_id_present=%s bot_present=%s",
-                bool(manager_id),
-                bool(bot),
-            )
+        if not telegram_notification_service.manager_chat_ids():
+            logger.info("Skipping measurement reminder: no manager Telegram recipients")
             return
 
         lead_id = uuid.UUID(str(payload["lead_id"]))
@@ -277,8 +271,8 @@ class BackgroundJobService:
         )
         if booking_uid:
             text += f"\n🔖 Booking: {booking_uid}"
-        await bot.send_message(chat_id=manager_id, text=text)
-        logger.info("Measurement reminder sent: manager_id=%s lead_id=%s", manager_id, lead.id)
+        sent = await telegram_notification_service.send_to_managers(text)
+        logger.info("Measurement reminder sent: recipients=%s lead_id=%s", sent, lead.id)
 
     def _format_measurement_start(self, value: str) -> str:
         try:

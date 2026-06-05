@@ -229,11 +229,9 @@ class EstimateRequestService:
     async def _estimator_chat_ids(self, db: AsyncSession, lead: Lead) -> list[int]:
         ids: set[int] = set()
         try:
-            from src.config import settings
+            from src.services.telegram_notification_service import telegram_notification_service
 
-            manager_id = getattr(settings, "manager_telegram_id", None)
-            if manager_id:
-                ids.add(int(manager_id))
+            ids.update(telegram_notification_service.manager_chat_ids())
         except Exception:
             pass
 

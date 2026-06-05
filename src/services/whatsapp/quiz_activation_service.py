@@ -146,12 +146,7 @@ class WhatsAppQuizActivationService:
 
     async def _notify_manager_about_whatsapp_failure(self, lead: Lead, *, error: str) -> None:
         try:
-            from src.bot import bot
-            from src.config import settings
-
-            manager_id = getattr(settings, "manager_telegram_id", None)
-            if not manager_id or not bot:
-                return
+            from src.services.telegram_notification_service import telegram_notification_service
 
             text = (
                 "⚠️ WhatsApp не отправил сообщение клиенту\n\n"
@@ -162,7 +157,7 @@ class WhatsAppQuizActivationService:
                 "Проверьте Evolution API: инстанс WhatsApp, скорее всего, disconnected/closed. "
                 "Переподключите QR и напишите клиенту вручную, если заявка срочная."
             )
-            await bot.send_message(chat_id=manager_id, text=text)
+            await telegram_notification_service.send_to_managers(text)
         except Exception:
             logger.warning("Failed to notify manager about WhatsApp failure for lead %s", lead.id, exc_info=True)
 
