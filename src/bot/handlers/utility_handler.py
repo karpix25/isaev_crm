@@ -32,6 +32,9 @@ async def cmd_chatid(message: Message) -> None:
             f"SYSTEM_ALERT_TELEGRAM_IDS={recipient}",
             "",
             f"Или в общий fallback: MANAGER_TELEGRAM_IDS={recipient}",
+            "",
+            "Также теперь можно вставить ссылку на тему вида:",
+            "https://t.me/c/3734786933/12",
         ]
     )
     await message.answer("\n".join(lines))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlparse
 
 from src.config import settings
 
@@ -76,6 +77,8 @@ class TelegramNotificationService:
         value = raw_value.strip()
         if not value:
             return None
+        if self._looks_like_telegram_link(value):
+            return self._parse_telegram_link(value)
 
         chat_part = value
         thread_part: str | None = None
@@ -88,6 +91,27 @@ class TelegramNotificationService:
         except ValueError:
             logger.warning("Invalid MANAGER_TELEGRAM_IDS value skipped: %s", value)
             return None
+        return TelegramRecipient(chat_id=chat_id, message_thread_id=message_thread_id)
+
+    def _looks_like_telegram_link(self, value: str) -> bool:
+        normalized = value.lower()
+        return normalized.startswith(("https://t.me/", "http://t.me/", "https://telegram.me/", "http://telegram.me/"))
+
+    def _parse_telegram_link(self, value: str) -> TelegramRecipient | None:
+        parsed = urlparse(value)
+        parts = [part for part in parsed.path.strip("/").split("/") if part]
+        if len(parts) < 3 or parts[0] != "c":
+            logger.warning("Unsupported Telegram recipient link skipped: %s", value)
+            return None
+
+        try:
+            internal_chat_id = int(parts[1])
+            message_thread_id = int(parts[2])
+        except ValueError:
+            logger.warning("Invalid Telegram recipient link skipped: %s", value)
+            return None
+
+        chat_id = int(f"-100{internal_chat_id}")
         return TelegramRecipient(chat_id=chat_id, message_thread_id=message_thread_id)
 
     async def send_to_managers(
