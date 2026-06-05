@@ -88,8 +88,10 @@ class WhatsAppQuizActivationService:
     ) -> bool:
         try:
             result = await whatsapp_transport_service.send_text(chat_id=chat_id, text=text)
-        except WhatsAppTransportError:
+        except WhatsAppTransportError as exc:
             logger.warning("Failed to send WhatsApp quiz activation reply for lead %s", lead.id, exc_info=True)
+            await self._store_failed_outbound(db=db, lead=lead, text=text, metadata=metadata, error=str(exc))
+            await self._notify_manager_about_whatsapp_failure(lead=lead, error=str(exc))
             return False
 
         message = await chat_service.send_outbound_message(
@@ -114,6 +116,55 @@ class WhatsAppQuizActivationService:
             message.external_chat_id = result.chat_id
         await db.commit()
         return True
+
+    async def _store_failed_outbound(
+        self,
+        db: AsyncSession,
+        lead: Lead,
+        *,
+        text: str,
+        metadata: dict[str, Any],
+        error: str,
+    ) -> None:
+        try:
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text,
+                sender_name="Bot",
+                ai_metadata={
+                    **metadata,
+                    "delivery_error": error[:1000],
+                    "provider": whatsapp_transport_service.active_provider(),
+                    "skip_knowledge_index": True,
+                },
+                status=MessageStatus.FAILED,
+                transport=MessageTransport.WHATSAPP,
+            )
+        except Exception:
+            logger.warning("Failed to store failed WhatsApp outbound message for lead %s", lead.id, exc_info=True)
+
+    async def _notify_manager_about_whatsapp_failure(self, lead: Lead, *, error: str) -> None:
+        try:
+            from src.bot import bot
+            from src.config import settings
+
+            manager_id = getattr(settings, "manager_telegram_id", None)
+            if not manager_id or not bot:
+                return
+
+            text = (
+                "⚠️ WhatsApp не отправил сообщение клиенту\n\n"
+                f"Причина: {error[:700]}\n\n"
+                f"👤 Клиент: {lead.full_name or 'Клиент квиза'}\n"
+                f"📞 Телефон: {lead.phone or 'не указан'}\n"
+                f"🆔 Лид: {lead.id}\n\n"
+                "Проверьте Evolution API: инстанс WhatsApp, скорее всего, disconnected/closed. "
+                "Переподключите QR и напишите клиенту вручную, если заявка срочная."
+            )
+            await bot.send_message(chat_id=manager_id, text=text)
+        except Exception:
+            logger.warning("Failed to notify manager about WhatsApp failure for lead %s", lead.id, exc_info=True)
 
     async def _estimate_already_sent(self, db: AsyncSession, lead_id, session_token: str) -> bool:
         result = await db.execute(select(ChatMessage).where(ChatMessage.lead_id == lead_id))
