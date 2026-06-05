@@ -82,6 +82,16 @@ class EvolutionClient:
             raise EvolutionError("Evolution API is not configured")
         return await self._get(f"/instance/connectionState/{settings.evolution_instance.strip()}")
 
+    async def connect_instance(self, *, number: str | None = None) -> dict[str, Any]:
+        if not self.is_configured():
+            raise EvolutionError("Evolution API is not configured")
+        params: dict[str, Any] = {}
+        if number:
+            normalized = normalize_phone_digits(number)
+            if normalized:
+                params["number"] = normalized
+        return await self._get(f"/instance/connect/{settings.evolution_instance.strip()}", params=params or None)
+
     async def check_is_whatsapp(self, phone: str) -> dict[str, Any]:
         if not self.is_configured():
             raise EvolutionError("Evolution API is not configured")
@@ -130,10 +140,16 @@ class EvolutionClient:
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", path, payload=payload)
 
-    async def _get(self, path: str) -> dict[str, Any]:
-        return await self._request("GET", path)
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return await self._request("GET", path, params=params)
 
-    async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         url = f"{settings.evolution_api_base_url.rstrip('/')}{path}"
         headers = {
             "apikey": settings.evolution_api_key.strip(),
@@ -143,7 +159,7 @@ class EvolutionClient:
         timeout = max(3, int(settings.evolution_timeout_seconds))
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.request(method, url, json=payload, headers=headers)
+                response = await client.request(method, url, json=payload, params=params, headers=headers)
             if response.status_code >= 400:
                 raise EvolutionError(f"Evolution API request failed ({response.status_code}): {response.text}")
             data = response.json() if response.content else {}

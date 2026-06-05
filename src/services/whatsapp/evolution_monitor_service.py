@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -92,17 +94,92 @@ class EvolutionMonitorService:
                     f"Состояние: {state}"
                 )
             else:
+                qr_payload = await self._build_auth_qr_payload()
+                pairing_code = qr_payload.get("pairingCode") if qr_payload else None
                 text = (
                     "⚠️ WhatsApp Evolution отключен\n\n"
                     f"Инстанс: {settings.evolution_instance}\n"
                     f"Состояние: {state}\n"
-                    f"Ошибка: {error[:700] if error else 'нет'}\n\n"
-                    "Переподключите WhatsApp в Evolution API Manager через QR. "
+                    f"Ошибка: {error[:700] if error else 'нет'}\n"
+                    f"Код сопряжения: {pairing_code or 'не получен'}\n\n"
+                    "Переподключите WhatsApp: отсканируйте QR в следующем сообщении. "
                     "Пока статус не станет open/connected, автоответы WhatsApp не уйдут."
                 )
             await telegram_notification_service.send_to_managers(text)
+            if not recovered and qr_payload and qr_payload.get("qr_png"):
+                await telegram_notification_service.send_photo_to_managers(
+                    qr_payload["qr_png"],
+                    filename="evolution-whatsapp-login.png",
+                    caption="QR для авторизации WhatsApp Evolution. Если не сработал, дождитесь следующего уведомления или обновите QR в Evolution Manager.",
+                )
         except Exception:
             logger.warning("Failed to send Evolution monitor alert", exc_info=True)
+
+    async def _build_auth_qr_payload(self) -> dict[str, Any] | None:
+        try:
+            payload = await evolution_client.connect_instance()
+        except EvolutionError:
+            logger.warning("Failed to get Evolution auth QR payload", exc_info=True)
+            return None
+
+        qr_png = self._extract_qr_image(payload)
+        if qr_png:
+            return {**payload, "qr_png": qr_png}
+
+        code = self._extract_qr_code(payload)
+        if not code:
+            logger.warning("Evolution auth QR payload has no code: %s", payload)
+            return payload
+
+        qr_png = self._render_qr_png(code)
+        if not qr_png:
+            return payload
+        return {**payload, "qr_png": qr_png}
+
+    def _extract_qr_image(self, payload: dict[str, Any]) -> bytes | None:
+        candidates: list[Any] = [
+            payload.get("base64"),
+            payload.get("qrcode"),
+            payload.get("qrCode"),
+        ]
+        base64_payload = payload.get("base64") if isinstance(payload.get("base64"), dict) else {}
+        candidates.extend([base64_payload.get("base64"), base64_payload.get("qrcode"), base64_payload.get("qrCode")])
+        for value in candidates:
+            if not isinstance(value, str):
+                continue
+            marker = "base64,"
+            raw_value = value.split(marker, 1)[1] if marker in value else value
+            try:
+                decoded = base64.b64decode(raw_value, validate=True)
+            except Exception:
+                continue
+            if decoded.startswith(b"\x89PNG") or decoded.startswith(b"\xff\xd8"):
+                return decoded
+        return None
+
+    def _extract_qr_code(self, payload: dict[str, Any]) -> str | None:
+        for key in ("code", "qrcode", "qrCode"):
+            value = payload.get(key)
+            if value:
+                return str(value)
+        base64_payload = payload.get("base64") if isinstance(payload.get("base64"), dict) else {}
+        for key in ("code", "qrcode", "qrCode"):
+            value = base64_payload.get(key)
+            if value:
+                return str(value)
+        return None
+
+    def _render_qr_png(self, code: str) -> bytes | None:
+        try:
+            import qrcode
+
+            image = qrcode.make(code)
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            return output.getvalue()
+        except Exception:
+            logger.warning("Failed to render Evolution auth QR", exc_info=True)
+            return None
 
 
 evolution_monitor_service = EvolutionMonitorService()
