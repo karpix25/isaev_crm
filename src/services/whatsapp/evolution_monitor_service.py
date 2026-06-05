@@ -105,12 +105,13 @@ class EvolutionMonitorService:
                     "Переподключите WhatsApp: отсканируйте QR в следующем сообщении. "
                     "Пока статус не станет open/connected, автоответы WhatsApp не уйдут."
                 )
-            await telegram_notification_service.send_to_managers(text)
+            await telegram_notification_service.send_to_managers(text, topic="system_alert")
             if not recovered and qr_payload and qr_payload.get("qr_png"):
                 await telegram_notification_service.send_photo_to_managers(
                     qr_payload["qr_png"],
                     filename="evolution-whatsapp-login.png",
                     caption="QR для авторизации WhatsApp Evolution. Если не сработал, дождитесь следующего уведомления или обновите QR в Evolution Manager.",
+                    topic="system_alert",
                 )
         except Exception:
             logger.warning("Failed to send Evolution monitor alert", exc_info=True)

@@ -157,7 +157,7 @@ class WhatsAppQuizActivationService:
                 "Проверьте Evolution API: инстанс WhatsApp, скорее всего, disconnected/closed. "
                 "Переподключите QR и напишите клиенту вручную, если заявка срочная."
             )
-            await telegram_notification_service.send_to_managers(text)
+            await telegram_notification_service.send_to_managers(text, topic="system_alert")
         except Exception:
             logger.warning("Failed to notify manager about WhatsApp failure for lead %s", lead.id, exc_info=True)
 

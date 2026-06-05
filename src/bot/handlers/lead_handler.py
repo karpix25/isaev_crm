@@ -1779,6 +1779,22 @@ async def _send_manager_handoff_notice(message: Message, db: AsyncSession, lead)
         sender_name="Bot",
         ai_metadata={"source": "bot_scenario", "type": "manager_handoff_requested"},
     )
+
+    try:
+        from src.services.telegram_notification_service import telegram_notification_service
+
+        username = f"@{message.from_user.username}" if message.from_user and message.from_user.username else "—"
+        alert_text = (
+            "💬 Нужна ручная помощь\n\n"
+            "Клиент попросил подключить менеджера.\n"
+            f"Клиент: {lead.full_name or 'Клиент'}\n"
+            f"Telegram: {username}\n"
+            f"Телефон: {lead.phone or 'не указан'}\n"
+            f"Лид: {lead.id}"
+        )
+        await telegram_notification_service.send_to_managers(alert_text, topic="manual_help")
+    except Exception:
+        logger.warning("Failed to send manual help notification for lead %s", lead.id, exc_info=True)
     return True
 
 
@@ -3625,7 +3641,11 @@ async def process_debounced_message(conversation_key: str):
                                 f"📊 Статус: {lead.status}\n"
                                 f"💬 Данные: {extracted_data.get('budget', 'нет')} | {extracted_data.get('area_sqm', 'нет')} м²"
                             )
-                            await telegram_notification_service.send_to_managers(lead_info, parse_mode="Markdown")
+                            await telegram_notification_service.send_to_managers(
+                                lead_info,
+                                parse_mode="Markdown",
+                                topic="hot_lead",
+                            )
                         except Exception as notify_err:
                             logger.warning("Failed to notify manager: %s", notify_err)
                     except Exception as notify_err:

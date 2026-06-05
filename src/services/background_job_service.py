@@ -223,7 +223,7 @@ class BackgroundJobService:
         from src.models import Lead
         from src.services.telegram_notification_service import telegram_notification_service
 
-        if not telegram_notification_service.manager_chat_ids():
+        if not telegram_notification_service.has_recipients("measurement"):
             logger.info("Skipping measurement reminder: no manager Telegram recipients")
             return
 
@@ -271,7 +271,7 @@ class BackgroundJobService:
         )
         if booking_uid:
             text += f"\n🔖 Booking: {booking_uid}"
-        sent = await telegram_notification_service.send_to_managers(text)
+        sent = await telegram_notification_service.send_to_managers(text, topic="measurement")
         logger.info("Measurement reminder sent: recipients=%s lead_id=%s", sent, lead.id)
 
     def _format_measurement_start(self, value: str) -> str:

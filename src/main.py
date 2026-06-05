@@ -89,10 +89,21 @@ async def startup():
         settings.cal_pro_event_type_slug or "",
         bool(settings.cal_pro_api_key),
     )
+    manager_recipients_present = any(
+        [
+            settings.manager_telegram_id,
+            settings.manager_telegram_ids,
+            settings.hot_lead_telegram_ids,
+            settings.estimate_request_telegram_ids,
+            settings.measurement_telegram_ids,
+            settings.manual_help_telegram_ids,
+            settings.system_alert_telegram_ids,
+        ]
+    )
     logger.info(
         "Telegram notification config: bot_present=%s manager_recipients_present=%s update_mode=%s",
         bool(bot),
-        bool(settings.manager_telegram_id or settings.manager_telegram_ids),
+        bool(manager_recipients_present),
         settings.telegram_update_mode,
     )
     

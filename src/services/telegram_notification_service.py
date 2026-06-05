@@ -2,10 +2,21 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+TelegramNotificationTopic = Literal["hot_lead", "estimate_request", "measurement", "manual_help", "system_alert"]
+
+TOPIC_SETTINGS: dict[TelegramNotificationTopic, str] = {
+    "hot_lead": "hot_lead_telegram_ids",
+    "estimate_request": "estimate_request_telegram_ids",
+    "measurement": "measurement_telegram_ids",
+    "manual_help": "manual_help_telegram_ids",
+    "system_alert": "system_alert_telegram_ids",
+}
 
 
 @dataclass(frozen=True)
@@ -16,13 +27,7 @@ class TelegramRecipient:
 
 class TelegramNotificationService:
     def manager_recipients(self) -> list[TelegramRecipient]:
-        recipients: list[TelegramRecipient] = []
-
-        raw_ids = (settings.manager_telegram_ids or "").strip()
-        for chunk in raw_ids.replace(";", ",").split(","):
-            recipient = self._parse_recipient(chunk)
-            if recipient:
-                recipients.append(recipient)
+        recipients = self._parse_recipient_list(settings.manager_telegram_ids)
 
         legacy_id = getattr(settings, "manager_telegram_id", None)
         if legacy_id:
@@ -31,6 +36,33 @@ class TelegramNotificationService:
             except (TypeError, ValueError):
                 logger.warning("Invalid MANAGER_TELEGRAM_ID value skipped: %s", legacy_id)
 
+        return self._unique_recipients(recipients)
+
+    def recipients_for(self, topic: TelegramNotificationTopic | None = None) -> list[TelegramRecipient]:
+        if not topic:
+            return self.manager_recipients()
+
+        setting_name = TOPIC_SETTINGS[topic]
+        topic_recipients = self._parse_recipient_list(str(getattr(settings, setting_name, "") or ""))
+        if topic_recipients:
+            return self._unique_recipients(topic_recipients)
+        return self.manager_recipients()
+
+    def manager_chat_ids(self) -> list[int]:
+        return sorted({recipient.chat_id for recipient in self.manager_recipients()})
+
+    def has_recipients(self, topic: TelegramNotificationTopic | None = None) -> bool:
+        return bool(self.recipients_for(topic))
+
+    def _parse_recipient_list(self, raw_ids: str | None) -> list[TelegramRecipient]:
+        recipients: list[TelegramRecipient] = []
+        for chunk in (raw_ids or "").strip().replace(";", ",").split(","):
+            recipient = self._parse_recipient(chunk)
+            if recipient:
+                recipients.append(recipient)
+        return recipients
+
+    def _unique_recipients(self, recipients: list[TelegramRecipient]) -> list[TelegramRecipient]:
         seen: set[TelegramRecipient] = set()
         unique_recipients: list[TelegramRecipient] = []
         for recipient in recipients:
@@ -39,9 +71,6 @@ class TelegramNotificationService:
             seen.add(recipient)
             unique_recipients.append(recipient)
         return unique_recipients
-
-    def manager_chat_ids(self) -> list[int]:
-        return [recipient.chat_id for recipient in self.manager_recipients()]
 
     def _parse_recipient(self, raw_value: str) -> TelegramRecipient | None:
         value = raw_value.strip()
@@ -61,13 +90,19 @@ class TelegramNotificationService:
             return None
         return TelegramRecipient(chat_id=chat_id, message_thread_id=message_thread_id)
 
-    async def send_to_managers(self, text: str, *, parse_mode: str | None = None) -> int:
+    async def send_to_managers(
+        self,
+        text: str,
+        *,
+        parse_mode: str | None = None,
+        topic: TelegramNotificationTopic | None = None,
+    ) -> int:
         try:
             from src.bot import bot
         except Exception:
             bot = None
 
-        recipients = self.manager_recipients()
+        recipients = self.recipients_for(topic)
         if not bot or not recipients:
             logger.warning(
                 "Manager Telegram notification skipped: bot_present=%s recipients=%s",
@@ -97,6 +132,7 @@ class TelegramNotificationService:
         filename: str = "notification.png",
         caption: str | None = None,
         parse_mode: str | None = None,
+        topic: TelegramNotificationTopic | None = None,
     ) -> int:
         try:
             from aiogram.types import BufferedInputFile
@@ -105,7 +141,7 @@ class TelegramNotificationService:
             bot = None
             BufferedInputFile = None
 
-        recipients = self.manager_recipients()
+        recipients = self.recipients_for(topic)
         if not bot or not BufferedInputFile or not recipients:
             logger.warning(
                 "Manager Telegram photo notification skipped: bot_present=%s recipients=%s",

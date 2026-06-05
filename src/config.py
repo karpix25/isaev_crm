@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     telegram_update_mode: str = "polling"  # polling | webhook | auto
     manager_telegram_id: Optional[int] = None  # Telegram ID of manager to notify on hot leads
     manager_telegram_ids: str = ""  # Comma-separated Telegram user/group chat IDs for manager alerts
+    hot_lead_telegram_ids: str = ""  # Recipients for hot lead alerts; supports chat_id:topic_id
+    estimate_request_telegram_ids: str = ""  # Recipients for estimate calculation requests
+    measurement_telegram_ids: str = ""  # Recipients for measurement bookings and reminders
+    manual_help_telegram_ids: str = ""  # Recipients for cases that need operator attention
+    system_alert_telegram_ids: str = ""  # Recipients for technical alerts and delivery failures
     telegram_phone_lookup_max_per_minute: int = 20
     telegram_phone_lookup_cache_ttl_seconds: int = 3600
     whatsapp_lookup_url: str = ""

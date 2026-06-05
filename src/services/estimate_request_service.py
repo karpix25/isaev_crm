@@ -200,7 +200,7 @@ class EstimateRequestService:
     async def notify_estimators(self, db: AsyncSession, lead: Lead, file_record: dict[str, Any]) -> None:
         from src.services.telegram_notification_service import telegram_notification_service
 
-        manager_recipients = telegram_notification_service.manager_recipients()
+        manager_recipients = telegram_notification_service.recipients_for("estimate_request")
         recipient_ids = await self._estimator_chat_ids(db, lead)
         if not manager_recipients and not recipient_ids:
             logger.warning("No estimator Telegram recipients found for lead %s", lead.id)

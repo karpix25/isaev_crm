@@ -21,8 +21,17 @@ async def cmd_chatid(message: Message) -> None:
     lines.extend(
         [
             "",
-            "Добавьте в MANAGER_TELEGRAM_IDS:",
+            "Готовое значение:",
             recipient,
+            "",
+            "Куда можно вставить:",
+            f"HOT_LEAD_TELEGRAM_IDS={recipient}",
+            f"ESTIMATE_REQUEST_TELEGRAM_IDS={recipient}",
+            f"MEASUREMENT_TELEGRAM_IDS={recipient}",
+            f"MANUAL_HELP_TELEGRAM_IDS={recipient}",
+            f"SYSTEM_ALERT_TELEGRAM_IDS={recipient}",
+            "",
+            f"Или в общий fallback: MANAGER_TELEGRAM_IDS={recipient}",
         ]
     )
     await message.answer("\n".join(lines))
