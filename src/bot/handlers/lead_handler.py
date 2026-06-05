@@ -1262,6 +1262,32 @@ async def _book_measurement_directly(
     except Exception:
         logger.warning("Failed to enqueue direct measurement reminder for lead %s", lead.id, exc_info=True)
 
+    try:
+        from src.services.quiz_service import quiz_service
+
+        await quiz_service._notify_measurement_telegram(
+            db=db,
+            lead=lead,
+            start=start,
+            address=address,
+            status="booked" if booking_uid else "requested",
+            booking_uid=booking_uid,
+        )
+    except Exception:
+        logger.warning("Failed to notify direct measurement booking for lead %s", lead.id, exc_info=True)
+
+    try:
+        from src.services.lead_manager_notification_service import lead_manager_notification_service
+
+        await lead_manager_notification_service.notify_hot_lead_if_needed(
+            db=db,
+            lead=lead,
+            reason="Клиент записался на замер",
+            source="direct_measurement_booking",
+        )
+    except Exception:
+        logger.warning("Failed to notify hot lead after direct measurement booking: lead_id=%s", lead.id, exc_info=True)
+
     await measurement_analytics_service.record_event(
         db=db,
         lead=lead,
@@ -3645,26 +3671,17 @@ async def process_debounced_message(conversation_key: str):
                     
                     # Notify managers/groups via Telegram if configured
                     try:
-                        from src.services.telegram_notification_service import telegram_notification_service
+                        from src.services.lead_manager_notification_service import lead_manager_notification_service
 
-                        try:
-                            lead_info = (
-                                f"🔥 *Горячий лид!*\n"
-                                f"👤 Имя: {lead.full_name or 'Неизвестно'}\n"
-                                f"📱 Telegram: @{lead.username or lead.telegram_id}\n"
-                                f"📞 Телефон: {lead.phone or 'не указан'}\n"
-                                f"📊 Статус: {lead.status}\n"
-                                f"💬 Данные: {extracted_data.get('budget', 'нет')} | {extracted_data.get('area_sqm', 'нет')} м²"
-                            )
-                            await telegram_notification_service.send_to_managers(
-                                lead_info,
-                                parse_mode="Markdown",
-                                topic="hot_lead",
-                            )
-                        except Exception as notify_err:
-                            logger.warning("Failed to notify manager: %s", notify_err)
+                        await lead_manager_notification_service.notify_hot_lead_if_needed(
+                            db=db,
+                            lead=lead,
+                            reason="AI определил готовность к передаче менеджеру",
+                            source="ai_handoff",
+                            extracted_data=extracted_data,
+                        )
                     except Exception as notify_err:
-                        logger.warning("Failed to initialize manager notification service: %s", notify_err)
+                        logger.warning("Failed to notify hot lead manager topic: %s", notify_err, exc_info=True)
                     
                     ai_metadata["silent_manager_handoff"] = True
         

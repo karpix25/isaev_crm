@@ -129,12 +129,18 @@ class TelegramNotificationService:
         recipients = self.recipients_for(topic)
         if not bot or not recipients:
             logger.warning(
-                "Manager Telegram notification skipped: bot_present=%s recipients=%s",
+                "Manager Telegram notification skipped: topic=%s bot_present=%s recipients=%s",
+                topic or "default",
                 bool(bot),
                 len(recipients),
             )
             return 0
 
+        logger.info(
+            "Sending manager Telegram notification: topic=%s recipients=%s",
+            topic or "default",
+            recipients,
+        )
         sent = 0
         for recipient in recipients:
             try:
@@ -146,7 +152,12 @@ class TelegramNotificationService:
                 )
                 sent += 1
             except Exception:
-                logger.warning("Failed to send manager Telegram notification to %s", recipient, exc_info=True)
+                logger.warning(
+                    "Failed to send manager Telegram notification: topic=%s recipient=%s",
+                    topic or "default",
+                    recipient,
+                    exc_info=True,
+                )
         return sent
 
     async def send_photo_to_managers(

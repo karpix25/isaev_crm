@@ -397,6 +397,25 @@ class QuizService:
                 address=measurement_address,
                 booking_uid=booking_uid,
             )
+            await self._notify_measurement_telegram(
+                db=db,
+                lead=lead,
+                start=payload.start,
+                address=measurement_address,
+                status="booked",
+                booking_uid=booking_uid,
+            )
+            try:
+                from src.services.lead_manager_notification_service import lead_manager_notification_service
+
+                await lead_manager_notification_service.notify_hot_lead_if_needed(
+                    db=db,
+                    lead=lead,
+                    reason="Клиент записался на замер",
+                    source="measurement_booking",
+                )
+            except Exception:
+                logger.warning("Failed to notify hot lead after measurement booking: lead_id=%s", lead.id, exc_info=True)
 
         await analytics_service.record_event(
             db=db,
