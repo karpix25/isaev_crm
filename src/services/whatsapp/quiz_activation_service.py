@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import ChatMessage, Lead, MessageStatus, MessageTransport
 from src.services.chat_service import chat_service
+from src.services.whatsapp.measurement_flow_service import whatsapp_measurement_flow_service
 from src.services.whatsapp.transport_service import WhatsAppTransportError, whatsapp_transport_service
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class WhatsAppQuizActivationService:
             return False
 
         if not await self._estimate_already_sent(db, lead.id, session_token):
-            estimate_text = self._build_estimate_text(lead)
+            estimate_text = await self._build_estimate_text(db, lead)
             if estimate_text:
                 return await self._send_and_store(
                     db=db,
@@ -142,9 +143,10 @@ class WhatsAppQuizActivationService:
                 "чтобы точнее рассчитать работы без стройматериалов."
             )
         if next_action == "awaiting_measurement_slot":
+            offer_text = await whatsapp_measurement_flow_service.prepare_slot_offer_text(db, lead)
             return (
                 "Здравствуйте! Я Александр, менеджер компании ISAEV GROUP.\n\n"
-                f"{self._measurement_cta()}"
+                f"{self._measurement_cta(offer_text)}"
             )
         if next_action == "confirm_measurement":
             return (
@@ -158,7 +160,7 @@ class WhatsAppQuizActivationService:
             "Напишите сюда любой вопрос — продолжим по вашим данным и подскажем понятный следующий шаг."
         )
 
-    def _build_estimate_text(self, lead: Lead) -> str:
+    async def _build_estimate_text(self, db: AsyncSession, lead: Lead) -> str:
         data = self._parse_data(lead.extracted_data)
         quiz = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
         price = quiz.get("price") if isinstance(quiz.get("price"), dict) else {}
@@ -175,14 +177,15 @@ class WhatsAppQuizActivationService:
         summary = self._quiz_summary_lines(quiz)
         if summary:
             lines.extend(["", "Данные из квиза:", *summary])
-        lines.extend(["", self._measurement_cta()])
+        offer_text = await whatsapp_measurement_flow_service.prepare_slot_offer_text(db, lead)
+        lines.extend(["", self._measurement_cta(offer_text)])
         return "\n".join(lines)
 
-    def _measurement_cta(self) -> str:
+    def _measurement_cta(self, offer_text: str) -> str:
         return (
             "Чтобы цена была точнее, лучше начать с бесплатного осмотра. "
             "Инженер посмотрит объект, замерит объемы и проверит нюансы, которые не видно по квизу.\n\n"
-            "Напишите, пожалуйста, удобный день и время. Подберу ближайшее окно и подтвержу запись."
+            f"{offer_text}"
         )
 
     def _quiz_summary_lines(self, quiz: dict[str, Any]) -> list[str]:

@@ -17,6 +17,7 @@ from src.services.quiz_service import quiz_service
 from src.services.whatsapp.phone import normalize_phone, normalize_phone_digits
 from src.services.whatsapp.types import WhatsAppIncomingMessage
 from src.services.whatsapp.media_storage import whatsapp_media_storage
+from src.services.whatsapp.measurement_flow_service import whatsapp_measurement_flow_service
 from src.services.whatsapp.quiz_activation_service import whatsapp_quiz_activation_service
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,11 @@ class WhatsAppInboundMessageService:
             if item.attachment:
                 self._apply_media_fields(message, item)
             await db.commit()
+
+            if await whatsapp_measurement_flow_service.handle_message(db, lead, item.text, item.chat_id):
+                await self._register_estimate_attachment(db, lead, item, media_url)
+                saved += 1
+                continue
 
             if not linked_by_quiz:
                 await self._record_generic_inbound_event(db, lead, item)
@@ -192,6 +198,18 @@ class WhatsAppInboundMessageService:
                 event_type="whatsapp_message_received",
                 step_id="messenger",
                 event_data={"lead_id": str(lead.id), "chat_id": item.chat_id, "provider": item.provider},
+            )
+            await analytics_service.record_event(
+                db=db,
+                session_token=str(token),
+                event_type="messenger_message_received",
+                step_id="messenger",
+                event_data={
+                    "lead_id": str(lead.id),
+                    "messenger": "whatsapp",
+                    "provider": item.provider,
+                    "first_message": False,
+                },
             )
         except Exception:
             logger.warning("Failed to record generic WhatsApp inbound event for lead %s", lead.id, exc_info=True)
