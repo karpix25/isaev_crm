@@ -198,8 +198,11 @@ class EstimateRequestService:
         return final_file
 
     async def notify_estimators(self, db: AsyncSession, lead: Lead, file_record: dict[str, Any]) -> None:
+        from src.services.telegram_notification_service import telegram_notification_service
+
+        manager_recipients = telegram_notification_service.manager_recipients()
         recipient_ids = await self._estimator_chat_ids(db, lead)
-        if not recipient_ids:
+        if not manager_recipients and not recipient_ids:
             logger.warning("No estimator Telegram recipients found for lead %s", lead.id)
             return
 
@@ -220,7 +223,22 @@ class EstimateRequestService:
             "⏱ Обычный срок подготовки: до 24 часов\n"
             f"🆔 Лид: {lead.id}"
         )
+        sent_to_plain_chats: set[int] = set()
+        for recipient in manager_recipients:
+            try:
+                await bot.send_message(
+                    chat_id=recipient.chat_id,
+                    message_thread_id=recipient.message_thread_id,
+                    text=text,
+                )
+                if recipient.message_thread_id is None:
+                    sent_to_plain_chats.add(recipient.chat_id)
+            except Exception:
+                logger.warning("Failed to notify estimator %s for lead %s", recipient, lead.id, exc_info=True)
+
         for chat_id in recipient_ids:
+            if chat_id in sent_to_plain_chats:
+                continue
             try:
                 await bot.send_message(chat_id=chat_id, text=text)
             except Exception:
@@ -228,13 +246,6 @@ class EstimateRequestService:
 
     async def _estimator_chat_ids(self, db: AsyncSession, lead: Lead) -> list[int]:
         ids: set[int] = set()
-        try:
-            from src.services.telegram_notification_service import telegram_notification_service
-
-            ids.update(telegram_notification_service.manager_chat_ids())
-        except Exception:
-            pass
-
         result = await db.execute(
             select(User.telegram_id).where(
                 User.org_id == lead.org_id,

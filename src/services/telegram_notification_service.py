@@ -1,41 +1,65 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class TelegramRecipient:
+    chat_id: int
+    message_thread_id: int | None = None
+
+
 class TelegramNotificationService:
-    def manager_chat_ids(self) -> list[int]:
-        ids: list[int] = []
+    def manager_recipients(self) -> list[TelegramRecipient]:
+        recipients: list[TelegramRecipient] = []
 
         raw_ids = (settings.manager_telegram_ids or "").strip()
         for chunk in raw_ids.replace(";", ",").split(","):
-            value = chunk.strip()
-            if not value:
-                continue
-            try:
-                ids.append(int(value))
-            except ValueError:
-                logger.warning("Invalid MANAGER_TELEGRAM_IDS value skipped: %s", value)
+            recipient = self._parse_recipient(chunk)
+            if recipient:
+                recipients.append(recipient)
 
         legacy_id = getattr(settings, "manager_telegram_id", None)
         if legacy_id:
             try:
-                ids.append(int(legacy_id))
+                recipients.append(TelegramRecipient(chat_id=int(legacy_id)))
             except (TypeError, ValueError):
                 logger.warning("Invalid MANAGER_TELEGRAM_ID value skipped: %s", legacy_id)
 
-        seen: set[int] = set()
-        unique_ids: list[int] = []
-        for chat_id in ids:
-            if chat_id in seen:
+        seen: set[TelegramRecipient] = set()
+        unique_recipients: list[TelegramRecipient] = []
+        for recipient in recipients:
+            if recipient in seen:
                 continue
-            seen.add(chat_id)
-            unique_ids.append(chat_id)
-        return unique_ids
+            seen.add(recipient)
+            unique_recipients.append(recipient)
+        return unique_recipients
+
+    def manager_chat_ids(self) -> list[int]:
+        return [recipient.chat_id for recipient in self.manager_recipients()]
+
+    def _parse_recipient(self, raw_value: str) -> TelegramRecipient | None:
+        value = raw_value.strip()
+        if not value:
+            return None
+
+        chat_part = value
+        thread_part: str | None = None
+        if ":" in value:
+            chat_part, thread_part = value.rsplit(":", 1)
+
+        try:
+            chat_id = int(chat_part.strip())
+            message_thread_id = int(thread_part.strip()) if thread_part else None
+        except ValueError:
+            logger.warning("Invalid MANAGER_TELEGRAM_IDS value skipped: %s", value)
+            return None
+        return TelegramRecipient(chat_id=chat_id, message_thread_id=message_thread_id)
 
     async def send_to_managers(self, text: str, *, parse_mode: str | None = None) -> int:
         try:
@@ -43,22 +67,27 @@ class TelegramNotificationService:
         except Exception:
             bot = None
 
-        chat_ids = self.manager_chat_ids()
-        if not bot or not chat_ids:
+        recipients = self.manager_recipients()
+        if not bot or not recipients:
             logger.warning(
                 "Manager Telegram notification skipped: bot_present=%s recipients=%s",
                 bool(bot),
-                len(chat_ids),
+                len(recipients),
             )
             return 0
 
         sent = 0
-        for chat_id in chat_ids:
+        for recipient in recipients:
             try:
-                await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+                await bot.send_message(
+                    chat_id=recipient.chat_id,
+                    message_thread_id=recipient.message_thread_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                )
                 sent += 1
             except Exception:
-                logger.warning("Failed to send manager Telegram notification to %s", chat_id, exc_info=True)
+                logger.warning("Failed to send manager Telegram notification to %s", recipient, exc_info=True)
         return sent
 
     async def send_photo_to_managers(
@@ -76,23 +105,29 @@ class TelegramNotificationService:
             bot = None
             BufferedInputFile = None
 
-        chat_ids = self.manager_chat_ids()
-        if not bot or not BufferedInputFile or not chat_ids:
+        recipients = self.manager_recipients()
+        if not bot or not BufferedInputFile or not recipients:
             logger.warning(
                 "Manager Telegram photo notification skipped: bot_present=%s recipients=%s",
                 bool(bot),
-                len(chat_ids),
+                len(recipients),
             )
             return 0
 
         sent = 0
-        for chat_id in chat_ids:
+        for recipient in recipients:
             try:
                 photo_file = BufferedInputFile(photo, filename=filename)
-                await bot.send_photo(chat_id=chat_id, photo=photo_file, caption=caption, parse_mode=parse_mode)
+                await bot.send_photo(
+                    chat_id=recipient.chat_id,
+                    message_thread_id=recipient.message_thread_id,
+                    photo=photo_file,
+                    caption=caption,
+                    parse_mode=parse_mode,
+                )
                 sent += 1
             except Exception:
-                logger.warning("Failed to send manager Telegram photo notification to %s", chat_id, exc_info=True)
+                logger.warning("Failed to send manager Telegram photo notification to %s", recipient, exc_info=True)
         return sent
 
 

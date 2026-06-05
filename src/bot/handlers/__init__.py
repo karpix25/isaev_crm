@@ -2,4 +2,4 @@
 Telegram bot handlers.
 """
 
-__all__ = ["lead_handler", "worker_handler"]
+__all__ = ["direct_qualification_handler", "lead_handler", "utility_handler", "worker_handler"]

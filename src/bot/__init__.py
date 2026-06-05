@@ -20,6 +20,6 @@ except Exception as e:
 
 # Import handlers to register them (only if bot is available)
 if bot:
-    from src.bot.handlers import direct_qualification_handler, lead_handler, worker_handler
+    from src.bot.handlers import direct_qualification_handler, lead_handler, utility_handler, worker_handler
 
 __all__ = ["bot", "dp"]
