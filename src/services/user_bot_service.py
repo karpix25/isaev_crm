@@ -8,8 +8,7 @@ import json
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Dict, Optional, List
-from urllib.parse import urlencode, urlparse
-import httpx
+from urllib.parse import urlencode
 
 from telethon import TelegramClient, events, sessions
 from telethon import functions, types
@@ -685,15 +684,11 @@ class UserBotService:
 
     async def resolve_whatsapp(self, org_id: uuid.UUID, phone: str) -> Optional[dict]:
         """
-        Resolve WhatsApp presence via external lookup endpoint.
+        Resolve WhatsApp presence via Evolution API.
         Returns dict:
         - {"active": bool, "wa_id": Optional[str]} when check executed
         - None when provider is not configured or request failed
         """
-        lookup_url = (settings.whatsapp_lookup_url or "").strip()
-        if not lookup_url:
-            return None
-
         normalized_phone = self._normalize_phone(phone)
         if not normalized_phone:
             return None
@@ -713,97 +708,14 @@ class UserBotService:
             )
             return None
 
-        headers = {"Accept": "application/json"}
         normalized_digits = re.sub(r"\D", "", normalized_phone)
-        is_rapidapi = "rapidapi.com" in lookup_url.lower()
-        request_phone = normalized_digits if is_rapidapi else normalized_phone
-        if is_rapidapi:
-            rapidapi_key = (settings.whatsapp_lookup_rapidapi_key or settings.whatsapp_lookup_token or "").strip()
-            rapidapi_host = (
-                settings.whatsapp_lookup_rapidapi_host.strip()
-                if settings.whatsapp_lookup_rapidapi_host
-                else urlparse(lookup_url).netloc
-            )
-            if not rapidapi_key:
-                logger.warning("[USERBOT] RapidAPI key is empty for WhatsApp lookup")
-                return None
-            headers["Content-Type"] = "application/json"
-            headers["x-rapidapi-host"] = rapidapi_host
-            headers["x-rapidapi-key"] = rapidapi_key
-        elif settings.whatsapp_lookup_token:
-            headers["Authorization"] = f"Bearer {settings.whatsapp_lookup_token}"
-
         try:
-            timeout = max(1, int(settings.whatsapp_lookup_timeout_seconds))
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                if settings.whatsapp_lookup_method == "get":
-                    if "{phone}" in lookup_url:
-                        response = await client.get(lookup_url.format(phone=request_phone), headers=headers)
-                    else:
-                        response = await client.get(
-                            lookup_url,
-                            headers=headers,
-                            params={
-                                "phone_number": normalized_digits,
-                                **({} if is_rapidapi else {"phone": normalized_phone}),
-                                "number": normalized_digits,
-                            },
-                        )
-                else:
-                    if "{phone}" in lookup_url:
-                        response = await client.post(lookup_url.format(phone=request_phone), headers=headers)
-                    else:
-                        json_payload = {"phone_number": normalized_digits}
-                        if not is_rapidapi:
-                            json_payload["phone"] = normalized_phone
-                        response = await client.post(
-                            lookup_url,
-                            headers=headers,
-                            json=json_payload,
-                        )
+            from src.services.whatsapp.evolution_client import evolution_client
 
-            response.raise_for_status()
-            payload = response.json() if response.content else {}
-            if not isinstance(payload, dict):
-                logger.warning("[USERBOT] WhatsApp lookup payload is not a dict: %s", type(payload).__name__)
-                return None
-
-            active = payload.get("active")
-            if active is None:
-                active = payload.get("exists")
-            if active is None:
-                active = payload.get("is_whatsapp")
-            if active is None:
-                active = payload.get("registered")
-            if active is None:
-                active = payload.get("has_whatsapp")
-            if active is None:
-                active = payload.get("valid")
-            if active is None:
-                active = payload.get("status")
-            if active is None and isinstance(payload.get("data"), dict):
-                data_payload = payload.get("data") or {}
-                for key in ("active", "exists", "is_whatsapp", "registered", "has_whatsapp", "valid", "status"):
-                    if data_payload.get(key) is not None:
-                        active = data_payload.get(key)
-                        break
-            if active is None:
-                logger.warning("[USERBOT] WhatsApp lookup could not determine active flag. payload=%s", payload)
-                return None
-
-            if isinstance(active, str):
-                normalized_active = active.strip().lower()
-                if normalized_active in {"1", "true", "yes", "y", "ok", "valid"}:
-                    active = True
-                elif normalized_active in {"0", "false", "no", "n", "invalid"}:
-                    active = False
-
-            wa_id = payload.get("wa_id") or payload.get("id") or payload.get("whatsapp_id")
-            if wa_id is None and isinstance(payload.get("data"), dict):
-                wa_id = (payload.get("data") or {}).get("wa_id") or (payload.get("data") or {}).get("id")
+            lookup = await evolution_client.check_is_whatsapp(normalized_digits)
             result = {
-                "active": bool(active),
-                "wa_id": str(wa_id) if wa_id is not None else None,
+                "active": bool(lookup.get("active")),
+                "wa_id": str(lookup.get("wa_id")) if lookup.get("wa_id") else None,
             }
             self._set_cached_lookup(
                 cache_key,

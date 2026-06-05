@@ -82,6 +82,19 @@ class EvolutionClient:
             raise EvolutionError("Evolution API is not configured")
         return await self._get(f"/instance/connectionState/{settings.evolution_instance.strip()}")
 
+    async def check_is_whatsapp(self, phone: str) -> dict[str, Any]:
+        if not self.is_configured():
+            raise EvolutionError("Evolution API is not configured")
+        number = normalize_phone_digits(phone)
+        if not number:
+            raise EvolutionError("Invalid WhatsApp phone number")
+
+        data = await self._post(
+            f"/chat/whatsappNumbers/{settings.evolution_instance.strip()}",
+            {"numbers": [number]},
+        )
+        return self._whatsapp_number_result(data.get("raw", data), requested_number=number)
+
     def extract_incoming_messages(self, payload: Any) -> list[WhatsAppIncomingMessage]:
         items = self._payload_items(payload)
         result: list[WhatsAppIncomingMessage] = []
@@ -229,6 +242,31 @@ class EvolutionClient:
             or (data.get("data", {}).get("key", {}).get("id") if isinstance(data.get("data"), dict) else None)
         )
         return WhatsAppSendResult(provider=self.provider, message_id=str(message_id) if message_id else None, chat_id=chat_id, raw=data)
+
+    def _whatsapp_number_result(self, payload: Any, *, requested_number: str) -> dict[str, Any]:
+        if isinstance(payload, dict) and isinstance(payload.get("numbers"), list):
+            items = payload["numbers"]
+        else:
+            items = payload if isinstance(payload, list) else [payload]
+        normalized_requested = normalize_phone_digits(requested_number)
+        selected = next(
+            (
+                item
+                for item in items
+                if isinstance(item, dict)
+                and normalize_phone_digits(str(item.get("number") or item.get("jid") or "")) == normalized_requested
+            ),
+            next((item for item in items if isinstance(item, dict)), {}),
+        )
+        exists = bool(selected.get("exists")) if isinstance(selected, dict) else False
+        jid = selected.get("jid") if isinstance(selected, dict) else None
+        number = selected.get("number") if isinstance(selected, dict) else None
+        return {
+            "active": exists,
+            "wa_id": str(jid or number) if (jid or number) else None,
+            "number": str(number) if number else normalized_requested,
+            "raw": selected,
+        }
 
     def _int_or_none(self, value: Any) -> int | None:
         try:
