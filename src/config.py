@@ -144,6 +144,15 @@ class Settings(BaseSettings):
     wazzup_default_channel_id: str = ""
     wazzup_webhook_token: str = ""
     wazzup_timeout_seconds: int = 15
+
+    # Evolution API WhatsApp channel (ordinary WhatsApp via linked device/Baileys)
+    whatsapp_provider: str = "wazzup"  # wazzup | evolution
+    evolution_enabled: bool = False
+    evolution_api_base_url: str = ""
+    evolution_api_key: str = ""
+    evolution_instance: str = ""
+    evolution_webhook_token: str = ""
+    evolution_timeout_seconds: int = 15
     telegram_business_card_default_template: str = (
         "Здравствуйте, {{client_name}}!\n\n"
         "Спасибо за звонок 🙌\n\n"
@@ -184,6 +193,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     public_quiz_url: str = "http://localhost:5173/quiz-remont.html"
+    app_public_base_url: str = ""
     auto_create_tables: bool = False
     background_job_batch_size: int = 25
     background_job_poll_interval_seconds: int = 5

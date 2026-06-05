@@ -12,6 +12,8 @@ from src.database import AsyncSessionLocal
 from src.models import ChatMessage, Lead, LeadStatus, MessageDirection, MessageTransport
 from src.services.chat_service import chat_service
 from src.services.wazzup_service import wazzup_service
+from src.services.whatsapp.evolution_client import evolution_client
+from src.services.whatsapp.inbound_message_service import whatsapp_inbound_message_service
 from src.bot.utils import get_default_org_id
 
 logger = logging.getLogger(__name__)
@@ -121,6 +123,17 @@ async def _process_wazzup_payload(payload) -> None:
     except Exception as exc:
         logger.error("Error processing Wazzup webhook payload: %s", exc, exc_info=True)
 
+
+async def _process_evolution_payload(payload) -> None:
+    try:
+        incoming_messages = evolution_client.extract_incoming_messages(payload)
+        if not incoming_messages:
+            return
+        async with AsyncSessionLocal() as db:
+            await whatsapp_inbound_message_service.process_messages(db, incoming_messages)
+    except Exception as exc:
+        logger.error("Error processing Evolution webhook payload: %s", exc, exc_info=True)
+
 @router.post("/telegram")
 async def telegram_webhook(request: Request):
     """
@@ -173,3 +186,32 @@ async def wazzup_webhook(
     except Exception as exc:
         logger.error("Error in Wazzup webhook endpoint: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to process Wazzup webhook")
+
+
+@router.post("/evolution")
+async def evolution_webhook(
+    request: Request,
+    token: str | None = Query(default=None),
+):
+    """
+    Handle incoming Evolution API webhooks (WhatsApp linked device).
+    """
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        bearer_token = auth_header.removeprefix("Bearer").strip() if auth_header else None
+        header_token = request.headers.get("X-Evolution-Token") or request.headers.get("X-Webhook-Token")
+        provided_token = token or header_token or bearer_token
+        if not evolution_client.is_valid_webhook_token(provided_token):
+            raise HTTPException(status_code=401, detail="Invalid Evolution webhook token")
+
+        payload = await request.json()
+        if isinstance(payload, dict) and payload.get("test") is True:
+            return {"status": "ok", "mode": "test"}
+
+        asyncio.create_task(_process_evolution_payload(payload))
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error in Evolution webhook endpoint: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process Evolution webhook")
