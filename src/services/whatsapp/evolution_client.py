@@ -77,6 +77,11 @@ class EvolutionClient:
         data = await self._post(f"/message/sendMedia/{settings.evolution_instance.strip()}", payload)
         return self._send_result(data, chat_id=number)
 
+    async def get_connection_state(self) -> dict[str, Any]:
+        if not self.is_configured():
+            raise EvolutionError("Evolution API is not configured")
+        return await self._get(f"/instance/connectionState/{settings.evolution_instance.strip()}")
+
     def extract_incoming_messages(self, payload: Any) -> list[WhatsAppIncomingMessage]:
         items = self._payload_items(payload)
         result: list[WhatsAppIncomingMessage] = []
@@ -110,6 +115,12 @@ class EvolutionClient:
         return result
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._request("POST", path, payload=payload)
+
+    async def _get(self, path: str) -> dict[str, Any]:
+        return await self._request("GET", path)
+
+    async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{settings.evolution_api_base_url.rstrip('/')}{path}"
         headers = {
             "apikey": settings.evolution_api_key.strip(),
@@ -119,7 +130,7 @@ class EvolutionClient:
         timeout = max(3, int(settings.evolution_timeout_seconds))
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(url, json=payload, headers=headers)
+                response = await client.request(method, url, json=payload, headers=headers)
             if response.status_code >= 400:
                 raise EvolutionError(f"Evolution API request failed ({response.status_code}): {response.text}")
             data = response.json() if response.content else {}

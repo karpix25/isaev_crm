@@ -153,6 +153,9 @@ class Settings(BaseSettings):
     evolution_instance: str = ""
     evolution_webhook_token: str = ""
     evolution_timeout_seconds: int = 15
+    evolution_monitor_enabled: bool = True
+    evolution_monitor_interval_seconds: int = 60
+    evolution_monitor_alert_cooldown_minutes: int = 60
     telegram_business_card_default_template: str = (
         "Здравствуйте, {{client_name}}!\n\n"
         "Спасибо за звонок 🙌\n\n"
