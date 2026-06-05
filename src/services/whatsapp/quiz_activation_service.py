@@ -51,11 +51,10 @@ class WhatsAppQuizActivationService:
             logger.warning("WhatsApp activation skipped: transport is not configured")
             return False
 
-        sent_any = False
         if not await self._estimate_already_sent(db, lead.id, session_token):
             estimate_text = self._build_estimate_text(lead)
             if estimate_text:
-                sent_any = await self._send_and_store(
+                return await self._send_and_store(
                     db=db,
                     lead=lead,
                     chat_id=chat_id,
@@ -66,17 +65,16 @@ class WhatsAppQuizActivationService:
                         "type": "quiz_estimate_after_activation",
                         "session_token": session_token,
                     },
-                ) or sent_any
+                )
 
         welcome_text = await self._build_welcome_text(db, lead)
-        welcome_sent = await self._send_and_store(
+        return await self._send_and_store(
             db=db,
             lead=lead,
             chat_id=chat_id,
             text=welcome_text,
             metadata={"source": source, "engine": "bot_template", "type": "quiz_whatsapp_activation"},
         )
-        return sent_any or welcome_sent
 
     async def _send_and_store(
         self,
@@ -139,20 +137,23 @@ class WhatsAppQuizActivationService:
 
         if next_action == "awaiting_design_project":
             return (
-                "Следующий шаг — пришлите сюда дизайн-проект файлом.\n\n"
-                "Мы проверим объемы, чертежи и спорные места, чтобы точнее рассчитать работы без стройматериалов."
+                "Здравствуйте! Я Александр, менеджер компании ISAEV GROUP.\n\n"
+                "Следующий шаг — пришлите сюда дизайн-проект файлом. Мы проверим объемы, чертежи и спорные места, "
+                "чтобы точнее рассчитать работы без стройматериалов."
             )
         if next_action == "awaiting_measurement_slot":
             return (
-                "Чтобы подобрать бесплатный замер, напишите удобный день и время.\n"
-                "Проверим ближайший свободный слот и подтвердим запись."
+                "Здравствуйте! Я Александр, менеджер компании ISAEV GROUP.\n\n"
+                f"{self._measurement_cta()}"
             )
         if next_action == "confirm_measurement":
             return (
+                "Здравствуйте! Я Александр, менеджер компании ISAEV GROUP.\n\n"
                 "Вижу, что вы уже выбрали данные для замера.\n"
                 "Если нужно изменить дату, адрес или телефон — напишите сюда."
             )
         return (
+            "Здравствуйте! Я Александр, менеджер компании ISAEV GROUP.\n\n"
             "Вижу вашу заявку по квизу.\n\n"
             "Напишите сюда любой вопрос — продолжим по вашим данным и подскажем понятный следующий шаг."
         )
@@ -173,8 +174,16 @@ class WhatsAppQuizActivationService:
         ]
         summary = self._quiz_summary_lines(quiz)
         if summary:
-            lines.extend(["", *summary])
+            lines.extend(["", "Данные из квиза:", *summary])
+        lines.extend(["", self._measurement_cta()])
         return "\n".join(lines)
+
+    def _measurement_cta(self) -> str:
+        return (
+            "Чтобы цена была точнее, лучше начать с бесплатного осмотра. "
+            "Инженер посмотрит объект, замерит объемы и проверит нюансы, которые не видно по квизу.\n\n"
+            "Напишите, пожалуйста, удобный день и время. Подберу ближайшее окно и подтвержу запись."
+        )
 
     def _quiz_summary_lines(self, quiz: dict[str, Any]) -> list[str]:
         answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
