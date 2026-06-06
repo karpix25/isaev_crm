@@ -530,8 +530,22 @@ class UserBotService:
                 )
                 
                 # 11. Apply updates to the lead
+                updated_lead = lead
                 if update_fields:
-                    await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
+                    updated_lead = await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
+                if extracted_data and extracted_data.get("is_hot_lead"):
+                    try:
+                        from src.services.lead_manager_notification_service import lead_manager_notification_service
+
+                        await lead_manager_notification_service.notify_hot_lead_if_needed(
+                            db=db,
+                            lead=updated_lead,
+                            reason="AI определил готовность к передаче менеджеру",
+                            source="userbot_ai_handoff",
+                            extracted_data=extracted_data,
+                        )
+                    except Exception:
+                        logger.warning("Failed to notify hot lead from userbot: lead_id=%s", lead.id, exc_info=True)
                         
             except Exception as e:
                 logger.error(f"Error processing User Bot message from {tg_user_id}: {e}", exc_info=True)

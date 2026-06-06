@@ -3649,8 +3649,9 @@ async def process_debounced_message(conversation_key: str):
                 update_fields["extracted_data"] = _merge_ai_extracted_data(lead.extracted_data, extracted_data)
                 
                 # Execute update
+                updated_lead = lead
                 if update_fields:
-                    await lead_service.update_lead(
+                    updated_lead = await lead_service.update_lead(
                         db=db,
                         lead_id=lead.id,
                         **update_fields
@@ -3675,7 +3676,7 @@ async def process_debounced_message(conversation_key: str):
 
                         await lead_manager_notification_service.notify_hot_lead_if_needed(
                             db=db,
-                            lead=lead,
+                            lead=updated_lead,
                             reason="AI определил готовность к передаче менеджеру",
                             source="ai_handoff",
                             extracted_data=extracted_data,

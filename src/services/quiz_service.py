@@ -234,6 +234,25 @@ class QuizService:
                 self._sync_measurement_address(data, measurement_address)
                 measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
                 if measurement.get("booking_uid") and measurement.get("start") == payload.start:
+                    await self._notify_measurement_telegram(
+                        db=db,
+                        lead=lead,
+                        start=payload.start,
+                        address=measurement_address,
+                        status="booked",
+                        booking_uid=str(measurement.get("booking_uid") or ""),
+                    )
+                    try:
+                        from src.services.lead_manager_notification_service import lead_manager_notification_service
+
+                        await lead_manager_notification_service.notify_hot_lead_if_needed(
+                            db=db,
+                            lead=lead,
+                            reason="Клиент записался на замер",
+                            source="measurement_booking_existing",
+                        )
+                    except Exception:
+                        logger.warning("Failed to notify existing measurement hot lead: lead_id=%s", lead.id, exc_info=True)
                     return measurement.get("booking") or {"status": "ok", "data": measurement}, lead_id
 
                 data["measurement"] = {
@@ -778,30 +797,20 @@ class QuizService:
         if not lead:
             return
         try:
-            from src.services.telegram_notification_service import telegram_notification_service
+            from src.services.lead_manager_notification_service import lead_manager_notification_service
 
-            if not telegram_notification_service.has_recipients("measurement"):
-                logger.warning(
-                    "Skipping measurement Telegram notification: no manager recipients lead_id=%s",
-                    getattr(lead, "id", None),
-                )
-                return
-
-            status_label = "✅ Замер записан в календарь" if status == "booked" else "🟡 Клиент выбрал слот замера"
-            text = (
-                f"{status_label}\n\n"
-                f"👤 Клиент: {lead.full_name or 'Клиент квиза'}\n"
-                f"📞 Телефон: {lead.phone or 'не указан'}\n"
-                f"📅 Дата: {self._format_measurement_start(start)}\n"
-                f"📍 Адрес: {address}\n"
-                f"🆔 Лид: {lead.id}"
+            sent = await lead_manager_notification_service.notify_measurement_booking_if_needed(
+                db=db,
+                lead=lead,
+                start=self._format_measurement_start(start),
+                address=address,
+                status=status,
+                booking_uid=booking_uid,
+                source="quiz_measurement_booking",
             )
-            if booking_uid:
-                text += f"\n🔖 Booking: {booking_uid}"
-            sent = await telegram_notification_service.send_to_managers(text, topic="measurement")
             logger.info(
                 "Measurement Telegram notification sent: recipients=%s lead_id=%s status=%s",
-                sent,
+                int(sent),
                 lead.id,
                 status,
             )
