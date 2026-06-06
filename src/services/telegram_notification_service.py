@@ -26,7 +26,24 @@ class TelegramRecipient:
     message_thread_id: int | None = None
 
 
+@dataclass(frozen=True)
+class TelegramRecipientResolution:
+    topic: TelegramNotificationTopic | None
+    setting_name: str | None
+    raw_value: str
+    recipients: tuple[TelegramRecipient, ...]
+    source: str
+
+
 class TelegramNotificationService:
+    TOPIC_LABELS: dict[TelegramNotificationTopic, str] = {
+        "hot_lead": "🔥 Горячий лид",
+        "estimate_request": "🧮 Просчет сметы",
+        "measurement": "📅 Замеры",
+        "manual_help": "💬 Ручная помощь",
+        "system_alert": "⚠️ Тех. уведомления",
+    }
+
     def manager_recipients(self) -> list[TelegramRecipient]:
         recipients = self._parse_recipient_list(settings.manager_telegram_ids)
 
@@ -40,14 +57,42 @@ class TelegramNotificationService:
         return self._unique_recipients(recipients)
 
     def recipients_for(self, topic: TelegramNotificationTopic | None = None) -> list[TelegramRecipient]:
+        return list(self.resolve_recipients(topic).recipients)
+
+    def resolve_recipients(self, topic: TelegramNotificationTopic | None = None) -> TelegramRecipientResolution:
         if not topic:
-            return self.manager_recipients()
+            recipients = tuple(self.manager_recipients())
+            return TelegramRecipientResolution(
+                topic=None,
+                setting_name="manager_telegram_ids",
+                raw_value=str(settings.manager_telegram_ids or ""),
+                recipients=recipients,
+                source="manager" if recipients else "empty",
+            )
 
         setting_name = TOPIC_SETTINGS[topic]
-        topic_recipients = self._parse_recipient_list(str(getattr(settings, setting_name, "") or ""))
+        raw_value = str(getattr(settings, setting_name, "") or "")
+        topic_recipients = self._parse_recipient_list(raw_value)
         if topic_recipients:
-            return self._unique_recipients(topic_recipients)
-        return self.manager_recipients()
+            return TelegramRecipientResolution(
+                topic=topic,
+                setting_name=setting_name,
+                raw_value=raw_value,
+                recipients=tuple(self._unique_recipients(topic_recipients)),
+                source="topic",
+            )
+
+        fallback = tuple(self.manager_recipients())
+        return TelegramRecipientResolution(
+            topic=topic,
+            setting_name=setting_name,
+            raw_value=raw_value,
+            recipients=fallback,
+            source="fallback" if fallback else "empty",
+        )
+
+    def topic_diagnostics(self) -> list[TelegramRecipientResolution]:
+        return [self.resolve_recipients(topic) for topic in TOPIC_SETTINGS]
 
     def manager_chat_ids(self) -> list[int]:
         return sorted({recipient.chat_id for recipient in self.manager_recipients()})
@@ -151,6 +196,12 @@ class TelegramNotificationService:
                     parse_mode=parse_mode,
                 )
                 sent += 1
+                logger.info(
+                    "Manager Telegram notification delivered: topic=%s chat_id=%s thread_id=%s",
+                    topic or "default",
+                    recipient.chat_id,
+                    recipient.message_thread_id,
+                )
             except Exception:
                 logger.warning(
                     "Failed to send manager Telegram notification: topic=%s recipient=%s",

@@ -5,9 +5,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import Lead
+from src.models import Lead, User
+from src.models.user import UserRole
 from src.services.telegram_notification_service import telegram_notification_service
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 class LeadManagerNotificationService:
     HOT_LEAD_KEY = "hot_lead"
     MEASUREMENT_KEY = "measurement_booking"
+    ESTIMATE_REQUEST_KEY = "estimate_request"
 
     async def notify_hot_lead_if_needed(
         self,
@@ -114,6 +117,59 @@ class LeadManagerNotificationService:
         await db.refresh(lead)
         return True
 
+    async def notify_estimate_request_if_needed(
+        self,
+        db: AsyncSession,
+        lead: Lead | None,
+        *,
+        file_record: dict[str, Any],
+    ) -> bool:
+        if not lead:
+            return False
+
+        manager_recipients = telegram_notification_service.recipients_for("estimate_request")
+        estimator_chat_ids = await self._estimator_chat_ids(db, lead)
+        if not manager_recipients and not estimator_chat_ids:
+            logger.warning("No estimator Telegram recipients found for lead %s", lead.id)
+            return False
+
+        data = self._parse_extracted_data(lead.extracted_data)
+        notifications = self._notifications(data)
+        notice_key = self._estimate_notice_key(file_record)
+        estimate_notice = notifications.get(notice_key)
+        if isinstance(estimate_notice, dict) and estimate_notice.get("sent_at"):
+            logger.info("Estimate request notification already sent: lead_id=%s key=%s", lead.id, notice_key)
+            return False
+
+        text = self._build_estimate_request_text(lead=lead, file_record=file_record)
+        sent = await telegram_notification_service.send_to_managers(text, topic="estimate_request")
+
+        plain_topic_chat_ids = {
+            recipient.chat_id
+            for recipient in manager_recipients
+            if recipient.message_thread_id is None
+        }
+        sent += await self._send_to_estimator_chat_ids(
+            text=text,
+            chat_ids=estimator_chat_ids,
+            excluded_chat_ids=plain_topic_chat_ids,
+            lead=lead,
+        )
+        if not sent:
+            logger.warning("Estimate request notification was not delivered: lead_id=%s", lead.id)
+            return False
+
+        notifications[notice_key] = {
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+            "filename": file_record.get("filename"),
+            "url": file_record.get("url"),
+        }
+        data["manager_notifications"] = notifications
+        lead.extracted_data = json.dumps(data, ensure_ascii=False)
+        await db.commit()
+        await db.refresh(lead)
+        return True
+
     def _build_hot_lead_text(self, *, lead: Lead, data: dict[str, Any], reason: str) -> str:
         quiz = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
         answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
@@ -183,6 +239,20 @@ class LeadManagerNotificationService:
             lines.append(f"🔖 Booking: {booking_uid}")
         return "\n".join(lines)
 
+    def _build_estimate_request_text(self, *, lead: Lead, file_record: dict[str, Any]) -> str:
+        return "\n".join(
+            [
+                "📐 Нужен просчет сметы",
+                "",
+                f"👤 Клиент: {lead.full_name or 'Не указан'}",
+                f"📞 Телефон: {lead.phone or 'не указан'}",
+                f"📎 Файл: {file_record.get('filename') or file_record.get('url')}",
+                f"🔗 Ссылка: {file_record.get('url')}",
+                "⏱ Обычный срок подготовки: до 24 часов",
+                f"🆔 Лид: {lead.id}",
+            ]
+        )
+
     def _notifications(self, data: dict[str, Any]) -> dict[str, Any]:
         notifications = data.get("manager_notifications")
         return notifications if isinstance(notifications, dict) else {}
@@ -195,6 +265,53 @@ class LeadManagerNotificationService:
     def _measurement_notice_key(self, *, start: str, address: str, booking_uid: str | None) -> str:
         stable_id = booking_uid or f"{start}:{address}"
         return f"{self.MEASUREMENT_KEY}:{stable_id}"
+
+    def _estimate_notice_key(self, file_record: dict[str, Any]) -> str:
+        stable_id = str(file_record.get("url") or file_record.get("uploaded_at") or file_record.get("filename") or "")
+        return f"{self.ESTIMATE_REQUEST_KEY}:{stable_id}"
+
+    async def _estimator_chat_ids(self, db: AsyncSession, lead: Lead) -> list[int]:
+        ids: set[int] = set()
+        result = await db.execute(
+            select(User.telegram_id).where(
+                User.org_id == lead.org_id,
+                User.telegram_id.is_not(None),
+                User.role.in_([UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER]),
+            )
+        )
+        for telegram_id in result.scalars().all():
+            if telegram_id:
+                ids.add(int(telegram_id))
+        return sorted(ids)
+
+    async def _send_to_estimator_chat_ids(
+        self,
+        *,
+        text: str,
+        chat_ids: list[int],
+        excluded_chat_ids: set[int],
+        lead: Lead,
+    ) -> int:
+        if not chat_ids:
+            return 0
+        try:
+            from src.bot import bot
+        except Exception:
+            bot = None
+        if not bot:
+            logger.warning("Telegram bot is not available for estimate notification")
+            return 0
+
+        sent = 0
+        for chat_id in chat_ids:
+            if chat_id in excluded_chat_ids:
+                continue
+            try:
+                await bot.send_message(chat_id=chat_id, text=text)
+                sent += 1
+            except Exception:
+                logger.warning("Failed to notify estimator %s for lead %s", chat_id, lead.id, exc_info=True)
+        return sent
 
     def _parse_extracted_data(self, value: str | None) -> dict[str, Any]:
         if not value:

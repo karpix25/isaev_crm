@@ -4,23 +4,18 @@ import json
 import logging
 import re
 import uuid
-from zoneinfo import ZoneInfo
 
-import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import ChatMessage, FunnelSession, Lead, LeadStatus
 from src.models.funnel import FunnelEvent
 from src.schemas.analytics import FunnelSessionCreate
-from src.schemas.quiz import QuizContact, QuizContactCaptureRequest, QuizSubmitRequest, MeasurementBookingRequest
+from src.schemas.quiz import QuizContactCaptureRequest, QuizSubmitRequest, MeasurementBookingRequest
 from src.services.analytics_service import analytics_service
 from src.services.cal_pro_service import cal_pro_service
 from src.services.lead_service import lead_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
-
-logger = logging.getLogger(__name__)
-
 
 class QuizService:
     SESSION_TOKEN_RE = re.compile(r"\b(qz_[A-Za-z0-9_-]{12,})\b")
@@ -189,266 +184,9 @@ class QuizService:
         if not session:
             raise ValueError("Funnel session not found")
 
-        lead_id = payload.lead_id or session.lead_id
-        contact = payload.contact
-        if not contact and lead_id:
-            result = await db.execute(select(Lead).where(Lead.id == lead_id))
-            lead = result.scalar_one_or_none()
-            if lead and lead.full_name:
-                contact = QuizContact(name=lead.full_name, phone=lead.phone)
-        if not contact:
-            raise ValueError("Booking contact is required")
-        metadata = payload.metadata or {}
-        measurement_address = (payload.address or metadata.get("measurement_address") or "").strip()
-        if not measurement_address:
-            raise ValueError("Measurement address is required")
-        booking_source = str(metadata.get("source") or "quiz_inline_slots")
-        selected_messenger = str(metadata.get("selected_messenger") or "").strip() or None
-        analytics_base = {
-            "lead_id": str(lead_id) if lead_id else None,
-            "source": booking_source,
-            "booking_source": "messenger" if selected_messenger else "quiz",
-            "messenger": selected_messenger,
-            "selected_messenger": selected_messenger,
-            "selected_slot_label": metadata.get("selected_slot_label"),
-            "previous_start": metadata.get("previous_start"),
-            "previous_booking_uid": metadata.get("previous_booking_uid"),
-            "has_address": bool(measurement_address),
-        }
+        from src.services.measurement_booking_service import measurement_booking_service
 
-        logger.info(
-            "Measurement booking requested: lead_id=%s start=%s address_present=%s contact_phone_present=%s",
-            lead_id,
-            payload.start,
-            bool(measurement_address),
-            bool(getattr(contact, "phone", None)),
-        )
-
-        lead = None
-        data: dict[str, Any] = {}
-        if lead_id:
-            result = await db.execute(select(Lead).where(Lead.id == lead_id))
-            lead = result.scalar_one_or_none()
-            if lead:
-                data = self._parse_extracted_data(lead.extracted_data)
-                self._sync_measurement_address(data, measurement_address)
-                measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
-                if measurement.get("booking_uid") and measurement.get("start") == payload.start:
-                    await self._notify_measurement_telegram(
-                        db=db,
-                        lead=lead,
-                        start=payload.start,
-                        address=measurement_address,
-                        status="booked",
-                        booking_uid=str(measurement.get("booking_uid") or ""),
-                    )
-                    try:
-                        from src.services.lead_manager_notification_service import lead_manager_notification_service
-
-                        await lead_manager_notification_service.notify_hot_lead_if_needed(
-                            db=db,
-                            lead=lead,
-                            reason="Клиент записался на замер",
-                            source="measurement_booking_existing",
-                        )
-                    except Exception:
-                        logger.warning("Failed to notify existing measurement hot lead: lead_id=%s", lead.id, exc_info=True)
-                    return measurement.get("booking") or {"status": "ok", "data": measurement}, lead_id
-
-                data["measurement"] = {
-                    **measurement,
-                    "start": payload.start,
-                    "status": "requested",
-                    "requested_at": datetime.now(timezone.utc).isoformat(),
-                    "address": measurement_address,
-                    "phone": contact.phone,
-                    "selected_slot_label": metadata.get("selected_slot_label"),
-                    "source": booking_source,
-                }
-                lead.extracted_data = json.dumps(data, ensure_ascii=False)
-                if lead.status in self.AUTO_QUIZ_STATUSES:
-                    lead.status = LeadStatus.MEASUREMENT_PENDING.value
-                await db.commit()
-
-        await analytics_service.record_event(
-            db=db,
-            session_token=payload.session_token,
-            event_type="measurement_booking_requested",
-            step_id="measurement",
-            event_data={
-                **analytics_base,
-                "start": payload.start,
-            },
-        )
-
-        booking_metadata = {
-            "lead_id": str(lead_id) if lead_id else None,
-            "session_token": payload.session_token,
-            "client_name": contact.name,
-            "client_phone": contact.phone,
-            "measurement_address": measurement_address,
-            **metadata,
-        }
-        try:
-            booking = await cal_pro_service.create_booking(
-                start=payload.start,
-                contact=contact,
-                answers=payload.answers,
-                metadata=booking_metadata,
-            )
-        except (httpx.HTTPError, ValueError) as exc:
-            logger.warning(
-                "Measurement calendar booking failed: lead_id=%s start=%s error=%s",
-                lead_id,
-                payload.start,
-                exc,
-                exc_info=True,
-            )
-            if lead:
-                data = self._parse_extracted_data(lead.extracted_data)
-                self._sync_measurement_address(data, measurement_address)
-                measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
-                measurement.update(
-                    {
-                        "start": payload.start,
-                        "status": "requested",
-                        "address": measurement_address,
-                        "phone": contact.phone,
-                        "booking_error": str(exc)[:500],
-                    }
-                )
-                data["measurement"] = measurement
-                lead.extracted_data = json.dumps(data, ensure_ascii=False)
-                if lead.status in self.AUTO_QUIZ_STATUSES:
-                    lead.status = LeadStatus.MEASUREMENT_PENDING.value
-                await db.commit()
-            await analytics_service.record_event(
-                db=db,
-                session_token=payload.session_token,
-                event_type="measurement_booking_failed",
-                step_id="measurement",
-                event_data={
-                    **analytics_base,
-                    "start": payload.start,
-                    "error": str(exc)[:500],
-                },
-            )
-            return {
-                "status": "requested",
-                "reason": "calendar_booking_failed",
-                "start": payload.start,
-                "message": "Measurement request saved, but calendar booking failed.",
-            }, lead_id
-
-        booking_uid = self.extract_booking_uid(booking)
-        if not booking_uid:
-            logger.warning(
-                "Measurement calendar booking returned without uid: lead_id=%s start=%s response=%s",
-                lead_id,
-                payload.start,
-                json.dumps(booking, ensure_ascii=False)[:1000],
-            )
-            if lead:
-                data = self._parse_extracted_data(lead.extracted_data)
-                self._sync_measurement_address(data, measurement_address)
-                measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
-                measurement.update(
-                    {
-                        "start": payload.start,
-                        "status": "requested",
-                        "address": measurement_address,
-                        "phone": contact.phone,
-                        "booking_error": "cal_booking_uid_missing",
-                        "booking_response": booking,
-                    }
-                )
-                data["measurement"] = measurement
-                lead.extracted_data = json.dumps(data, ensure_ascii=False)
-                if lead.status in self.AUTO_QUIZ_STATUSES:
-                    lead.status = LeadStatus.MEASUREMENT_PENDING.value
-                await db.commit()
-            await analytics_service.record_event(
-                db=db,
-                session_token=payload.session_token,
-                event_type="measurement_booking_uid_missing",
-                step_id="measurement",
-                event_data={
-                    **analytics_base,
-                    "start": payload.start,
-                },
-            )
-            return {
-                "status": "requested",
-                "reason": "calendar_booking_uid_missing",
-                "start": payload.start,
-                "message": "Measurement request saved, but calendar booking was not confirmed.",
-            }, lead_id
-
-        logger.info(
-            "Measurement calendar booking succeeded: lead_id=%s start=%s booking_uid=%s",
-            lead_id,
-            payload.start,
-            booking_uid,
-        )
-        if lead:
-            data = self._parse_extracted_data(lead.extracted_data)
-            self._sync_measurement_address(data, measurement_address)
-            measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
-            measurement.update(
-                {
-                    "start": payload.start,
-                    "status": "booked",
-                    "address": measurement_address,
-                    "phone": contact.phone,
-                    "booking_uid": booking_uid,
-                    "booking": booking.get("data") or booking,
-                    "booked_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            data["measurement"] = measurement
-            lead.extracted_data = json.dumps(data, ensure_ascii=False)
-            lead.status = LeadStatus.MEASUREMENT_BOOKED.value
-            await db.commit()
-            await self._enqueue_measurement_reminder(
-                db=db,
-                lead=lead,
-                start=payload.start,
-                address=measurement_address,
-                booking_uid=booking_uid,
-            )
-            await self._notify_measurement_telegram(
-                db=db,
-                lead=lead,
-                start=payload.start,
-                address=measurement_address,
-                status="booked",
-                booking_uid=booking_uid,
-            )
-            try:
-                from src.services.lead_manager_notification_service import lead_manager_notification_service
-
-                await lead_manager_notification_service.notify_hot_lead_if_needed(
-                    db=db,
-                    lead=lead,
-                    reason="Клиент записался на замер",
-                    source="measurement_booking",
-                )
-            except Exception:
-                logger.warning("Failed to notify hot lead after measurement booking: lead_id=%s", lead.id, exc_info=True)
-
-        await analytics_service.record_event(
-            db=db,
-            session_token=payload.session_token,
-            event_type="measurement_booked",
-            step_id="measurement",
-            event_data={
-                **analytics_base,
-                "start": payload.start,
-                "booking_uid": booking_uid,
-            },
-        )
-
-        return booking, lead_id
+        return await measurement_booking_service.book_from_quiz_payload(db=db, payload=payload, session=session)
 
     async def record_design_upload(
         self,
@@ -583,6 +321,17 @@ class QuizService:
             event_type="telegram_message_received",
             step_id="messenger",
             event_data={"lead_id": str(lead.id), "telegram_id": telegram_id},
+        )
+        await analytics_service.record_event(
+            db=db,
+            session_token=token,
+            event_type="messenger_message_received",
+            step_id="messenger",
+            event_data={
+                "lead_id": str(lead.id),
+                "messenger": "telegram",
+                "first_message": True,
+            },
         )
         await analytics_service.record_event(
             db=db,
@@ -760,6 +509,17 @@ class QuizService:
         await analytics_service.record_event(
             db=db,
             session_token=token,
+            event_type="messenger_message_received",
+            step_id="messenger",
+            event_data={
+                "lead_id": str(lead.id),
+                "messenger": "whatsapp",
+                "first_message": True,
+            },
+        )
+        await analytics_service.record_event(
+            db=db,
+            session_token=token,
             event_type="whatsapp_linked",
             step_id="messenger",
             event_data={"lead_id": str(lead.id), "chat_id": chat_id},
@@ -770,20 +530,14 @@ class QuizService:
         return bool(answers)
 
     def extract_booking_uid(self, booking: dict[str, Any]) -> str | None:
-        data = booking.get("data") if isinstance(booking, dict) else None
-        source = data if isinstance(data, dict) else booking
-        value = source.get("uid") or source.get("id") or source.get("bookingUid")
-        return str(value) if value else None
+        from src.services.measurement_booking_service import measurement_booking_service
+
+        return measurement_booking_service.extract_booking_uid(booking)
 
     def _format_measurement_start(self, value: str) -> str:
-        try:
-            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            local_dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
-            return local_dt.strftime("%d.%m.%Y в %H:%M")
-        except Exception:
-            return value
+        from src.services.measurement_booking_service import measurement_booking_service
+
+        return measurement_booking_service.format_measurement_start(value)
 
     async def _notify_measurement_telegram(
         self,
@@ -794,32 +548,16 @@ class QuizService:
         status: str,
         booking_uid: str | None,
     ) -> None:
-        if not lead:
-            return
-        try:
-            from src.services.lead_manager_notification_service import lead_manager_notification_service
+        from src.services.measurement_booking_service import measurement_booking_service
 
-            sent = await lead_manager_notification_service.notify_measurement_booking_if_needed(
-                db=db,
-                lead=lead,
-                start=self._format_measurement_start(start),
-                address=address,
-                status=status,
-                booking_uid=booking_uid,
-                source="quiz_measurement_booking",
-            )
-            logger.info(
-                "Measurement Telegram notification sent: recipients=%s lead_id=%s status=%s",
-                int(sent),
-                lead.id,
-                status,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to send measurement Telegram notification for lead %s",
-                getattr(lead, "id", None),
-                exc_info=True,
-            )
+        await measurement_booking_service.notify_measurement_telegram(
+            db=db,
+            lead=lead,
+            start=start,
+            address=address,
+            status=status,
+            booking_uid=booking_uid,
+        )
 
     async def _enqueue_measurement_reminder(
         self,
@@ -829,43 +567,15 @@ class QuizService:
         address: str,
         booking_uid: str | None,
     ) -> None:
-        if not lead:
-            return
-        try:
-            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-            if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=timezone.utc)
-            run_at = start_dt.astimezone(timezone.utc) - timedelta(hours=24)
-            min_run_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-            if run_at < min_run_at:
-                run_at = min_run_at
+        from src.services.measurement_booking_service import measurement_booking_service
 
-            from src.services.background_job_service import background_job_service
-
-            await background_job_service.enqueue(
-                db=db,
-                job_type="measurement_telegram_reminder",
-                payload={
-                    "lead_id": str(lead.id),
-                    "start": start,
-                    "address": address,
-                    "booking_uid": booking_uid,
-                },
-                max_attempts=2,
-                run_at=run_at,
-            )
-            logger.info(
-                "Measurement Telegram reminder enqueued: lead_id=%s run_at=%s booking_uid=%s",
-                lead.id,
-                run_at.isoformat(),
-                booking_uid,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to enqueue measurement reminder for lead %s",
-                getattr(lead, "id", None),
-                exc_info=True,
-            )
+        await measurement_booking_service.enqueue_measurement_reminder(
+            db=db,
+            lead=lead,
+            start=start,
+            address=address,
+            booking_uid=booking_uid,
+        )
 
     async def _get_session(self, db: AsyncSession, session_token: str) -> FunnelSession | None:
         result = await db.execute(select(FunnelSession).where(FunnelSession.session_token == session_token))

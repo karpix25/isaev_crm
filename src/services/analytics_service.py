@@ -226,7 +226,11 @@ class AnalyticsService:
             if event_type == "messenger_clicked":
                 event_filter = FunnelEvent.event_type.in_(["telegram_clicked", "whatsapp_clicked"])
             elif event_type == "messenger_message_received":
-                event_filter = FunnelEvent.event_type.in_(["telegram_message_received", "whatsapp_message_received"])
+                event_filter = FunnelEvent.event_type.in_([
+                    "messenger_message_received",
+                    "telegram_message_received",
+                    "whatsapp_message_received",
+                ])
             else:
                 event_filter = FunnelEvent.event_type == event_type
             count = await self._scalar_count(

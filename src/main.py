@@ -106,6 +106,21 @@ async def startup():
         bool(manager_recipients_present),
         settings.telegram_update_mode,
     )
+    if manager_recipients_present:
+        try:
+            from src.services.telegram_notification_service import telegram_notification_service
+
+            for resolution in telegram_notification_service.topic_diagnostics():
+                logger.info(
+                    "Telegram notification topic: topic=%s setting=%s source=%s recipients=%s raw_present=%s",
+                    resolution.topic,
+                    resolution.setting_name,
+                    resolution.source,
+                    len(resolution.recipients),
+                    bool(resolution.raw_value),
+                )
+        except Exception:
+            logger.warning("Failed to log Telegram notification topic diagnostics", exc_info=True)
     
     mode = settings.telegram_update_mode
     if bot and settings.telegram_bot_token:

@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import Lead, MessageStatus, MessageTransport, User
+from src.models import Lead, MessageStatus, MessageTransport
 from src.models.lead import LeadStatus
-from src.models.user import UserRole
 from src.services.chat_service import chat_service
+from src.services.lead_manager_notification_service import lead_manager_notification_service
 from src.services.media_path_service import media_path_service
-
-
-logger = logging.getLogger(__name__)
 
 
 class EstimateRequestService:
@@ -69,7 +64,11 @@ class EstimateRequestService:
         await db.commit()
         await db.refresh(lead)
 
-        await self.notify_estimators(db=db, lead=lead, file_record=file_record)
+        await lead_manager_notification_service.notify_estimate_request_if_needed(
+            db=db,
+            lead=lead,
+            file_record=file_record,
+        )
         return file_record
 
     async def register_final_file(
@@ -196,67 +195,6 @@ class EstimateRequestService:
             message.media_mimetype = None
         await db.commit()
         return final_file
-
-    async def notify_estimators(self, db: AsyncSession, lead: Lead, file_record: dict[str, Any]) -> None:
-        from src.services.telegram_notification_service import telegram_notification_service
-
-        manager_recipients = telegram_notification_service.recipients_for("estimate_request")
-        recipient_ids = await self._estimator_chat_ids(db, lead)
-        if not manager_recipients and not recipient_ids:
-            logger.warning("No estimator Telegram recipients found for lead %s", lead.id)
-            return
-
-        try:
-            from src.bot import bot
-        except Exception:
-            bot = None
-        if not bot:
-            logger.warning("Telegram bot is not available for estimate notification")
-            return
-
-        text = (
-            "📐 Нужен просчет сметы\n\n"
-            f"👤 Клиент: {lead.full_name or 'Не указан'}\n"
-            f"📞 Телефон: {lead.phone or 'не указан'}\n"
-            f"📎 Файл: {file_record.get('filename') or file_record.get('url')}\n"
-            f"🔗 Ссылка: {file_record.get('url')}\n"
-            "⏱ Обычный срок подготовки: до 24 часов\n"
-            f"🆔 Лид: {lead.id}"
-        )
-        sent_to_plain_chats: set[int] = set()
-        for recipient in manager_recipients:
-            try:
-                await bot.send_message(
-                    chat_id=recipient.chat_id,
-                    message_thread_id=recipient.message_thread_id,
-                    text=text,
-                )
-                if recipient.message_thread_id is None:
-                    sent_to_plain_chats.add(recipient.chat_id)
-            except Exception:
-                logger.warning("Failed to notify estimator %s for lead %s", recipient, lead.id, exc_info=True)
-
-        for chat_id in recipient_ids:
-            if chat_id in sent_to_plain_chats:
-                continue
-            try:
-                await bot.send_message(chat_id=chat_id, text=text)
-            except Exception:
-                logger.warning("Failed to notify estimator %s for lead %s", chat_id, lead.id, exc_info=True)
-
-    async def _estimator_chat_ids(self, db: AsyncSession, lead: Lead) -> list[int]:
-        ids: set[int] = set()
-        result = await db.execute(
-            select(User.telegram_id).where(
-                User.org_id == lead.org_id,
-                User.telegram_id.is_not(None),
-                User.role.in_([UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER]),
-            )
-        )
-        for telegram_id in result.scalars().all():
-            if telegram_id:
-                ids.add(int(telegram_id))
-        return sorted(ids)
 
     def _parse_extracted_data(self, value: str | None) -> dict[str, Any]:
         if not value:

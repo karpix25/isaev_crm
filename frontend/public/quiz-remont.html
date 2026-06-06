@@ -1234,6 +1234,10 @@ let sessionInitPromise = null;
 let exitPopupShown = sessionStorage.getItem('isaev_exit_popup_shown') === '1';
 let inactivityTimer = null;
 const CONTACT_GATE_AFTER_STEP = -1;
+const COPY_VARIANT = 'care_sales_v1';
+const STEP_HESITATION_MS = 10000;
+let questionViewedAt = 0;
+let questionHesitationTimer = null;
 
 const labels = {
   type:  { flat: 'Квартира', house: 'Дом', commercial: 'Коммерция' },
@@ -1422,6 +1426,30 @@ async function trackEvent(event_type, step_id, event_data = null) {
   }
 }
 
+function copyPayload(copyId, extra = {}) {
+  return {
+    copy_id: copyId,
+    copy_variant: COPY_VARIANT,
+    ...extra
+  };
+}
+
+function trackCopyExposure(copyId, stepId, extra = {}) {
+  trackEvent('copy_exposed', stepId, copyPayload(copyId, extra));
+}
+
+function trackCtaClick(ctaId, stepId, extra = {}) {
+  trackEvent('cta_clicked', stepId, {
+    cta_id: ctaId,
+    copy_variant: COPY_VARIANT,
+    ...extra
+  });
+}
+
+function elapsedFrom(timestamp) {
+  return timestamp ? Math.max(0, Date.now() - timestamp) : null;
+}
+
 function rememberLeadContactHints(result) {
   messengerPresence = result?.messenger_presence || {};
   recommendedMessenger = result?.recommended_messenger || getRecommendedMessenger();
@@ -1466,11 +1494,16 @@ function startQuiz() {
   document.getElementById('progressWrap').style.display = 'block';
   showScreen('screen-q');
   renderQuestion();
-  ensureSession().then(() => trackEvent('quiz_started', 'start'));
+  ensureSession().then(() => {
+    trackCtaClick('start_quiz', 'start', { copy_id: 'start_button' });
+    trackEvent('quiz_started', 'start', { copy_variant: COPY_VARIANT });
+  });
 }
 
 function renderQuestion() {
   const q = questions[step];
+  questionViewedAt = Date.now();
+  if (questionHesitationTimer) clearTimeout(questionHesitationTimer);
   document.getElementById('qNum').textContent = `Вопрос ${step + 1} из ${questions.length}`;
   document.getElementById('qText').textContent = q.text;
 
@@ -1498,9 +1531,30 @@ function renderQuestion() {
 
   document.getElementById('btnNext').disabled = !answers[q.id];
   document.getElementById('btnBack').style.display = step === 0 ? 'none' : 'block';
+  trackEvent('quiz_step_viewed', q.id, {
+    question_index: step + 1,
+    question_total: questions.length,
+    copy_id: `question_${q.id}_text`,
+    copy_variant: COPY_VARIANT,
+    already_answered: Boolean(answers[q.id])
+  });
+  trackCopyExposure(`question_${q.id}_text`, q.id, {
+    question_index: step + 1,
+    question_total: questions.length
+  });
+  questionHesitationTimer = setTimeout(() => {
+    if (questions[step]?.id !== q.id || answers[q.id]) return;
+    trackEvent('quiz_step_hesitated', q.id, {
+      question_index: step + 1,
+      copy_id: `question_${q.id}_text`,
+      copy_variant: COPY_VARIANT,
+      threshold_ms: STEP_HESITATION_MS
+    });
+  }, STEP_HESITATION_MS);
 }
 
 function selectOption(qId, val, el) {
+  const timeToActionMs = elapsedFrom(questionViewedAt);
   document.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
   answers[qId] = val;
@@ -1512,7 +1566,20 @@ function selectOption(qId, val, el) {
   }
   saveProgress();
   document.getElementById('btnNext').disabled = false;
-  trackEvent('answer_selected', qId, { value: val, label: labels[qId]?.[val] || val });
+  trackEvent('answer_selected', qId, {
+    value: val,
+    label: labels[qId]?.[val] || val,
+    time_to_action_ms: timeToActionMs,
+    copy_id: `question_${qId}_text`,
+    copy_variant: COPY_VARIANT
+  });
+  trackEvent('quiz_step_answered', qId, {
+    value: val,
+    label: labels[qId]?.[val] || val,
+    time_to_action_ms: timeToActionMs,
+    copy_id: `question_${qId}_text`,
+    copy_variant: COPY_VARIANT
+  });
 
   // Auto-advance after short delay
   setTimeout(() => {
@@ -1597,6 +1664,13 @@ function handleDesignFileSelected() {
 }
 
 function prevStep() {
+  const fromStep = questions[step]?.id || (contactGateMode === 'early' ? 'contact_gate' : 'contact');
+  trackEvent('quiz_step_back_clicked', fromStep, {
+    from_step: fromStep,
+    question_index: step >= 0 ? step + 1 : null,
+    time_on_step_ms: elapsedFrom(questionViewedAt),
+    copy_variant: COPY_VARIANT
+  });
   if (contactGateMode === 'early') {
     goingBack = true;
     document.getElementById('progressWrap').style.display = 'block';
@@ -1648,7 +1722,17 @@ function showContactWithTeaser() {
   showScreen('screen-contact');
   saveProgress();
   const { lo, hi } = calcPrice();
-  trackEvent('contact_viewed', 'contact', { price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` } });
+  trackCopyExposure('final_contact_block', 'contact', {
+    has_design_project_intent: hasDesignProjectIntent(),
+    title: copy.title,
+    next_title: copy.nextTitle
+  });
+  trackEvent('contact_viewed', 'contact', {
+    price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
+    copy_id: 'final_contact_block',
+    copy_variant: COPY_VARIANT,
+    has_design_project_intent: hasDesignProjectIntent()
+  });
   setTimeout(() => document.getElementById('fname').focus(), 400);
 }
 
@@ -1671,9 +1755,15 @@ function showContactGate() {
   document.getElementById('submitStatus').textContent = '';
   showScreen('screen-contact');
   saveProgress();
-  trackEvent('contact_gate_viewed', 'contact_gate', {
+  trackCopyExposure('contact_gate_block', 'contact_gate', {
     after_step: questions[step]?.id || null,
     answers_count: Object.keys(answers).length
+  });
+  trackEvent('contact_gate_viewed', 'contact_gate', {
+    after_step: questions[step]?.id || null,
+    answers_count: Object.keys(answers).length,
+    copy_id: 'contact_gate_block',
+    copy_variant: COPY_VARIANT
   });
   setTimeout(() => document.getElementById('fname').focus(), 400);
 }
@@ -1807,6 +1897,10 @@ async function submitWithMessenger(messenger) {
     btn.classList.toggle('active', btn.dataset.messenger === messenger);
   });
   document.getElementById('submitStatus').textContent = '';
+  trackCtaClick('messenger_choice', 'contact', {
+    messenger,
+    copy_id: 'final_contact_block'
+  });
   trackEvent('messenger_selected', 'contact', { messenger });
   const contact = readContactForm();
   if (!contact) {
@@ -1947,7 +2041,15 @@ async function submitFinalQuiz(contactOverride = null) {
 
   if (selectedMessenger) {
     const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
-    trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger');
+    trackCtaClick('open_messenger_after_submit', 'messenger', {
+      messenger: selectedMessenger,
+      copy_id: 'messenger_after_submit'
+    });
+    trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger', {
+      messenger: selectedMessenger,
+      copy_id: 'messenger_after_submit',
+      copy_variant: COPY_VARIANT
+    });
     window.location.href = messengerUrl;
     return;
   }
@@ -2271,15 +2373,28 @@ function renderMessengerActions(name) {
   const recommended = getRecommendedMessenger();
   actions.style.display = 'grid';
   actions.innerHTML = `
-    <a class="messenger-link ${recommended === primary ? 'recommended' : ''}" href="${primaryUrl}" onclick="trackEvent('${primary}_clicked_from_result', 'messenger')">
+    <a class="messenger-link ${recommended === primary ? 'recommended' : ''}" href="${primaryUrl}" onclick="trackMessengerResultClick('${primary}')">
       Открыть ${primary === 'telegram' ? 'Telegram' : 'WhatsApp'}
       ${recommended === primary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
-    <a class="messenger-link ${recommended === secondary ? 'recommended' : ''}" href="${secondaryUrl}" onclick="trackEvent('${secondary}_clicked_from_result', 'messenger')">
+    <a class="messenger-link ${recommended === secondary ? 'recommended' : ''}" href="${secondaryUrl}" onclick="trackMessengerResultClick('${secondary}')">
       Открыть ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
       ${recommended === secondary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
   `;
+}
+
+function trackMessengerResultClick(messenger) {
+  trackCtaClick('open_messenger_from_result', 'messenger', {
+    messenger,
+    copy_id: 'result_messenger_actions',
+    has_measurement_slot: Boolean(selectedMeasurementSlot)
+  });
+  trackEvent(`${messenger}_clicked_from_result`, 'messenger', {
+    messenger,
+    copy_id: 'result_messenger_actions',
+    copy_variant: COPY_VARIANT
+  });
 }
 
 function buildMessengerMessage(name, slot = null) {

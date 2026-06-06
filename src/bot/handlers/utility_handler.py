@@ -3,7 +3,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from src.bot import dp
-from src.services.telegram_notification_service import TOPIC_SETTINGS, telegram_notification_service
+from src.services.telegram_notification_service import TOPIC_SETTINGS, TelegramRecipient, telegram_notification_service
 
 router = Router()
 
@@ -43,23 +43,68 @@ async def cmd_chatid(message: Message) -> None:
 
 @router.message(Command("notifytest"))
 async def cmd_notifytest(message: Message) -> None:
-    topic_labels = {
-        "hot_lead": "🔥 Горячий лид",
-        "estimate_request": "🧮 Просчет сметы",
-        "measurement": "📅 Замеры",
-        "manual_help": "💬 Ручная помощь",
-        "system_alert": "⚠️ Тех. уведомления",
-    }
     results = []
     for topic in TOPIC_SETTINGS:
-        recipients = telegram_notification_service.recipients_for(topic)
+        resolution = telegram_notification_service.resolve_recipients(topic)
         sent = await telegram_notification_service.send_to_managers(
-            f"{topic_labels[topic]}\nТестовое уведомление из /notifytest",
+            f"{telegram_notification_service.TOPIC_LABELS[topic]}\nТестовое уведомление из /notifytest",
             topic=topic,
         )
-        results.append(f"{topic_labels[topic]}: отправлено {sent}/{len(recipients)}")
+        results.append(
+            "\n".join(
+                [
+                    f"{telegram_notification_service.TOPIC_LABELS[topic]}: отправлено {sent}/{len(resolution.recipients)}",
+                    f"  env: {resolution.setting_name}",
+                    f"  source: {_source_label(resolution.source)}",
+                    f"  recipients: {_format_recipients(resolution.recipients)}",
+                ]
+            )
+        )
 
     await message.answer("Проверка уведомлений:\n" + "\n".join(results))
+
+
+@router.message(Command("notifytopics"))
+async def cmd_notifytopics(message: Message) -> None:
+    lines = [
+        "Темы уведомлений:",
+        "",
+        "1. В нужной теме группы отправьте /chatid.",
+        "2. Скопируйте готовую строку в переменную Coolify.",
+        "3. После деплоя проверьте /notifytest.",
+        "",
+    ]
+    for topic, setting_name in TOPIC_SETTINGS.items():
+        resolution = telegram_notification_service.resolve_recipients(topic)
+        lines.extend(
+            [
+                f"{telegram_notification_service.TOPIC_LABELS[topic]}",
+                f"env: {setting_name.upper()}",
+                f"сейчас: {_format_recipients(resolution.recipients)} ({_source_label(resolution.source)})",
+                "",
+            ]
+        )
+    await message.answer("\n".join(lines))
+
+
+def _format_recipients(recipients: tuple[TelegramRecipient, ...] | list[TelegramRecipient]) -> str:
+    if not recipients:
+        return "не настроено"
+    return ", ".join(
+        f"{recipient.chat_id}:{recipient.message_thread_id}"
+        if recipient.message_thread_id is not None
+        else str(recipient.chat_id)
+        for recipient in recipients
+    )
+
+
+def _source_label(source: str) -> str:
+    return {
+        "topic": "конкретная тема",
+        "fallback": "fallback MANAGER_TELEGRAM_IDS",
+        "manager": "MANAGER_TELEGRAM_IDS",
+        "empty": "пусто",
+    }.get(source, source)
 
 
 dp.include_router(router)
