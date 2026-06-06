@@ -1,0 +1,41 @@
+name: Deploy quiz
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - frontend/public/quiz-remont.html
+      - .github/workflows/deploy-quiz.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-quiz
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.QUIZ_DEPLOY_SSH_KEY }}" > ~/.ssh/quiz_deploy_key
+          chmod 600 ~/.ssh/quiz_deploy_key
+          ssh-keyscan -H 45.130.43.211 >> ~/.ssh/known_hosts
+
+      - name: Upload quiz
+        run: |
+          scp \
+            -i ~/.ssh/quiz_deploy_key \
+            -o IdentitiesOnly=yes \
+            frontend/public/quiz-remont.html \
+            quizdeploy@45.130.43.211:/var/www/isaev-quiz/index.html
+
+      - name: Verify quiz
+        run: curl --fail --silent --show-error --max-time 20 https://quiz.isaevremont.ru/ >/dev/null
