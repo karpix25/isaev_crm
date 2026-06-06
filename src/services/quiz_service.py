@@ -14,7 +14,9 @@ from src.schemas.analytics import FunnelSessionCreate
 from src.schemas.quiz import QuizContactCaptureRequest, QuizSubmitRequest, MeasurementBookingRequest
 from src.services.analytics_service import analytics_service
 from src.services.cal_pro_service import cal_pro_service
+from src.services.lead_manager_notification_service import lead_manager_notification_service
 from src.services.lead_service import lead_service
+from src.services.quiz_hot_lead_service import quiz_hot_lead_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 
 class QuizService:
@@ -97,6 +99,7 @@ class QuizService:
             step_id="complete",
             event_data={"lead_id": str(lead.id)},
         )
+        await self._notify_quiz_hot_lead_if_needed(db=db, lead=lead, payload=payload)
 
         slots = []
         if self.should_offer_measurement(payload.answers):
@@ -615,6 +618,7 @@ class QuizService:
             result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.phone == phone))
             lead = lead or result.scalar_one_or_none()
 
+        hot_lead_decision = quiz_hot_lead_service.evaluate(payload.answers)
         extracted = {
             "quiz": {
                 "answers": payload.answers,
@@ -622,6 +626,7 @@ class QuizService:
                 "design_project_file_url": payload.design_project_file_url,
                 "preferred_messenger": payload.contact.preferred_messenger,
                 "submitted_at": datetime.now(timezone.utc).isoformat(),
+                "hot_lead": hot_lead_decision.as_dict(),
             },
             "messengers": {
                 payload.contact.preferred_messenger: True,
@@ -671,6 +676,32 @@ class QuizService:
         await db.commit()
         await db.refresh(lead)
         return lead
+
+    async def _notify_quiz_hot_lead_if_needed(
+        self,
+        db: AsyncSession,
+        lead: Lead,
+        payload: QuizSubmitRequest,
+    ) -> None:
+        metadata = payload.metadata or {}
+        if metadata.get("quiz_completed") is False:
+            return
+
+        decision = quiz_hot_lead_service.evaluate(payload.answers)
+        if not decision.is_hot:
+            return
+
+        await lead_manager_notification_service.notify_hot_lead_if_needed(
+            db=db,
+            lead=lead,
+            reason=decision.reason,
+            source="quiz_answers",
+            extracted_data={
+                "is_hot_lead": True,
+                "hot_lead_reason": decision.reason,
+                "hot_lead_rules": list(decision.matched_rules),
+            },
+        )
 
     def _derive_quiz_status(self, payload: QuizSubmitRequest) -> LeadStatus:
         metadata = payload.metadata or {}
