@@ -1230,6 +1230,7 @@ let selectedSlotDateLabel = '';
 let contactGateMode = 'final';
 let isSubmittingQuiz = false;
 let isCapturingExitContact = false;
+let sessionInitPromise = null;
 let exitPopupShown = sessionStorage.getItem('isaev_exit_popup_shown') === '1';
 let inactivityTimer = null;
 const CONTACT_GATE_AFTER_STEP = -1;
@@ -1318,15 +1319,23 @@ async function initPostHog() {
 
 async function ensureSession() {
   if (sessionToken) return sessionToken;
-  const session = await apiFetch('/analytics/funnel/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ funnel_name: 'renovation_quiz', ...collectTrackingParams() })
-  });
-  sessionToken = session.session_token;
-  localStorage.setItem('isaev_quiz_session_token', sessionToken);
-  if (window.posthog && posthogReady) posthog.identify(sessionToken, { crm_session: true });
-  await trackEvent('quiz_opened', 'start');
-  return sessionToken;
+  if (sessionInitPromise) return sessionInitPromise;
+  sessionInitPromise = (async () => {
+    const session = await apiFetch('/analytics/funnel/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ funnel_name: 'renovation_quiz', ...collectTrackingParams() })
+    });
+    sessionToken = session.session_token;
+    localStorage.setItem('isaev_quiz_session_token', sessionToken);
+    if (window.posthog && posthogReady) posthog.identify(sessionToken, { crm_session: true });
+    await trackEvent('quiz_opened', 'start');
+    return sessionToken;
+  })();
+  try {
+    return await sessionInitPromise;
+  } finally {
+    sessionInitPromise = null;
+  }
 }
 
 function saveProgress() {
@@ -1805,6 +1814,11 @@ async function submitWithMessenger(messenger) {
     document.querySelectorAll('.messenger-choice-btn').forEach(btn => btn.classList.remove('active'));
     return;
   }
+  const file = document.getElementById('designFile')?.files?.[0];
+  if (!file) {
+    await submitFinalQuizToMessenger(contact, messenger);
+    return;
+  }
   await submitFinalQuiz(contact);
 }
 
@@ -1958,6 +1972,69 @@ async function submitFinalQuiz(contactOverride = null) {
   showScreen('screen-result');
   const slotSection = document.getElementById('slotsSection');
   if (slotSection) slotSection.classList.remove('active');
+}
+
+async function submitFinalQuizToMessenger(contact, messenger) {
+  if (isSubmittingQuiz) return;
+  const { lo, hi } = calcPrice();
+  const statusEl = document.getElementById('submitStatus');
+  if (statusEl) statusEl.textContent = 'Открываем мессенджер...';
+  isSubmittingQuiz = true;
+
+  try {
+    await ensureSession();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Не удалось подготовить заявку. Попробуйте еще раз.';
+    console.error(e);
+    isSubmittingQuiz = false;
+    return;
+  }
+
+  submittedContact = contact;
+  localStorage.removeItem('isaev_quiz_progress');
+  const messengerUrl = buildMessengerUrl(messenger, buildMessengerMessage(contact.name));
+  const payload = {
+    session_token: sessionToken,
+    contact,
+    answers,
+    price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
+    design_project_file_url: designProjectFileUrl || null,
+    ...collectTrackingParams()
+  };
+
+  submitQuizInBackground(payload);
+  trackEvent(`${messenger}_opened_after_submit`, 'messenger', {
+    messenger,
+    copy_id: 'messenger_after_submit',
+    fast_open: true
+  });
+
+  window.location.href = messengerUrl;
+}
+
+function submitQuizInBackground(payload) {
+  const body = JSON.stringify(payload);
+  fetch(API_BASE + '/quiz/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: body.length < 60000,
+  })
+    .then(async response => {
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    })
+    .then(result => {
+      currentLeadId = result.lead_id;
+      sessionToken = result.session_token || sessionToken;
+      rememberLeadContactHints(result);
+      if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
+      measurementSlots = result.measurement_slots || [];
+      selectedSlotDateLabel = '';
+    })
+    .catch(error => {
+      console.warn('Background quiz submit failed', error);
+    });
 }
 
 function selectMessenger(messenger) {
