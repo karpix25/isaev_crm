@@ -5,6 +5,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import type { AnalyticsEventItem, BreakdownItem, FunnelStepMetric, MessengerMetric, QuizAnswerBreakdown } from '@/types'
 
 const periodOptions = [
+    { value: '24h', label: '24 часа' },
     { value: '7d', label: '7 дней' },
     { value: '30d', label: '30 дней' },
     { value: '90d', label: '90 дней' },
@@ -41,9 +42,12 @@ export function Analytics() {
     const params = useMemo(() => {
         const next: Record<string, string> = {}
         if (period !== 'all') {
-            const days = Number(period.replace('d', ''))
             const from = new Date()
-            from.setDate(from.getDate() - days)
+            if (period.endsWith('h')) {
+                from.setHours(from.getHours() - Number(period.replace('h', '')))
+            } else {
+                from.setDate(from.getDate() - Number(period.replace('d', '')))
+            }
             next.date_from = from.toISOString()
         }
         if (source.trim()) next.source = source.trim()
