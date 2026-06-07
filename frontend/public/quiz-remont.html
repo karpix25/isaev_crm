@@ -2080,63 +2080,44 @@ async function submitFinalQuizToMessenger(contact, messenger) {
   if (isSubmittingQuiz) return;
   const { lo, hi } = calcPrice();
   const statusEl = document.getElementById('submitStatus');
-  if (statusEl) statusEl.textContent = 'Открываем мессенджер...';
+  if (statusEl) statusEl.textContent = 'Сохраняем заявку...';
   isSubmittingQuiz = true;
 
   try {
     await ensureSession();
+    const result = await apiFetch('/quiz/submit', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        contact,
+        answers,
+        price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
+        design_project_file_url: designProjectFileUrl || null,
+        ...collectTrackingParams()
+      })
+    });
+    currentLeadId = result.lead_id;
+    sessionToken = result.session_token || sessionToken;
+    rememberLeadContactHints(result);
+    if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
+    measurementSlots = result.measurement_slots || [];
+    selectedSlotDateLabel = '';
+    submittedContact = contact;
+    localStorage.removeItem('isaev_quiz_progress');
   } catch (e) {
-    if (statusEl) statusEl.textContent = 'Не удалось подготовить заявку. Попробуйте еще раз.';
+    if (statusEl) statusEl.textContent = 'Не удалось отправить заявку. Попробуйте ещё раз или напишите нам в мессенджер.';
     console.error(e);
     isSubmittingQuiz = false;
     return;
   }
 
-  submittedContact = contact;
-  localStorage.removeItem('isaev_quiz_progress');
+  if (statusEl) statusEl.textContent = 'Открываем мессенджер...';
   const messengerUrl = buildMessengerUrl(messenger, buildMessengerMessage(contact.name));
-  const payload = {
-    session_token: sessionToken,
-    contact,
-    answers,
-    price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
-    design_project_file_url: designProjectFileUrl || null,
-    ...collectTrackingParams()
-  };
-
-  submitQuizInBackground(payload);
   trackEvent(`${messenger}_opened_after_submit`, 'messenger', {
     messenger,
-    copy_id: 'messenger_after_submit',
-    fast_open: true
+    copy_id: 'messenger_after_submit'
   });
-
   window.location.href = messengerUrl;
-}
-
-function submitQuizInBackground(payload) {
-  const body = JSON.stringify(payload);
-  fetch(API_BASE + '/quiz/submit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-    keepalive: body.length < 60000,
-  })
-    .then(async response => {
-      if (!response.ok) throw new Error(await response.text());
-      return response.json();
-    })
-    .then(result => {
-      currentLeadId = result.lead_id;
-      sessionToken = result.session_token || sessionToken;
-      rememberLeadContactHints(result);
-      if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
-      measurementSlots = result.measurement_slots || [];
-      selectedSlotDateLabel = '';
-    })
-    .catch(error => {
-      console.warn('Background quiz submit failed', error);
-    });
 }
 
 function selectMessenger(messenger) {
