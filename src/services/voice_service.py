@@ -1,14 +1,11 @@
 import os
 import logging
-import aiohttp
 import asyncio
 import assemblyai as aai
 from src.config import settings
+from src.services.groq_audio_service import groq_audio_service
 
 logger = logging.getLogger(__name__)
-
-# Configure AssemblyAI key if available in env
-aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY", "")
 
 class VoiceService:
     def __init__(self):
@@ -16,13 +13,39 @@ class VoiceService:
     
     async def transcribe_audio(self, file_path: str) -> str | None:
         """
-        Transcribe an audio file using AssemblyAI.
-        Runs the synchronous SDK in a thread to avoid blocking the event loop.
+        Transcribe an audio file for inbound messenger messages.
+
+        Groq is the primary low-cost provider. AssemblyAI remains as a fallback
+        for production resilience and backward compatibility.
         """
-        if not aai.settings.api_key:
-            logger.warning("No ASSEMBLYAI_API_KEY found in environment variables. Transcription skipped.")
+        provider = str(settings.audio_transcription_provider or "auto").strip().lower()
+        if provider in {"groq", "auto"}:
+            transcript = await self._transcribe_groq(file_path)
+            if transcript:
+                return transcript
+            if provider == "groq":
+                return None
+
+        if provider in {"assemblyai", "auto"}:
+            return await self._transcribe_assemblyai(file_path)
+
+        logger.warning("Unknown audio transcription provider: %s", provider)
+        return None
+
+    async def _transcribe_groq(self, file_path: str) -> str | None:
+        try:
+            return await groq_audio_service.transcribe_audio(file_path)
+        except Exception:
+            logger.warning("Groq transcription failed for %s", file_path, exc_info=True)
             return None
-            
+
+    async def _transcribe_assemblyai(self, file_path: str) -> str | None:
+        api_key = settings.assemblyai_api_key or os.getenv("ASSEMBLYAI_API_KEY", "")
+        if not api_key:
+            logger.warning("No ASSEMBLYAI_API_KEY found. AssemblyAI transcription skipped.")
+            return None
+
+        aai.settings.api_key = api_key
         try:
             logger.info(f"Starting AssemblyAI transcription for {file_path}")
             

@@ -190,6 +190,14 @@ class Settings(BaseSettings):
     openrouter_model: str = "google/gemini-3.1-flash-lite"
     openrouter_embedding_model: str = "google/gemini-embedding-001"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Speech-to-text for incoming voice/audio messages
+    audio_transcription_provider: str = "auto"  # auto | groq | assemblyai
+    groq_api_key: str = ""
+    groq_audio_base_url: str = "https://api.groq.com/openai/v1"
+    groq_audio_model: str = "whisper-large-v3-turbo"
+    groq_audio_timeout_seconds: int = 60
+    assemblyai_api_key: str = ""
     
     # LangFuse Observability
     langfuse_public_key: str = ""

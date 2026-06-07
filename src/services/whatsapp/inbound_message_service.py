@@ -14,6 +14,7 @@ from src.services.chat_service import chat_service
 from src.services.estimate_request_service import estimate_request_service
 from src.services.lead_audit_service import lead_audit_service
 from src.services.quiz_service import quiz_service
+from src.services.whatsapp.audio_transcription_service import whatsapp_audio_transcription_service
 from src.services.whatsapp.phone import normalize_phone, normalize_phone_digits
 from src.services.whatsapp.types import WhatsAppIncomingMessage
 from src.services.whatsapp.media_storage import whatsapp_media_storage
@@ -72,10 +73,17 @@ class WhatsAppInboundMessageService:
                     "has_base64": bool(item.attachment.data_base64),
                 }
 
+            transcript = await whatsapp_audio_transcription_service.transcribe(item=item, media_url=media_url)
+            content = transcript or item.text or self._attachment_content(item)
+            if transcript:
+                metadata["is_voice"] = True
+                metadata["transcript"] = transcript
+                metadata["transcription_provider"] = "voice_service"
+
             message = await chat_service.save_incoming_message(
                 db=db,
                 lead_id=lead.id,
-                content=item.text or self._attachment_content(item),
+                content=content,
                 media_url=media_url,
                 sender_name=item.sender_name or "WhatsApp",
                 ai_metadata=metadata,
@@ -86,7 +94,7 @@ class WhatsAppInboundMessageService:
                 self._apply_media_fields(message, item)
             await db.commit()
 
-            if await whatsapp_measurement_flow_service.handle_message(db, lead, item.text, item.chat_id):
+            if await whatsapp_measurement_flow_service.handle_message(db, lead, content, item.chat_id):
                 await self._register_estimate_attachment(db, lead, item, media_url)
                 saved += 1
                 continue
