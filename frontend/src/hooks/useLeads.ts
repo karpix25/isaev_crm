@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tansta
 import { leadsAPI } from '@/lib/api'
 import type { Lead, LeadStatus } from '@/types'
 
-type LeadsQueryParams = { status?: LeadStatus; source?: string; search?: string; page?: number; page_size?: number }
+type LeadsQueryParams = { status?: LeadStatus; source?: string; search?: string; created_since_hours?: number; page?: number; page_size?: number }
 
 function invalidateLeadQueries(queryClient: ReturnType<typeof useQueryClient>) {
     queryClient.invalidateQueries({ queryKey: ['leads'] })

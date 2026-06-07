@@ -170,7 +170,7 @@ export const authAPI = {
 }
 
 export const leadsAPI = {
-    getAll: async (params?: { status?: string; source?: string; search?: string; page?: number; page_size?: number }) => {
+    getAll: async (params?: { status?: string; source?: string; search?: string; created_since_hours?: number; page?: number; page_size?: number }) => {
         const response = await api.get<{ leads: Lead[]; total: number; page: number; page_size: number }>('/leads/', { params })
         return response.data
     },

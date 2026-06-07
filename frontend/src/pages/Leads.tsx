@@ -99,6 +99,7 @@ const LEADS_PAGE_SIZE = 100
 export function Leads() {
     const [search, setSearch] = useState('')
     const [source, setSource] = useState<string>('')
+    const [createdSinceHours, setCreatedSinceHours] = useState<number | undefined>()
     const [visibleStages, setVisibleStages] = useState<LeadStatus[]>(columns.map(c => c.id))
     const {
         data,
@@ -108,6 +109,7 @@ export function Leads() {
     } = useLeadsInfinite({
         search: search || undefined,
         source: source || undefined,
+        created_since_hours: createdSinceHours,
         page_size: LEADS_PAGE_SIZE,
     })
     const { data: customFields } = useCustomFields(true)
@@ -412,6 +414,23 @@ export function Leads() {
                         <option value="avito">Avito</option>
                         <option value="website">Сайт</option>
                     </select>
+
+                    <div className="flex h-10 overflow-hidden rounded-lg border bg-background text-sm shadow-sm">
+                        <button
+                            type="button"
+                            onClick={() => setCreatedSinceHours(undefined)}
+                            className={`px-3 transition-colors ${createdSinceHours ? 'text-muted-foreground hover:bg-accent' : 'bg-primary text-primary-foreground'}`}
+                        >
+                            Все
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCreatedSinceHours(24)}
+                            className={`border-l px-3 transition-colors ${createdSinceHours === 24 ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'}`}
+                        >
+                            24 часа
+                        </button>
+                    </div>
                 </div>
             </div>
 

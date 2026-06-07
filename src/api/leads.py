@@ -37,6 +37,7 @@ async def get_leads(
     status: Optional[LeadStatus] = None,
     source: Optional[str] = None,
     search: Optional[str] = None,
+    created_since_hours: Optional[int] = Query(None, ge=1, le=24 * 30),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.MANAGER)),
@@ -53,6 +54,7 @@ async def get_leads(
         status=status,
         source=source,
         search=search,
+        created_since_hours=created_since_hours,
         page=page,
         page_size=page_size
     )

@@ -3,7 +3,7 @@ from sqlalchemy import select, func, or_
 from typing import Optional, List, Any
 import uuid
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.models import Lead, LeadStatus
 from src.schemas.lead import LeadCreate, LeadUpdate
@@ -378,6 +378,7 @@ class LeadService:
         status: Optional[LeadStatus] = None,
         source: Optional[str] = None,
         search: Optional[str] = None,
+        created_since_hours: Optional[int] = None,
         page: int = 1,
         page_size: int = 20
     ) -> tuple[List[Lead], int]:
@@ -394,6 +395,9 @@ class LeadService:
             
         if source:
             query = query.where(Lead.source == source)        
+        if created_since_hours:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=created_since_hours)
+            query = query.where(Lead.created_at >= cutoff)
         if search:
             search_pattern = f"%{search}%"
             query = query.where(
