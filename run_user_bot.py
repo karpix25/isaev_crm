@@ -136,19 +136,22 @@ async def main():
             
         # --- Poll for pending outbound messages ---
         try:
-            from src.models import ChatMessage, Lead, MessageDirection, MessageStatus
+            from src.models import ChatMessage, Lead, MessageDirection, MessageStatus, MessageTransport
             from sqlalchemy.orm import selectinload
             
             async with AsyncSessionLocal() as db:
-                # Find all OUTBOUND messages with PENDING status
-                # joined with Lead to ensure we only process 'userbot' leads
+                # Find unsent Telegram outbound messages. Quiz/Instagram leads can still
+                # be contactable in Telegram after deep-link activation, so source is not
+                # a safe delivery filter here.
                 result = await db.execute(
                     select(ChatMessage)
                     .join(Lead, ChatMessage.lead_id == Lead.id)
                     .where(
                         ChatMessage.direction == MessageDirection.OUTBOUND,
                         ChatMessage.status == MessageStatus.PENDING,
-                        Lead.source.in_(["userbot", "CRM"])
+                        ChatMessage.transport == MessageTransport.TELEGRAM,
+                        ChatMessage.telegram_message_id.is_(None),
+                        Lead.telegram_id.isnot(None),
                     )
                     .options(selectinload(ChatMessage.lead))
                     .order_by(ChatMessage.created_at.asc())
