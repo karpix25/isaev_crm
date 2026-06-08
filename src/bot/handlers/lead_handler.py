@@ -29,6 +29,7 @@ from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
 from src.services.measurement_analytics_service import measurement_analytics_service
+from src.services.price_objection_service import price_objection_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 from src.services.direct_qualification_service import (
     build_next_prompt,
@@ -2032,6 +2033,46 @@ async def _handle_not_interested(
     return True
 
 
+async def _handle_price_objection(
+    db: AsyncSession,
+    message: Message,
+    lead,
+    text_value: str,
+) -> bool:
+    reply = price_objection_service.build_reply(lead=lead, text=text_value)
+    price_objection_service.mark_lead(lead=lead, reply=reply, source_text=text_value)
+
+    await measurement_analytics_service.record_event(
+        db=db,
+        lead=lead,
+        event_type="price_objection_received",
+        source="telegram_price_objection",
+        event_data={
+            "client_budget_text": reply.client_budget_text,
+            "client_budget_rub": reply.client_budget_rub,
+            "budget_fit": reply.budget_fit,
+        },
+    )
+    await db.commit()
+
+    sent = await message.answer(reply.text)
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=reply.text,
+        telegram_message_id=sent.message_id,
+        sender_name="AI",
+        ai_metadata={
+            "source": "bot_scenario",
+            "type": "price_objection",
+            "client_budget_text": reply.client_budget_text,
+            "client_budget_rub": reply.client_budget_rub,
+            "budget_fit": reply.budget_fit,
+        },
+    )
+    return True
+
+
 async def _handle_do_not_contact(
     db: AsyncSession,
     message: Message,
@@ -2416,6 +2457,9 @@ async def _try_route_scenario_before_ai(
 
     if _looks_like_abusive_message(text):
         return await _handle_abusive_message(db, message, lead, text)
+
+    if price_objection_service.looks_like_price_objection(text):
+        return await _handle_price_objection(db, message, lead, text)
 
     if _looks_like_not_interested(text):
         return await _handle_not_interested(db, message, lead, text)
