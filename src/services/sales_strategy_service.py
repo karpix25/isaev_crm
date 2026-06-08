@@ -71,8 +71,13 @@ class SalesStrategyService:
             return SalesStrategy(
                 name="clarify_thinking_barrier",
                 next_best_action="ask_one_uncertainty",
-                prompt_instruction="Не подгоняй. Задай один вопрос: что именно хочется понять или сравнить перед решением.",
-                allowed_ctas=("diagnose", "follow_up_later"),
+                prompt_instruction=(
+                    "Не подгоняй, но не отпускай диалог в пассивное ожидание. "
+                    "Признай, что подумать нормально, и задай один диагностический вопрос: "
+                    "что сейчас больше смущает — бюджет, состав работ, материалы или сам замер? "
+                    "Не пиши в стиле 'когда будете готовы, дайте сигнал'."
+                ),
+                allowed_ctas=("diagnose_budget", "explain_scope", "diagnose_measurement"),
             )
 
         return SalesStrategy(

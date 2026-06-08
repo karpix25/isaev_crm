@@ -93,3 +93,38 @@ def test_guardrail_blocks_price_promises_and_uses_safe_fallback():
     assert result.reason == "price_promise"
     assert "Точно уложимся" not in result.text
     assert "Что для вас важнее?" in result.text
+
+
+def test_thinking_strategy_keeps_diagnostic_control():
+    lead = _lead_with_price()
+    plan = sales_orchestration_service.plan_turn(
+        lead=lead,
+        text="не знаю я подумаю",
+    )
+
+    assert plan
+    assert plan.strategy.name == "clarify_thinking_barrier"
+    assert "не отпускай диалог" in plan.strategy.prompt_instruction
+    assert "бюджет, состав работ, материалы или сам замер" in plan.strategy.prompt_instruction
+    assert "дайте сигнал" in plan.strategy.prompt_instruction
+
+
+def test_guardrail_blocks_passive_wait_after_thinking_reply():
+    lead = _lead_with_price()
+    plan = sales_orchestration_service.plan_turn(
+        lead=lead,
+        text="не знаю я подумаю",
+    )
+
+    result = sales_reply_guardrail_service.validate(
+        text=(
+            "Понимаю, спешить не стоит. Если сейчас есть вопросы, дайте знать. "
+            "А когда будете готовы двигаться дальше, просто дайте сигнал."
+        ),
+        plan=plan,
+    )
+
+    assert result.blocked
+    assert result.reason == "passive_wait"
+    assert "дайте сигнал" not in result.text
+    assert "что сейчас больше смущает" in result.text

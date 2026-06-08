@@ -23,6 +23,13 @@ _EARLY_CLOSE_PATTERNS = (
     re.compile(r"больше\s+не\s+будем\s+беспокоить", re.I),
 )
 
+_PASSIVE_WAIT_PATTERNS = (
+    re.compile(r"когда\s+будете\s+готов", re.I),
+    re.compile(r"дайте\s+сигнал", re.I),
+    re.compile(r"обращайтесь", re.I),
+    re.compile(r"буду\s+на\s+связи", re.I),
+)
+
 
 class SalesReplyGuardrailService:
     def validate(self, *, text: str, plan) -> SalesReplyGuardrailResult:
@@ -34,6 +41,10 @@ class SalesReplyGuardrailService:
             return self._fallback(plan, "price_promise")
         if any(pattern.search(normalized) for pattern in _EARLY_CLOSE_PATTERNS):
             return self._fallback(plan, "early_close")
+        if plan.strategy.name == "clarify_thinking_barrier" and any(
+            pattern.search(normalized) for pattern in _PASSIVE_WAIT_PATTERNS
+        ):
+            return self._fallback(plan, "passive_wait")
         if normalized.count("?") > 1:
             return self._fallback(plan, "too_many_questions")
         if self._pushes_only_measurement(normalized, plan):
@@ -68,6 +79,11 @@ class SalesReplyGuardrailService:
             text = (
                 "Понимаю, бюджет важный момент. Уточню, чтобы не уговаривать вслепую: "
                 "вопрос больше в общем бюджете, в том, что непонятно, что входит, или есть с чем сравниваете?"
+            )
+        elif strategy == "clarify_thinking_barrier":
+            text = (
+                "Понимаю, торопиться не нужно. Только уточню, чтобы не оставлять вас с догадками: "
+                "что сейчас больше смущает — бюджет, состав работ, материалы или сам замер?"
             )
         else:
             text = "Понимаю. Уточню один момент, чтобы ответить точнее: что сейчас больше всего смущает в следующем шаге?"
