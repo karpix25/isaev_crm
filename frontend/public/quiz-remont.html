@@ -1446,6 +1446,18 @@ function trackCtaClick(ctaId, stepId, extra = {}) {
   });
 }
 
+async function trackMessengerClick(messenger, stepId = 'messenger', extra = {}) {
+  trackCtaClick(extra.cta_id || 'open_messenger', stepId, {
+    messenger,
+    ...extra
+  });
+  await trackEvent(`${messenger}_clicked`, stepId, {
+    messenger,
+    copy_variant: COPY_VARIANT,
+    ...extra
+  });
+}
+
 function elapsedFrom(timestamp) {
   return timestamp ? Math.max(0, Date.now() - timestamp) : null;
 }
@@ -2041,14 +2053,9 @@ async function submitFinalQuiz(contactOverride = null) {
 
   if (selectedMessenger) {
     const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
-    trackCtaClick('open_messenger_after_submit', 'messenger', {
-      messenger: selectedMessenger,
-      copy_id: 'messenger_after_submit'
-    });
-    trackEvent(`${selectedMessenger}_opened_after_submit`, 'messenger', {
-      messenger: selectedMessenger,
+    await trackMessengerClick(selectedMessenger, 'messenger', {
+      cta_id: 'open_messenger_after_submit',
       copy_id: 'messenger_after_submit',
-      copy_variant: COPY_VARIANT
     });
     window.location.href = messengerUrl;
     return;
@@ -2113,8 +2120,8 @@ async function submitFinalQuizToMessenger(contact, messenger) {
 
   if (statusEl) statusEl.textContent = 'Открываем мессенджер...';
   const messengerUrl = buildMessengerUrl(messenger, buildMessengerMessage(contact.name));
-  trackEvent(`${messenger}_opened_after_submit`, 'messenger', {
-    messenger,
+  await trackMessengerClick(messenger, 'messenger', {
+    cta_id: 'open_messenger_after_submit',
     copy_id: 'messenger_after_submit'
   });
   window.location.href = messengerUrl;
@@ -2179,7 +2186,10 @@ async function captureExitContact(messenger) {
     rememberLeadContactHints(result);
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     statusEl.textContent = 'Готово, открываем мессенджер...';
-    trackEvent(`${messenger}_clicked`, 'exit_capture');
+    await trackMessengerClick(messenger, 'exit_capture', {
+      cta_id: 'open_messenger_from_exit_capture',
+      copy_id: 'exit_capture'
+    });
     setTimeout(() => {
       document.getElementById('exitOverlay').classList.remove('active');
       window.open(buildMessengerUrl(messenger, buildMessengerMessage(name)), '_blank', 'noopener');
@@ -2354,28 +2364,26 @@ function renderMessengerActions(name) {
   const recommended = getRecommendedMessenger();
   actions.style.display = 'grid';
   actions.innerHTML = `
-    <a class="messenger-link ${recommended === primary ? 'recommended' : ''}" href="${primaryUrl}" onclick="trackMessengerResultClick('${primary}')">
+    <a class="messenger-link ${recommended === primary ? 'recommended' : ''}" href="${primaryUrl}" onclick="trackMessengerResultClick('${primary}', event)">
       Открыть ${primary === 'telegram' ? 'Telegram' : 'WhatsApp'}
       ${recommended === primary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
-    <a class="messenger-link ${recommended === secondary ? 'recommended' : ''}" href="${secondaryUrl}" onclick="trackMessengerResultClick('${secondary}')">
+    <a class="messenger-link ${recommended === secondary ? 'recommended' : ''}" href="${secondaryUrl}" onclick="trackMessengerResultClick('${secondary}', event)">
       Открыть ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
       ${recommended === secondary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
   `;
 }
 
-function trackMessengerResultClick(messenger) {
-  trackCtaClick('open_messenger_from_result', 'messenger', {
-    messenger,
+async function trackMessengerResultClick(messenger, event) {
+  if (event) event.preventDefault();
+  await trackMessengerClick(messenger, 'messenger', {
+    cta_id: 'open_messenger_from_result',
     copy_id: 'result_messenger_actions',
     has_measurement_slot: Boolean(selectedMeasurementSlot)
   });
-  trackEvent(`${messenger}_clicked_from_result`, 'messenger', {
-    messenger,
-    copy_id: 'result_messenger_actions',
-    copy_variant: COPY_VARIANT
-  });
+  const name = submittedContact?.name || document.getElementById('fname')?.value || 'Клиент квиза';
+  window.location.href = buildMessengerUrl(messenger, buildMessengerMessage(name, selectedMeasurementSlot));
 }
 
 function buildMessengerMessage(name, slot = null) {

@@ -45,6 +45,15 @@ QUIZ_STEP_LABELS = {
     "budget": "Бюджет",
 }
 
+MESSENGER_CLICK_EVENTS: dict[str, tuple[str, ...]] = {
+    "telegram": ("telegram_clicked", "telegram_opened_after_submit", "telegram_clicked_from_result"),
+    "whatsapp": ("whatsapp_clicked", "whatsapp_opened_after_submit", "whatsapp_clicked_from_result"),
+}
+
+
+def messenger_click_event_names(messenger: str) -> tuple[str, ...]:
+    return MESSENGER_CLICK_EVENTS.get(messenger, (f"{messenger}_clicked",))
+
 
 class AnalyticsService:
     async def create_session(
@@ -224,7 +233,10 @@ class AnalyticsService:
         rows: list[FunnelStepMetric] = []
         for event_type, label in FUNNEL_STEPS:
             if event_type == "messenger_clicked":
-                event_filter = FunnelEvent.event_type.in_(["telegram_clicked", "whatsapp_clicked"])
+                event_filter = FunnelEvent.event_type.in_([
+                    *messenger_click_event_names("telegram"),
+                    *messenger_click_event_names("whatsapp"),
+                ])
             elif event_type == "messenger_message_received":
                 event_filter = FunnelEvent.event_type.in_([
                     "messenger_message_received",
@@ -290,14 +302,17 @@ class AnalyticsService:
     async def _messenger_metrics(self, db: AsyncSession, filters: list[Any]) -> list[MessengerMetric]:
         rows: list[MessengerMetric] = []
         configs = [
-            ("telegram", "Telegram", "telegram_clicked", "telegram_message_received"),
-            ("whatsapp", "WhatsApp", "whatsapp_clicked", "whatsapp_message_received"),
+            ("telegram", "Telegram", messenger_click_event_names("telegram"), "telegram_message_received"),
+            ("whatsapp", "WhatsApp", messenger_click_event_names("whatsapp"), "whatsapp_message_received"),
         ]
-        for messenger, label, click_event, inbound_event in configs:
-            clicked_session_ids = select(FunnelEvent.session_id).where(*filters, FunnelEvent.event_type == click_event)
+        for messenger, label, click_events, inbound_event in configs:
+            clicked_session_ids = select(FunnelEvent.session_id).where(*filters, FunnelEvent.event_type.in_(click_events))
             clicks = await self._scalar_count(
                 db,
-                select(func.count(distinct(FunnelEvent.session_id))).where(*filters, FunnelEvent.event_type == click_event),
+                select(func.count(distinct(FunnelEvent.session_id))).where(
+                    *filters,
+                    FunnelEvent.event_type.in_(click_events),
+                ),
             )
             inbound = await self._scalar_count(
                 db,
