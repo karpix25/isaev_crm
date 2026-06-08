@@ -29,7 +29,8 @@ from src.services.openrouter_service import openrouter_service
 from src.services.prompt_service import prompt_service
 from src.services.knowledge_service import knowledge_service
 from src.services.measurement_analytics_service import measurement_analytics_service
-from src.services.price_objection_service import price_objection_service
+from src.services.sales_orchestration_service import sales_orchestration_service
+from src.services.sales_reply_guardrail_service import sales_reply_guardrail_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 from src.services.direct_qualification_service import (
     build_next_prompt,
@@ -2033,46 +2034,6 @@ async def _handle_not_interested(
     return True
 
 
-async def _handle_price_objection(
-    db: AsyncSession,
-    message: Message,
-    lead,
-    text_value: str,
-) -> bool:
-    reply = price_objection_service.build_reply(lead=lead, text=text_value)
-    price_objection_service.mark_lead(lead=lead, reply=reply, source_text=text_value)
-
-    await measurement_analytics_service.record_event(
-        db=db,
-        lead=lead,
-        event_type="price_objection_received",
-        source="telegram_price_objection",
-        event_data={
-            "client_budget_text": reply.client_budget_text,
-            "client_budget_rub": reply.client_budget_rub,
-            "budget_fit": reply.budget_fit,
-        },
-    )
-    await db.commit()
-
-    sent = await message.answer(reply.text)
-    await chat_service.send_outbound_message(
-        db=db,
-        lead_id=lead.id,
-        content=reply.text,
-        telegram_message_id=sent.message_id,
-        sender_name="AI",
-        ai_metadata={
-            "source": "bot_scenario",
-            "type": "price_objection",
-            "client_budget_text": reply.client_budget_text,
-            "client_budget_rub": reply.client_budget_rub,
-            "budget_fit": reply.budget_fit,
-        },
-    )
-    return True
-
-
 async def _handle_do_not_contact(
     db: AsyncSession,
     message: Message,
@@ -2458,9 +2419,6 @@ async def _try_route_scenario_before_ai(
     if _looks_like_abusive_message(text):
         return await _handle_abusive_message(db, message, lead, text)
 
-    if price_objection_service.looks_like_price_objection(text):
-        return await _handle_price_objection(db, message, lead, text)
-
     if _looks_like_not_interested(text):
         return await _handle_not_interested(db, message, lead, text)
 
@@ -2481,8 +2439,26 @@ async def _try_route_scenario_before_ai(
         )
         return True
 
-    if await _try_execute_llm_crm_tool(db, message, lead, text, stage_context):
+    if _looks_like_measurement_cancel_request(text) and (measurement_data.get("start") or measurement_data.get("booking_uid")):
+        return await _handle_measurement_cancel_request(db, message, lead)
+
+    if _looks_like_measurement_change_request(text) and measurement_data.get("start"):
+        return await _send_measurement_change_choices(message, db, lead)
+
+    if _looks_like_measurement_reschedule_request(text) and measurement_data.get("start"):
+        return await _send_measurement_reschedule_slot_dates(message, db, lead)
+
+    if _looks_like_measurement_booking_request(text):
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if next_action == "awaiting_measurement_slot" and _looks_like_measurement_slot_reply(text):
+        return await _send_measurement_slot_dates(message, db, lead)
+
+    if next_action == "confirm_measurement" and await _answer_measurement_question_if_possible(db, message, lead, text):
         return True
+
+    if next_action == "confirm_measurement" and _looks_like_measurement_acknowledgement(text):
+        return await _send_measurement_acknowledgement(message, db, lead)
 
     if _looks_like_manager_handoff_request(text):
         return await _send_manager_handoff_notice(message, db, lead)
@@ -2507,26 +2483,8 @@ async def _try_route_scenario_before_ai(
         )
         return True
 
-    if _looks_like_measurement_cancel_request(text) and (measurement_data.get("start") or measurement_data.get("booking_uid")):
-        return await _handle_measurement_cancel_request(db, message, lead)
-
-    if _looks_like_measurement_change_request(text) and measurement_data.get("start"):
-        return await _send_measurement_change_choices(message, db, lead)
-
-    if _looks_like_measurement_reschedule_request(text) and measurement_data.get("start"):
-        return await _send_measurement_reschedule_slot_dates(message, db, lead)
-
-    if _looks_like_measurement_booking_request(text):
-        return await _send_measurement_slot_dates(message, db, lead)
-
-    if next_action == "awaiting_measurement_slot" and _looks_like_measurement_slot_reply(text):
-        return await _send_measurement_slot_dates(message, db, lead)
-
-    if next_action == "confirm_measurement" and await _answer_measurement_question_if_possible(db, message, lead, text):
+    if await _try_execute_llm_crm_tool(db, message, lead, text, stage_context):
         return True
-
-    if next_action == "confirm_measurement" and _looks_like_measurement_acknowledgement(text):
-        return await _send_measurement_acknowledgement(message, db, lead)
 
     return False
 
@@ -3475,6 +3433,22 @@ async def process_debounced_message(conversation_key: str):
         if await _try_route_scenario_before_ai(db, message, lead, combined_text, stage_context):
             return
 
+        sales_turn_plan = sales_orchestration_service.plan_turn(lead=lead, text=combined_text)
+        if sales_turn_plan:
+            sales_orchestration_service.mark_lead(
+                lead=lead,
+                plan=sales_turn_plan,
+                source_text=combined_text,
+            )
+            await measurement_analytics_service.record_event(
+                db=db,
+                lead=lead,
+                event_type="sales_intent_detected",
+                source="telegram_sales_orchestration",
+                event_data=sales_turn_plan.metadata,
+            )
+            await db.commit()
+
         outside_business_hours = not is_business_hours()
         if outside_business_hours:
             logger.info(
@@ -3559,11 +3533,15 @@ async def process_debounced_message(conversation_key: str):
                 )
 
             system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}\n\n{_build_ai_support_tools_prompt(stage_context)}"
+            if sales_turn_plan:
+                system_prompt = f"{system_prompt}\n\n{sales_turn_plan.prompt_block}"
             
             # Perform RAG (Retrieval)
             trace_id = f"lead_{lead.id}_{len(messages)}" # Unique per turn
             ai_metadata = {}
             ai_metadata["stage_context"] = stage_context.metadata
+            if sales_turn_plan:
+                ai_metadata["sales_orchestration"] = sales_turn_plan.metadata
             logger.info(
                 "AI reply requested: lead_id=%s status=%s next_action=%s text=%s",
                 lead.id,
@@ -3631,7 +3609,8 @@ async def process_debounced_message(conversation_key: str):
                     _merge_ai_extracted_data(lead.extracted_data, extracted_data)
                 )
             if (
-                stage_context.next_action == "direct_chat_qualification"
+                not sales_turn_plan
+                and stage_context.next_action == "direct_chat_qualification"
                 and should_offer_qualification(combined_text, effective_extracted_data)
             ):
                 direct_prompt = build_next_prompt(effective_extracted_data, company_name=company_name)
@@ -3642,6 +3621,28 @@ async def process_debounced_message(conversation_key: str):
                     }
 
             outbound_text = direct_prompt.text if direct_prompt else response_text
+            if sales_turn_plan and not direct_prompt:
+                guardrail = sales_reply_guardrail_service.validate(
+                    text=outbound_text,
+                    plan=sales_turn_plan,
+                )
+                if guardrail.blocked:
+                    ai_metadata["sales_guardrail"] = {
+                        "blocked": True,
+                        "reason": guardrail.reason,
+                        "original_text": outbound_text[:500],
+                    }
+                    await measurement_analytics_service.record_event(
+                        db=db,
+                        lead=lead,
+                        event_type="sales_guardrail_blocked",
+                        source="telegram_sales_orchestration",
+                        event_data={
+                            **sales_turn_plan.metadata,
+                            "reason": guardrail.reason,
+                        },
+                    )
+                outbound_text = guardrail.text
             sent_message = await message.answer(
                 outbound_text,
                 reply_markup=direct_prompt.keyboard if direct_prompt else None,

@@ -71,6 +71,7 @@ def _load_lead_handler_functions():
             LOST=SimpleNamespace(value="LOST"),
         ),
         "chat_service": SimpleNamespace(send_outbound_message=AsyncMock()),
+        "measurement_analytics_service": SimpleNamespace(record_event=AsyncMock()),
     }
     exec(compile(module, str(module_path), "exec"), namespace)
     return namespace
@@ -269,7 +270,7 @@ def test_quiz_estimate_text_uses_normalized_design_answer():
 
     text = build_estimate(lead)
 
-    assert "Предварительный ориентир" in text
+    assert "Предварительная цена по работам без стройматериалов" in text
     assert "лучше выбрать удобное время бесплатного замера" in text
     assert "Если пришлете сюда дизайн-проект" not in text
 
