@@ -41,8 +41,10 @@ def test_price_objection_near_budget_returns_to_measurement():
 
     assert reply.client_budget_rub == 1_000_000
     assert reply.budget_fit == "inside_range"
-    assert "примерно рядом" in reply.text
-    assert "замера" in reply.text
+    assert "как раз рядом" in reply.text
+    assert "ни к чему не обязывает" in reply.text
+    assert "замер" in reply.text.lower()
+    assert "пару ближайших окон" in reply.text
 
 
 def test_price_objection_low_budget_stays_honest():
