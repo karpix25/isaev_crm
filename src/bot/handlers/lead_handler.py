@@ -180,6 +180,25 @@ def _looks_like_measurement_acknowledgement(text: str) -> bool:
     }
 
 
+def _looks_like_passive_acknowledgement(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("ё", "е")
+    if not normalized:
+        return False
+    return normalized in {
+        "ок",
+        "окей",
+        "хорошо",
+        "понял",
+        "поняла",
+        "понятно",
+        "ясно",
+        "спасибо",
+        "спасибо!",
+        "ага",
+        "угу",
+    }
+
+
 def _looks_like_measurement_reschedule_request(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -410,9 +429,6 @@ def _looks_like_measurement_slot_reply(text: str) -> bool:
     short_confirmations = {
         "да",
         "давайте",
-        "ок",
-        "окей",
-        "хорошо",
         "можно",
         "да можно",
         "давайте замер",
@@ -461,6 +477,15 @@ def _looks_like_measurement_slot_reply(text: str) -> bool:
     is_time_only = bool(re.fullmatch(r"(?:в\s*)?\d{1,2}(?::\d{2})?", normalized))
     has_date_number = bool(re.search(r"\b\d{1,2}\s*(?:числа|мая|июн|июл|август|сентябр|октябр|ноябр|декабр)", normalized))
     return has_date_word or has_date_number or is_time_only or ("замер" in normalized and has_time)
+
+
+def _looks_like_repeat_slots_request(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("ё", "е")
+    if not normalized:
+        return False
+    repeat_words = ("еще", "ещё", "снова", "повтор", "заново", "еще раз", "ещё раз")
+    slot_words = ("слот", "окн", "дн", "дат", "календар", "замер")
+    return any(word in normalized for word in repeat_words) and any(word in normalized for word in slot_words)
 
 
 def _looks_like_manager_handoff_request(text: str) -> bool:
@@ -674,6 +699,29 @@ def _lead_measurement_data(lead) -> dict:
     return measurement if isinstance(measurement, dict) else {}
 
 
+def _measurement_slots_recently_offered(lead, *, within_minutes: int = 30) -> bool:
+    measurement = _lead_measurement_data(lead)
+    raw_value = measurement.get("slots_offered_at")
+    if not raw_value:
+        return False
+    try:
+        offered_at = datetime.fromisoformat(str(raw_value).replace("Z", "+00:00"))
+        if offered_at.tzinfo is None:
+            offered_at = offered_at.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    return datetime.now(timezone.utc) - offered_at <= timedelta(minutes=within_minutes)
+
+
+def _mark_measurement_slots_offered(lead) -> None:
+    data = _lead_extracted_data(lead)
+    measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
+    measurement["status"] = measurement.get("status") or "awaiting_slot"
+    measurement["slots_offered_at"] = datetime.now(timezone.utc).isoformat()
+    data["measurement"] = measurement
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+
+
 def _lead_quiz_data(lead) -> dict:
     if not getattr(lead, "extracted_data", None):
         return {}
@@ -832,6 +880,8 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
         "Выберите удобный день бесплатного замера. "
         "Так мы спокойно посмотрим объект и посчитаем работы без догадок 📍"
     )
+    _mark_measurement_slots_offered(lead)
+    await db.commit()
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
     await chat_service.send_outbound_message(
         db=db,
@@ -2451,7 +2501,44 @@ async def _try_route_scenario_before_ai(
     if _looks_like_measurement_booking_request(text):
         return await _send_measurement_slot_dates(message, db, lead)
 
+    if (
+        next_action == "awaiting_measurement_slot"
+        and _looks_like_passive_acknowledgement(text)
+        and _measurement_slots_recently_offered(lead)
+    ):
+        text_reply = "Да, понял. Свободные дни выше — выберите подходящий, когда будет удобно."
+        sent = await message.answer(text_reply)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text_reply,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={
+                "source": "bot_scenario",
+                "type": "measurement_slots_passive_ack",
+                "skip_knowledge_index": True,
+            },
+        )
+        return True
+
     if next_action == "awaiting_measurement_slot" and _looks_like_measurement_slot_reply(text):
+        if _measurement_slots_recently_offered(lead) and not _looks_like_repeat_slots_request(text):
+            text_reply = "Свободные дни уже отправил выше. Выберите подходящий день — после этого покажу доступное время."
+            sent = await message.answer(text_reply)
+            await chat_service.send_outbound_message(
+                db=db,
+                lead_id=lead.id,
+                content=text_reply,
+                telegram_message_id=sent.message_id,
+                sender_name="AI",
+                ai_metadata={
+                    "source": "bot_scenario",
+                    "type": "measurement_slots_already_offered",
+                    "skip_knowledge_index": True,
+                },
+            )
+            return True
         return await _send_measurement_slot_dates(message, db, lead)
 
     if next_action == "confirm_measurement" and await _answer_measurement_question_if_possible(db, message, lead, text):

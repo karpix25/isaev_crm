@@ -4,7 +4,7 @@ import importlib.util
 import inspect
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -42,7 +42,7 @@ def _load_lead_handler_functions():
         "re": re,
         "datetime": datetime,
         "timezone": timezone,
-        "timedelta": object,
+        "timedelta": timedelta,
         "ZoneInfo": ZoneInfo,
         "AsyncSession": object,
         "Message": object,
@@ -207,6 +207,51 @@ def test_routes_measurement_acknowledgement_before_ai(monkeypatch):
     assert routed is True
     assert calls["_send_measurement_acknowledgement"].await_count == 1
     assert calls["_send_measurement_slot_dates"].await_count == 0
+
+
+def test_passive_ack_does_not_repeat_recent_measurement_slots(monkeypatch):
+    calls = _patch_outbound_helpers(monkeypatch)
+    lead = SimpleNamespace(
+        id=3,
+        status="MEASUREMENT_PENDING",
+        ai_qualification_status="in_progress",
+        extracted_data=json.dumps(
+            {
+                "measurement": {
+                    "status": "awaiting_slot",
+                    "slots_offered_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+            ensure_ascii=False,
+        ),
+    )
+    message = SimpleNamespace(answer=AsyncMock(return_value=SimpleNamespace(message_id=33)))
+    db = SimpleNamespace(commit=AsyncMock())
+
+    routed = asyncio.run(
+        LEAD_HANDLER["_try_route_scenario_before_ai"](
+            db,
+            message,
+            lead,
+            "понял",
+            SimpleNamespace(metadata={"next_action": "awaiting_measurement_slot"}),
+        )
+    )
+
+    assert routed is True
+    assert message.answer.await_count == 1
+    assert calls["_send_measurement_slot_dates"].await_count == 0
+    text = message.answer.await_args.args[0]
+    assert "выберите подходящий" in text.lower()
+
+
+def test_plain_ok_is_not_measurement_slot_reply():
+    looks_like_slot_reply = LEAD_HANDLER["_looks_like_measurement_slot_reply"]
+
+    assert looks_like_slot_reply("понял") is False
+    assert looks_like_slot_reply("хорошо") is False
+    assert looks_like_slot_reply("ок") is False
+    assert looks_like_slot_reply("давайте") is True
 
 
 def test_extract_ai_tool_action_normalizes_aliases_and_none():
