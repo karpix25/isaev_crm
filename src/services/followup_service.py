@@ -122,7 +122,7 @@ STAGE_SCENARIOS = {
 }
 
 # How often to run the check (seconds)
-CHECK_INTERVAL = 30 * 60  # 30 minutes
+CHECK_INTERVAL = 300  # 5 minutes
 
 
 async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:

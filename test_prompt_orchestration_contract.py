@@ -27,6 +27,7 @@ def _load_followup_constant(name: str):
 
 PROMPTS = _load_prompts_module()
 MAX_FOLLOWUPS = _load_followup_constant("MAX_FOLLOWUPS")
+CHECK_INTERVAL = _load_followup_constant("CHECK_INTERVAL")
 STAGE_FOLLOWUP_THRESHOLDS = _load_followup_constant("STAGE_FOLLOWUP_THRESHOLDS")
 
 
@@ -60,7 +61,7 @@ def test_stage_followup_prompt_prefers_helpful_next_step_over_pressure():
     prompt = _compact(PROMPTS.STAGE_FOLLOWUP_PROMPT)
 
     assert "каждый follow-up должен давать пользу" in prompt
-    assert "мягко предложи разобрать расчет" in prompt
+    assert "мягко предложи вернуться к файлу" in prompt
     assert "не дави" in prompt
     assert "не пиши в лоб" in prompt
     assert "ну что решили?" in prompt
@@ -72,6 +73,10 @@ def test_measurement_slot_followup_starts_without_stretching_deal():
     first_followup_hours = STAGE_FOLLOWUP_THRESHOLDS["awaiting_measurement_slot"][0]
 
     assert 2 <= first_followup_hours <= 3
+
+
+def test_followup_loop_checks_often_after_stage_threshold():
+    assert CHECK_INTERVAL <= 5 * 60
 
 
 def test_followup_contract_stops_after_three_touches():
