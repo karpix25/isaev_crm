@@ -317,13 +317,20 @@ def _attempt_guidance(attempt_number: int) -> str:
 
 async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
     """
-    Send a follow-up message to the lead via UserBot.
+    Send a follow-up message to the lead through the lead's active Telegram channel.
     Returns True if sent successfully.
     """
     from sqlalchemy import update as sql_update
+    from src.models import MessageTransport
+    from src.services.telegram_delivery_service import telegram_delivery_service
     
     try:
-        # Save as outbound message (worker will pick it up due to PENDING status)
+        delivery = await telegram_delivery_service.send_text(
+            db=db,
+            lead=lead,
+            text=message,
+        )
+
         await chat_service.send_outbound_message(
             db,
             lead_id=lead.id,
@@ -333,7 +340,12 @@ async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
                 "type": "followup",
                 "attempt": lead.followup_count + 1,
                 "followup_variant": getattr(lead, "_followup_variant", None),
-            }
+                "provider": delivery.provider,
+                "external_chat_id": delivery.external_chat_id,
+            },
+            status=delivery.status,
+            telegram_message_id=delivery.telegram_message_id,
+            transport=MessageTransport.TELEGRAM,
         )
         
         # Update lead follow-up tracking

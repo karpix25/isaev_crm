@@ -140,9 +140,9 @@ async def main():
             from sqlalchemy.orm import selectinload
             
             async with AsyncSessionLocal() as db:
-                # Find unsent Telegram outbound messages. Quiz/Instagram leads can still
-                # be contactable in Telegram after deep-link activation, so source is not
-                # a safe delivery filter here.
+                # Find unsent Telegram outbound messages that belong to the userbot
+                # channel. Telegram Business and official bot messages are sent directly
+                # by their own delivery paths.
                 result = await db.execute(
                     select(ChatMessage)
                     .join(Lead, ChatMessage.lead_id == Lead.id)
@@ -152,6 +152,7 @@ async def main():
                         ChatMessage.transport == MessageTransport.TELEGRAM,
                         ChatMessage.telegram_message_id.is_(None),
                         Lead.telegram_id.isnot(None),
+                        Lead.source.in_(["userbot", "CRM"]),
                     )
                     .options(selectinload(ChatMessage.lead))
                     .order_by(ChatMessage.created_at.asc())

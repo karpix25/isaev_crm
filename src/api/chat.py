@@ -7,10 +7,11 @@ import re
 import os
 
 from src.database import get_db
-from src.models import Lead, MessageDirection, MessageTransport, Organization, User, UserRole
+from src.models import Lead, MessageDirection, MessageStatus, MessageTransport, Organization, User, UserRole
 from src.schemas.chat import ChatHistoryResponse, ChatMessageResponse, ChatMessageCreate, SendMessageRequest
 from src.services.chat_service import chat_service
 from src.services.lead_service import lead_service
+from src.services.telegram_delivery_service import TelegramDeliveryResult, telegram_delivery_service
 from src.services.whatsapp.media import media_type_from_mimetype, mimetype_for, public_media_url
 from src.services.whatsapp.transport_service import WhatsAppTransportError, whatsapp_transport_service
 from src.dependencies.auth import get_current_user, require_role
@@ -127,6 +128,7 @@ async def send_message_to_lead(
 
     telegram_message_id = None
     whatsapp_result = None
+    telegram_result: TelegramDeliveryResult | None = None
     if message_data.transport == MessageTransport.WHATSAPP:
         if not whatsapp_transport_service.is_configured():
             status_data = whatsapp_transport_service.configuration_status()
@@ -162,28 +164,22 @@ async def send_message_to_lead(
                 detail=f"Failed to send WhatsApp message: {exc}",
             )
     else:
-        # Send message via Telegram
-        if lead.source != "userbot" and lead.source != "CRM":
-            # Send via Official Bot
-            if not bot:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Telegram bot is not configured. Please add TELEGRAM_BOT_TOKEN to .env"
-                )
-            
-            try:
-                telegram_message = await bot.send_message(
-                    chat_id=lead.telegram_id,
-                    text=message_data.content
-                )
-                telegram_message_id = telegram_message.message_id
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to send Telegram message: {str(e)}"
-                )
+        try:
+            telegram_result = await telegram_delivery_service.send_text(
+                db=db,
+                lead=lead,
+                text=message_data.content,
+            )
+            telegram_message_id = telegram_result.telegram_message_id
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to send Telegram message: {exc}",
+            )
 
-    # Save message to database (UserBot messages will be picked up by the worker because status defaults to PENDING)
+    delivery_status = MessageStatus.SENT if whatsapp_result else (
+        telegram_result.status if telegram_result else MessageStatus.PENDING
+    )
     message = await chat_service.send_outbound_message(
         db=db,
         lead_id=lead_id,
@@ -192,11 +188,14 @@ async def send_message_to_lead(
         telegram_message_id=telegram_message_id,
         ai_metadata={
             "source": "CRM",
-            "provider": whatsapp_result.provider if whatsapp_result else None,
+            "provider": telegram_result.provider if telegram_result else (whatsapp_result.provider if whatsapp_result else None),
             "external_message_id": whatsapp_result.message_id if whatsapp_result else None,
-            "external_chat_id": whatsapp_result.chat_id if whatsapp_result else None,
+            "external_chat_id": telegram_result.external_chat_id if telegram_result else (
+                whatsapp_result.chat_id if whatsapp_result else None
+            ),
             "wazzup_message_id": whatsapp_result.message_id if whatsapp_result and whatsapp_result.provider == "wazzup" else None,
         },
+        status=delivery_status,
         transport=message_data.transport,
     )
     if whatsapp_result:
