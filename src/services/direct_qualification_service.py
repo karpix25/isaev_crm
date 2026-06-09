@@ -119,6 +119,40 @@ QUIZ_VALUE_BY_FIELD = {
 PRICE_WORDS = ("цен", "стоим", "сколько", "прайс", "бюджет", "расчет", "расчёт", "смет", "ремонт")
 
 
+def should_autostart_qualification(
+    next_action: str,
+    extracted_data: dict[str, Any],
+) -> bool:
+    if next_action != "direct_chat_qualification":
+        return False
+    state = _state(extracted_data)
+    if state.get("active") or state.get("completed"):
+        return False
+    return not _has_quiz_answers(extracted_data)
+
+
+def mark_prompt_sent(
+    extracted_data: dict[str, Any],
+    *,
+    field: str,
+    source: str,
+) -> dict[str, Any]:
+    updated = dict(extracted_data or {})
+    state = dict(_state(updated))
+    state.update(
+        {
+            "active": True,
+            "completed": False,
+            "current_field": field,
+            "prompt_source": source,
+            "prompt_sent_at": _now_iso(),
+            "updated_at": _now_iso(),
+        }
+    )
+    updated[STATE_KEY] = state
+    return updated
+
+
 def should_offer_qualification(text: str, extracted_data: dict[str, Any]) -> bool:
     state = _state(extracted_data)
     if _has_quiz_answers(extracted_data) and not state.get("active"):
@@ -226,7 +260,7 @@ def _prompt_text_for_step(
     if not completed_fields and step.field == "area":
         display_name = (company_name or "Исаев Групп").strip()
         return (
-            f"Здравствуйте. Менеджер {display_name} на связи.\n\n"
+            f"Здравствуйте. Я Александр, менеджер {display_name}.\n\n"
             "Чтобы дать нормальную вилку по работам, начнем с площади. "
             "Какая ближе?"
         )

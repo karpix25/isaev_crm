@@ -16,6 +16,7 @@ from src.models.lead import LeadStatus
 from src.services.cal_pro_service import cal_pro_service
 from src.services.chat_service import chat_service
 from src.services.direct_qualification_service import apply_callback_answer
+from src.services.measurement_analytics_service import measurement_analytics_service
 
 
 router = Router()
@@ -172,6 +173,19 @@ async def direct_qualification_callback(query: CallbackQuery):
                 "type": metadata_type,
                 "field": result.next_prompt.field if result.next_prompt else None,
                 "skip_knowledge_index": True,
+            },
+        )
+        await measurement_analytics_service.record_event(
+            db=db,
+            lead=lead,
+            event_type="telegram_direct_quiz_completed" if result.next_prompt is None else "telegram_direct_quiz_answered",
+            source="telegram_direct_qualification",
+            event_data={
+                "field": result.field,
+                "value": result.value,
+                "label": result.label,
+                "next_field": result.next_prompt.field if result.next_prompt else None,
+                "completion_type": metadata_type if result.next_prompt is None else None,
             },
         )
         await query.answer("Сохранил")

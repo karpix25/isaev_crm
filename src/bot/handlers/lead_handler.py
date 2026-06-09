@@ -49,6 +49,7 @@ from src.bot.measurement_slots import (
     slot_time_label as _slot_time_label,
 )
 from src.bot.telegram_file_service import save_telegram_document
+from src.bot.direct_qualification_entry import maybe_start_direct_qualification
 from src.bot.crm_agent_router import choose_crm_tool
 from src.bot.crm_safe_tools import answer_estimate_status, answer_lead_summary, answer_measurement_booking
 from src.bot.estimate_actions import looks_like_estimate_file_request, send_ready_estimate_from_crm
@@ -3572,6 +3573,18 @@ async def process_debounced_message(conversation_key: str):
 
         from src.services.lead_stage_context_service import lead_stage_context_service
         stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
+        org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+        org = org_result.scalar_one_or_none()
+        company_name = _display_company_name(org)
+        if await maybe_start_direct_qualification(
+            db=db,
+            message=message,
+            lead=lead,
+            stage_context=stage_context,
+            company_name=company_name,
+        ):
+            return
+
         if await _try_route_scenario_before_ai(db, message, lead, combined_text, stage_context):
             return
 
@@ -3640,13 +3653,6 @@ async def process_debounced_message(conversation_key: str):
             
             # Get active prompt configuration
             config = await prompt_service.get_active_config(db, org_id)
-            
-            # Get company name for prompt injection
-            from src.models.organization import Organization
-            from sqlalchemy import select
-            org_result = await db.execute(select(Organization).where(Organization.id == org_id))
-            org = org_result.scalar_one_or_none()
-            company_name = _display_company_name(org)
             
             if config and config.system_prompt:
                 base_prompt = config.system_prompt
