@@ -45,6 +45,7 @@ class LeadStageContextService:
         personal_quiz_url: str | None = None,
     ) -> LeadStageContext:
         extracted = self._parse_json(lead.extracted_data)
+        followup_pause = extracted.get("followup_pause") if isinstance(extracted.get("followup_pause"), dict) else {}
         quiz = extracted.get("quiz") if isinstance(extracted.get("quiz"), dict) else {}
         answers = quiz.get("answers") if isinstance(quiz.get("answers"), dict) else {}
 
@@ -66,7 +67,18 @@ class LeadStageContextService:
 
         lead_status = str(lead.status or "")
 
-        if lead_status == LeadStatus.LOST.value:
+        if followup_pause and lead_status == LeadStatus.KEYS_PENDING.value:
+            next_action = "awaiting_keys"
+            expected_from_client = "share_handover_or_keys_update"
+            client_expects = "patient_contextual_checkin"
+            response_policy = [
+                "Это долгий прогрев: клиент ранее сообщил, что объект еще не готов к замеру.",
+                "Не предлагай замер в лоб первым сообщением и не создавай ощущение давления.",
+                "Сначала мягко спроси по теме паузы: появились ли новости по сдаче объекта, ключам или доступу.",
+                "Если клиент отвечает, что ключи уже близко или получены — предложи заранее подобрать удобное окно бесплатного замера.",
+                "Если срок снова сдвигается — спокойно подтверди и предложи вернуться ближе к готовности объекта.",
+            ]
+        elif lead_status == LeadStatus.LOST.value:
             next_action = "lost_or_paused"
             expected_from_client = "only_answer_if_client_reinitiates"
             client_expects = "short_answer_or_reactivation"
@@ -241,6 +253,7 @@ class LeadStageContextService:
             answers=answers,
             quiz=quiz,
             extracted=extracted,
+            followup_pause=followup_pause,
             recent_messages=recent_messages,
             history_measurement_start=history_measurement_start,
             history_measurement_address=history_measurement_address,
@@ -297,6 +310,7 @@ class LeadStageContextService:
         answers: dict[str, Any],
         quiz: dict[str, Any],
         extracted: dict[str, Any],
+        followup_pause: dict[str, Any],
         recent_messages: list[ChatMessage],
         history_measurement_start: str | None,
         history_measurement_address: str | None,
@@ -329,6 +343,7 @@ class LeadStageContextService:
         recent_lines = self._format_recent_messages(recent_messages)
         policy_lines = "\n".join(f"- {line}" for line in response_policy)
         missing_line = ", ".join(missing) if missing else "нет критичных пропусков"
+        followup_pause_block = self._format_followup_pause(followup_pause)
 
         return f"""
 CRM_STAGE_CONTEXT:
@@ -350,6 +365,7 @@ measurement_status: {measurement.get("status") or "не указан"}
 measurement_address: {measurement_address}
 measurement_data_source: {measurement_source}
 preliminary_estimate: {price_label or "не рассчитан"}
+followup_pause: {followup_pause_block}
 missing_quiz_fields: {missing_line}
 personal_quiz_url: {personal_quiz_url or "none"}
 
@@ -405,6 +421,22 @@ RESPONSE_POLICY:
             if content:
                 lines.append(f"- {direction}: {content}")
         return "\n".join(lines) if lines else "- Истории сообщений пока нет."
+
+    def _format_followup_pause(self, pause: dict[str, Any]) -> str:
+        if not pause:
+            return "none"
+
+        parts = []
+        if pause.get("client_context"):
+            parts.append(str(pause["client_context"]))
+        if pause.get("source_message"):
+            parts.append(f"исходная фраза клиента: {pause['source_message']}")
+        if pause.get("followup_goal"):
+            parts.append(f"цель касания: {pause['followup_goal']}")
+        if pause.get("next_followup_at"):
+            parts.append(f"запланировано на: {pause['next_followup_at']}")
+
+        return " | ".join(parts) if parts else "есть отложенный follow-up"
 
     def _extract_measurement_from_messages(self, messages: list[ChatMessage]) -> tuple[str | None, str | None]:
         measurement_start = None

@@ -184,16 +184,24 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
         except Exception as exc:
             logger.warning("[FOLLOWUP] Could not build stage context for lead %s: %s", lead.id, exc)
 
-        threshold_hours = _get_threshold_hours(lead)
-        if threshold_hours is None:
-            continue
-        
         # Determine the reference time: last_followup_at if we already sent one, 
         # otherwise last_message_at
-        if lead.followup_count > 0 and lead.last_followup_at:
+        scheduled_followup_at = _get_next_followup_at(lead)
+        if scheduled_followup_at:
+            if now < scheduled_followup_at:
+                continue
+            reference_time = scheduled_followup_at
+            threshold_hours = 0
+        elif lead.followup_count > 0 and lead.last_followup_at:
             reference_time = lead.last_followup_at
+            threshold_hours = _get_threshold_hours(lead)
         else:
             reference_time = lead.last_message_at
+
+            threshold_hours = _get_threshold_hours(lead)
+
+        if threshold_hours is None:
+            continue
         
         # Ensure reference_time is timezone-aware
         if reference_time.tzinfo is None:
@@ -224,11 +232,24 @@ def _is_followup_too_old(now: datetime, reference_time: datetime) -> bool:
     return now - reference_time > timedelta(days=MAX_FOLLOWUP_AGE_DAYS)
 
 def _get_threshold_hours(lead: Lead) -> int | None:
+    next_followup_at = _get_next_followup_at(lead)
+    if next_followup_at:
+        return 0
+
     stage_key = _get_stage_key_cached(lead)
     stage_thresholds = STAGE_FOLLOWUP_THRESHOLDS.get(stage_key)
     if stage_thresholds:
         return stage_thresholds.get(lead.followup_count)
     return FOLLOWUP_THRESHOLDS.get(lead.followup_count)
+
+
+def _get_next_followup_at(lead: Lead) -> datetime | None:
+    value = getattr(lead, "next_followup_at", None)
+    if not value:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def _get_stage_key_cached(lead: Lead) -> str:
@@ -353,6 +374,7 @@ async def send_followup(db: AsyncSession, lead: Lead, message: str) -> bool:
         update_values = {
             "followup_count": next_count,
             "last_followup_at": datetime.now(timezone.utc),
+            "next_followup_at": None,
         }
         if AUTO_COOL_AFTER_FINAL_FOLLOWUP and next_count >= MAX_FOLLOWUPS:
             update_values["status"] = LeadStatus.FOLLOW_UP.value

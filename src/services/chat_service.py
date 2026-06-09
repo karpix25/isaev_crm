@@ -7,6 +7,7 @@ import uuid
 
 from src.models import Lead, ChatMessage, MessageDirection, MessageStatus, MessageTransport
 from src.schemas.chat import ChatMessageCreate
+from src.services.lead_followup_pause_service import lead_followup_pause_service
 
 
 class ChatService:
@@ -42,15 +43,28 @@ class ChatService:
         
         db.add(message)
         
+        lead = await db.get(Lead, lead_id)
+        pause_decision = lead_followup_pause_service.build_decision(lead, content) if lead else None
+        update_values = {
+            "last_message_at": datetime.utcnow(),
+            "unread_count": Lead.unread_count + 1,
+            "followup_count": 0,
+        }
+        if pause_decision and pause_decision.should_pause:
+            update_values["next_followup_at"] = pause_decision.next_followup_at
+            update_values["status"] = pause_decision.status
+            update_values["extracted_data"] = lead_followup_pause_service.merge_extracted_data(
+                lead.extracted_data if lead else None,
+                pause_decision.extracted_patch,
+            )
+        elif lead and lead.next_followup_at and not lead_followup_pause_service.should_keep_existing_pause(lead, content):
+            update_values["next_followup_at"] = None
+
         # Update lead's last message time, increment unread count, and reset follow-up counter
         await db.execute(
             update(Lead)
             .where(Lead.id == lead_id)
-            .values(
-                last_message_at=datetime.utcnow(),
-                unread_count=Lead.unread_count + 1,
-                followup_count=0
-            )
+            .values(**update_values)
         )
         
         await db.commit()

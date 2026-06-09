@@ -116,6 +116,7 @@ class Lead(BaseModel):
     # Follow-up tracking
     followup_count = Column(Integer, nullable=False, default=0)  # consecutive follow-ups sent
     last_followup_at = Column(DateTime(timezone=True), nullable=True)
+    next_followup_at = Column(DateTime(timezone=True), nullable=True)
     
     # Project connection
     converted_to_project_id = Column(
