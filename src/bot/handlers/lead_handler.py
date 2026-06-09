@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 # Create router for lead handlers
 router = Router()
 LEAD_MESSAGE_DEBOUNCE_SECONDS = 15.0
+SOFT_DECLINE_LIMIT = 3
 
 QUIZ_LABELS = {
     "type": {"flat": "Квартира", "house": "Дом", "commercial": "Коммерция"},
@@ -522,6 +523,9 @@ def _looks_like_not_interested(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
         return False
+    compact = normalized.strip(" .,!?:;")
+    if compact in {"нет", "не надо", "не хочу", "не подходит", "нет спасибо", "нет, спасибо"}:
+        return True
     phrases = (
         "не хочу у вас",
         "не хочу с вами",
@@ -532,8 +536,11 @@ def _looks_like_not_interested(text: str) -> bool:
         "не актуально",
         "неактуально",
         "отказ",
+        "не подходит",
         "не интересно",
         "неинтересно",
+        "пока не интересно",
+        "пока нет",
     )
     return any(phrase in normalized for phrase in phrases)
 
@@ -720,6 +727,45 @@ def _mark_measurement_slots_offered(lead) -> None:
     measurement["slots_offered_at"] = datetime.now(timezone.utc).isoformat()
     data["measurement"] = measurement
     lead.extracted_data = json.dumps(data, ensure_ascii=False)
+
+
+def _mark_soft_decline(lead, *, source_text: str) -> tuple[dict, int]:
+    data = _lead_extracted_data(lead)
+    sales_state = data.get("sales_state") if isinstance(data.get("sales_state"), dict) else {}
+    count = int(sales_state.get("soft_decline_count") or 0) + 1
+    now = datetime.now(timezone.utc).isoformat()
+    sales_state.update(
+        {
+            "current_intent": "soft_decline",
+            "current_objection": "not_interested",
+            "soft_decline_count": count,
+            "last_soft_decline_text": source_text[:300],
+            "last_strategy": "soft_decline_ladder",
+            "next_best_action": "pause_after_third_no" if count >= SOFT_DECLINE_LIMIT else "diagnose_decline",
+            "followup_strategy": "paused_after_decline" if count >= SOFT_DECLINE_LIMIT else "soft_decline",
+            "updated_at": now,
+        }
+    )
+    data["sales_state"] = sales_state
+    data["conversation_mode"] = "soft_decline"
+    data["conversation_mode_reason"] = source_text[:300]
+    data["conversation_mode_updated_at"] = now
+    lead.extracted_data = json.dumps(data, ensure_ascii=False)
+    return data, count
+
+
+def _soft_decline_reply(count: int) -> str:
+    if count <= 1:
+        return (
+            "Понимаю. Чтобы не дергать вас лишним, уточню один момент: "
+            "что больше остановило — бюджет, состав работ или сам замер?"
+        )
+    if count == 2:
+        return (
+            "Принял, не буду давить. Последнее уточнение: вопрос окончательно закрыт "
+            "или просто хотите вернуться к ремонту позже?"
+        )
+    return "Понял вас. Тогда ставлю заявку на паузу и больше не буду вас дергать. Если решите вернуться — просто напишите сюда."
 
 
 def _lead_quiz_data(lead) -> dict:
@@ -2055,11 +2101,15 @@ async def _handle_not_interested(
     lead,
     text_value: str,
 ) -> bool:
-    data = _set_lead_conversation_mode(lead, "not_interested", text_value[:300])
-    lead.status = LeadStatus.LOST.value
-    lead.ai_qualification_status = "not_interested"
+    data, decline_count = _mark_soft_decline(lead, source_text=text_value)
     measurement = data.get("measurement") if isinstance(data.get("measurement"), dict) else {}
-    if _measurement_has_active_booking(measurement):
+    if decline_count >= SOFT_DECLINE_LIMIT:
+        lead.status = LeadStatus.LOST.value
+        lead.ai_qualification_status = "not_interested"
+    elif lead.ai_qualification_status == "not_interested":
+        lead.ai_qualification_status = "in_progress"
+
+    if decline_count >= SOFT_DECLINE_LIMIT and _measurement_has_active_booking(measurement):
         lead.extracted_data = json.dumps(data, ensure_ascii=False)
         await db.commit()
         return await _handle_measurement_cancel_request(
@@ -2071,15 +2121,20 @@ async def _handle_not_interested(
         )
 
     await db.commit()
-    reply = "Понял вас. Зафиксировал отказ, больше не будем вас беспокоить. Всего доброго."
+    reply = _soft_decline_reply(decline_count)
     sent = await message.answer(reply)
     await chat_service.send_outbound_message(
         db=db,
         lead_id=lead.id,
         content=reply,
         telegram_message_id=sent.message_id,
-        sender_name="Bot",
-        ai_metadata={"source": "bot_scenario", "type": "lead_not_interested"},
+        sender_name="AI",
+        ai_metadata={
+            "source": "bot_scenario",
+            "type": "lead_soft_decline" if decline_count < SOFT_DECLINE_LIMIT else "lead_not_interested",
+            "soft_decline_count": decline_count,
+            "soft_decline_limit": SOFT_DECLINE_LIMIT,
+        },
     )
     return True
 

@@ -46,6 +46,7 @@ def _load_lead_handler_functions():
         "ZoneInfo": ZoneInfo,
         "AsyncSession": object,
         "Message": object,
+        "SOFT_DECLINE_LIMIT": 3,
         "normalize_quiz_design_answer": normalize_quiz_design_answer,
         "QUIZ_SUMMARY_FIELDS": (
             ("type", "Объект"),
@@ -141,11 +142,10 @@ def test_routes_measurement_cancellation_before_ai(monkeypatch):
     assert extracted_data["measurement"]["status"] in {"cancelled", "cancel_requested"}
 
 
-def test_routes_do_not_contact_abusive_and_not_interested_before_ai(monkeypatch):
+def test_routes_do_not_contact_and_abusive_before_ai(monkeypatch):
     examples = [
         "Не пишите мне больше и удалите мой номер из базы.",
         "Да пошли вы, больше не звоните.",
-        "Неинтересно, ремонт уже сделали с другой компанией.",
     ]
 
     for text in examples:
@@ -156,6 +156,42 @@ def test_routes_do_not_contact_abusive_and_not_interested_before_ai(monkeypatch)
         assert db.commit.await_count == 1, text
         assert lead.status == "LOST", text
         assert lead.ai_qualification_status == "not_interested", text
+
+
+def test_soft_decline_waits_until_third_no_before_lost(monkeypatch):
+    lead = SimpleNamespace(
+        id=4,
+        status="CONSULTING",
+        ai_qualification_status="in_progress",
+        extracted_data=None,
+    )
+
+    for index, text in enumerate(
+        [
+            "Неинтересно, ремонт уже сделали с другой компанией.",
+            "Нет, не подходит.",
+            "Нет спасибо.",
+        ],
+        start=1,
+    ):
+        routed, calls, lead, message, db = asyncio.run(
+            _route_text(text, monkeypatch, measurement_booked=False, lead=lead)
+        )
+
+        assert routed is True
+        assert message.answer.await_count == 1
+        assert db.commit.await_count == 1
+        data = json.loads(lead.extracted_data)
+        assert data["sales_state"]["soft_decline_count"] == index
+
+        if index < 3:
+            assert lead.status == "CONSULTING"
+            assert lead.ai_qualification_status == "in_progress"
+            assert "что больше остановило" in message.answer.await_args.args[0].lower() or "последнее уточнение" in message.answer.await_args.args[0].lower()
+        else:
+            assert lead.status == "LOST"
+            assert lead.ai_qualification_status == "not_interested"
+            assert "больше не буду вас дергать" in message.answer.await_args.args[0].lower()
 
 
 def test_routes_reactivation_before_ai(monkeypatch):
