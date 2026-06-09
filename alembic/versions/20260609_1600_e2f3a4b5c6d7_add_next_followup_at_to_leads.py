@@ -41,7 +41,7 @@ def upgrade() -> None:
             UPDATE leads l
             SET
                 next_followup_at = latest_wait_message.created_at + interval '30 days',
-                status = 'KEYS_PENDING',
+                status = 'FOLLOW_UP',
                 followup_count = 0,
                 extracted_data = (
                     COALESCE(NULLIF(l.extracted_data, ''), '{}')::jsonb

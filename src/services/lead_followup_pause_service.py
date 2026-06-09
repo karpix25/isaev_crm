@@ -70,7 +70,7 @@ class LeadFollowupPauseService:
 
         return FollowupPauseDecision(
             next_followup_at=next_followup_at,
-            status=LeadStatus.KEYS_PENDING.value,
+            status=LeadStatus.FOLLOW_UP.value,
             reason=reason,
             extracted_patch={
                 "followup_pause": {

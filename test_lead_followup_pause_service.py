@@ -26,7 +26,7 @@ def test_detects_keys_pending_delay_from_month_range():
     )
 
     assert decision.should_pause
-    assert decision.status == LeadStatus.KEYS_PENDING.value
+    assert decision.status == LeadStatus.FOLLOW_UP.value
     assert decision.reason == "keys_or_handover_wait"
     pause = decision.extracted_patch["followup_pause"]
     assert pause["delay_days"] == 30

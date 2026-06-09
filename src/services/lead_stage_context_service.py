@@ -67,7 +67,7 @@ class LeadStageContextService:
 
         lead_status = str(lead.status or "")
 
-        if followup_pause and lead_status == LeadStatus.KEYS_PENDING.value:
+        if followup_pause and lead_status in {LeadStatus.FOLLOW_UP.value, LeadStatus.KEYS_PENDING.value}:
             next_action = "awaiting_keys"
             expected_from_client = "share_handover_or_keys_update"
             client_expects = "patient_contextual_checkin"
