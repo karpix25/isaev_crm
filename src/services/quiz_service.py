@@ -15,20 +15,12 @@ from src.schemas.quiz import QuizContactCaptureRequest, QuizSubmitRequest, Measu
 from src.services.analytics_service import analytics_service
 from src.services.cal_pro_service import cal_pro_service
 from src.services.lead_manager_notification_service import lead_manager_notification_service
-from src.services.lead_service import lead_service
+from src.services.quiz_lead_deduplication_service import QuizLeadUpsertResult, quiz_lead_deduplication_service
 from src.services.quiz_hot_lead_service import quiz_hot_lead_service
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 
 class QuizService:
     SESSION_TOKEN_RE = re.compile(r"\b(qz_[A-Za-z0-9_-]{12,})\b")
-    AUTO_QUIZ_STATUSES = {
-        LeadStatus.NEW.value,
-        LeadStatus.QUIZ_COMPLETED.value,
-        LeadStatus.MESSENGER_PENDING.value,
-        LeadStatus.DESIGN_PENDING.value,
-        LeadStatus.DESIGN_REVIEW.value,
-        LeadStatus.MEASUREMENT_PENDING.value,
-    }
 
     async def submit_quiz(
         self,
@@ -59,7 +51,8 @@ class QuizService:
             session = await analytics_service.create_session(db=db, org_id=org_id, data=session_data)
             session_token = session.session_token
 
-        lead = await self._create_or_update_lead(db, org_id, payload, session_lead_id=session.lead_id)
+        lead_result = await self._create_or_update_lead(db, org_id, payload, session_lead_id=session.lead_id)
+        lead = lead_result.lead
 
         session.lead_id = lead.id
         session.status = "completed"
@@ -80,9 +73,9 @@ class QuizService:
         await analytics_service.record_event(
             db=db,
             session_token=session_token,
-            event_type="lead_created",
+            event_type="lead_created" if lead_result.created else "lead_updated",
             step_id="crm",
-            event_data={"lead_id": str(lead.id)},
+            event_data={"lead_id": str(lead.id), "deduplicated": not lead_result.created},
         )
         if payload.design_project_file_url:
             await analytics_service.record_event(
@@ -151,7 +144,13 @@ class QuizService:
                 "quiz_completed": False,
             },
         )
-        lead = await self._create_or_update_lead(db, org_id, submit_payload, session_lead_id=session.lead_id)
+        lead_result = await self._create_or_update_lead(
+            db,
+            org_id,
+            submit_payload,
+            session_lead_id=session.lead_id,
+        )
+        lead = lead_result.lead
 
         session.lead_id = lead.id
         session.last_event_at = datetime.now(timezone.utc)
@@ -171,9 +170,13 @@ class QuizService:
         await analytics_service.record_event(
             db=db,
             session_token=session_token,
-            event_type="lead_created",
+            event_type="lead_created" if lead_result.created else "lead_updated",
             step_id="crm",
-            event_data={"lead_id": str(lead.id), "capture_type": "exit_or_pause"},
+            event_data={
+                "lead_id": str(lead.id),
+                "capture_type": "exit_or_pause",
+                "deduplicated": not lead_result.created,
+            },
         )
         await self._enqueue_abandoned_telegram_followup(db=db, session=session, lead=lead)
         return lead, session_token
@@ -590,34 +593,7 @@ class QuizService:
         org_id: uuid.UUID,
         payload: QuizSubmitRequest,
         session_lead_id: uuid.UUID | None = None,
-    ) -> Lead:
-        phone = payload.contact.phone.strip() if payload.contact.phone else None
-        lead = None
-        if payload.lead_id:
-            result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.id == payload.lead_id))
-            lead = result.scalar_one_or_none()
-        if not lead and session_lead_id:
-            result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.id == session_lead_id))
-            lead = result.scalar_one_or_none()
-        if not lead and payload.session_token:
-            result = await db.execute(
-                select(Lead)
-                .where(
-                    Lead.org_id == org_id,
-                    Lead.extracted_data.is_not(None),
-                    Lead.extracted_data.contains(payload.session_token),
-                )
-                .order_by(Lead.created_at.desc())
-                .limit(1)
-            )
-            lead = result.scalar_one_or_none()
-        if not lead and payload.telegram_id:
-            result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.telegram_id == payload.telegram_id))
-            lead = result.scalar_one_or_none()
-        if phone:
-            result = await db.execute(select(Lead).where(Lead.org_id == org_id, Lead.phone == phone))
-            lead = lead or result.scalar_one_or_none()
-
+    ) -> QuizLeadUpsertResult:
         hot_lead_decision = quiz_hot_lead_service.evaluate(payload.answers)
         extracted = {
             "quiz": {
@@ -643,39 +619,14 @@ class QuizService:
         if payload.session_token:
             extracted["quiz_session_token"] = payload.session_token
 
-        if lead:
-            data = self._parse_extracted_data(lead.extracted_data)
-            self._merge_extracted_payload(data, extracted)
-            lead.full_name = payload.contact.name or lead.full_name
-            if phone:
-                lead.phone = phone
-            lead.username = self._clean_username(payload.contact.telegram_username) or lead.username
-            if payload.telegram_id and not lead.telegram_id:
-                lead.telegram_id = payload.telegram_id
-            lead.source = lead.source or payload.source or "quiz"
-            derived_status = self._derive_quiz_status(payload)
-            if lead.status in self.AUTO_QUIZ_STATUSES:
-                lead.status = derived_status.value
-            lead.extracted_data = json.dumps(data, ensure_ascii=False)
-            await db.commit()
-            await db.refresh(lead)
-            return lead
-
-        lead = await lead_service.create_manual_lead(
+        return await quiz_lead_deduplication_service.create_or_update(
             db=db,
             org_id=org_id,
-            full_name=payload.contact.name,
-            phone=phone,
-            username=payload.contact.telegram_username,
-            source=payload.source or "quiz",
+            payload=payload,
+            extracted_payload=extracted,
+            derived_status=self._derive_quiz_status(payload),
+            session_lead_id=session_lead_id,
         )
-        data = self._parse_extracted_data(lead.extracted_data)
-        self._merge_extracted_payload(data, extracted)
-        lead.extracted_data = json.dumps(data, ensure_ascii=False)
-        lead.status = self._derive_quiz_status(payload).value
-        await db.commit()
-        await db.refresh(lead)
-        return lead
 
     async def _notify_quiz_hot_lead_if_needed(
         self,
