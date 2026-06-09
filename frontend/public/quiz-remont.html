@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Квиз — ISAEV GROUP</title>
+<script>
+  (function redirectTrackedTelegramEntry() {
+    const match = window.location.pathname.match(/^\/tg\/([^/?#]+)/);
+    if (!match) return;
+
+    const campaign = encodeURIComponent(decodeURIComponent(match[1] || 'telegram-direct'));
+    window.location.replace(`/api/tg/${campaign}${window.location.search || ''}`);
+  })();
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
