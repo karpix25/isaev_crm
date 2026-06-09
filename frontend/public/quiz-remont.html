@@ -1113,6 +1113,89 @@ let telegramBusinessProfileUrl = window.QUIZ_TELEGRAM_BUSINESS_PROFILE_URL || ''
 const WHATSAPP_PHONE = window.QUIZ_WHATSAPP_PHONE || '79212271279';
 let posthogReady = false;
 
+(function handleTelegramEntryFallback() {
+  const match = window.location.pathname.match(/^\/tg\/([^/?#]+)/);
+  if (!match) return;
+
+  const campaign = decodeURIComponent(match[1] || 'telegram-direct')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '')
+    .toLowerCase()
+    .slice(0, 80) || 'telegram-direct';
+  const params = new URLSearchParams(window.location.search);
+  const entryUrl = window.location.href;
+  const redirectDelayMs = 1100;
+
+  function postJson(path, body) {
+    return fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+  }
+
+  async function loadTelegramTarget() {
+    try {
+      const response = await fetch(API_BASE + '/quiz/config', { keepalive: true });
+      if (!response.ok) return null;
+      const config = await response.json();
+      const telegram = config.telegram || {};
+      if (telegram.business_profile_url) return String(telegram.business_profile_url);
+      if (telegram.bot_username) return `https://t.me/${String(telegram.bot_username).replace(/^@/, '')}`;
+    } catch (e) {
+      console.warn('Telegram entry config failed', e);
+    }
+    return telegramBusinessProfileUrl || TELEGRAM_URL;
+  }
+
+  async function trackTelegramEntry() {
+    try {
+      const sessionResponse = await postJson('/analytics/funnel/sessions', {
+        funnel_name: 'telegram_direct_chat',
+        channel: 'telegram',
+        source: 'telegram_groups',
+        utm_source: 'telegram',
+        utm_medium: 'group_outreach',
+        utm_campaign: campaign,
+        utm_content: params.get('content') || params.get('utm_content'),
+        utm_term: params.get('term') || params.get('utm_term'),
+        entry_url: entryUrl,
+        referrer: document.referrer || null,
+        metadata: {
+          entry: 'telegram_direct_chat',
+          campaign_slug: campaign,
+          fallback: 'quiz_html',
+          user_agent: navigator.userAgent,
+        },
+      });
+      if (!sessionResponse.ok) return;
+      const session = await sessionResponse.json();
+      await postJson('/analytics/funnel/events', {
+        session_token: session.session_token,
+        event_type: 'telegram_clicked',
+        step_id: 'messenger',
+        event_data: {
+          messenger: 'telegram',
+          source: 'telegram_groups',
+          campaign,
+          entry_url: entryUrl,
+          fallback: 'quiz_html',
+        },
+      });
+    } catch (e) {
+      console.warn('Telegram entry tracking failed', e);
+    }
+  }
+
+  Promise.race([
+    Promise.all([trackTelegramEntry(), loadTelegramTarget()]).then(([, target]) => target),
+    new Promise(resolve => setTimeout(() => resolve(null), redirectDelayMs)),
+  ]).then(target => {
+    window.location.replace(target || telegramBusinessProfileUrl || TELEGRAM_URL);
+  });
+})();
+
 const questions = [
   {
     id: 'type',
