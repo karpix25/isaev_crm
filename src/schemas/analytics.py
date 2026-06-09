@@ -73,6 +73,20 @@ class QuizAnswerBreakdown(BaseModel):
     options: list[BreakdownItem]
 
 
+class QuizStepMetric(BaseModel):
+    step_id: str
+    label: str
+    index: int
+    viewed: int
+    answered: int
+    dropoffs_after_view: int
+    answer_rate: float
+    conversion_from_start: float | None = None
+    hesitations: int
+    back_clicks: int
+    avg_time_on_step_ms: int | None = None
+
+
 class MessengerMetric(BaseModel):
     messenger: str
     label: str
@@ -103,5 +117,6 @@ class AnalyticsSummary(BaseModel):
     campaigns: list[BreakdownItem]
     channels: list[BreakdownItem]
     quiz_answers: list[QuizAnswerBreakdown]
+    quiz_steps: list[QuizStepMetric]
     messenger_metrics: list[MessengerMetric]
     recent_events: list[AnalyticsEventItem]

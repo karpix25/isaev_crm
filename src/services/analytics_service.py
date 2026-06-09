@@ -15,6 +15,7 @@ from src.schemas.analytics import (
     FunnelStepMetric,
     MessengerMetric,
     QuizAnswerBreakdown,
+    QuizStepMetric,
 )
 from src.services.posthog_service import posthog_service
 
@@ -145,21 +146,7 @@ class AnalyticsService:
         await posthog_service.capture(
             distinct_id=session.session_token,
             event=event_type,
-            properties={
-                "session_token": session.session_token,
-                "funnel_name": session.funnel_name,
-                "org_id": str(session.org_id),
-                "lead_id": str(event.lead_id) if event.lead_id else None,
-                "step_id": step_id,
-                "source": session.source,
-                "channel": session.channel,
-                "utm_source": session.utm_source,
-                "utm_medium": session.utm_medium,
-                "utm_campaign": session.utm_campaign,
-                "utm_content": session.utm_content,
-                "utm_term": session.utm_term,
-                "event_data": event_data or {},
-            },
+            properties=self._posthog_properties(session, event, step_id, event_data),
         )
         return event
 
@@ -204,6 +191,7 @@ class AnalyticsService:
         campaigns = await self._breakdown(db, FunnelSession.utm_campaign, session_filters)
         channels = await self._breakdown(db, FunnelSession.channel, session_filters)
         quiz_answers = await self._quiz_answers(db, event_filters)
+        quiz_steps = await self._quiz_steps(db, event_filters)
         messenger_metrics = await self._messenger_metrics(db, event_filters)
         recent_events = await self._recent_events(db, event_filters)
 
@@ -219,6 +207,7 @@ class AnalyticsService:
             campaigns=campaigns,
             channels=channels,
             quiz_answers=quiz_answers,
+            quiz_steps=quiz_steps,
             messenger_metrics=messenger_metrics,
             recent_events=recent_events,
         )
@@ -299,6 +288,61 @@ class AnalyticsService:
             items.append(QuizAnswerBreakdown(step_id=step_id, label=label, options=options))
         return items
 
+    async def _quiz_steps(self, db: AsyncSession, filters: list[Any]) -> list[QuizStepMetric]:
+        start_count = await self._scalar_count(
+            db,
+            select(func.count(distinct(FunnelEvent.session_id))).where(*filters, FunnelEvent.event_type == "quiz_opened"),
+        )
+        rows: list[QuizStepMetric] = []
+        for index, (step_id, label) in enumerate(QUIZ_STEP_LABELS.items(), start=1):
+            viewed = await self._count_step_sessions(db, filters, "quiz_step_viewed", step_id)
+            answered = await self._count_step_sessions(db, filters, "answer_selected", step_id)
+            hesitations = await self._count_step_sessions(db, filters, "quiz_step_hesitated", step_id)
+            back_clicks = await self._count_step_sessions(db, filters, "quiz_step_back_clicked", step_id)
+            avg_time = await self._avg_step_time(db, filters, step_id)
+            rows.append(
+                QuizStepMetric(
+                    step_id=step_id,
+                    label=label,
+                    index=index,
+                    viewed=viewed,
+                    answered=answered,
+                    dropoffs_after_view=max(viewed - answered, 0),
+                    answer_rate=round((answered / viewed) * 100, 1) if viewed else 0.0,
+                    conversion_from_start=round((viewed / start_count) * 100, 1) if start_count else None,
+                    hesitations=hesitations,
+                    back_clicks=back_clicks,
+                    avg_time_on_step_ms=avg_time,
+                )
+            )
+        return rows
+
+    async def _count_step_sessions(self, db: AsyncSession, filters: list[Any], event_type: str, step_id: str) -> int:
+        return await self._scalar_count(
+            db,
+            select(func.count(distinct(FunnelEvent.session_id))).where(
+                *filters,
+                FunnelEvent.event_type == event_type,
+                FunnelEvent.step_id == step_id,
+            ),
+        )
+
+    async def _avg_step_time(self, db: AsyncSession, filters: list[Any], step_id: str) -> int | None:
+        time_expr = func.coalesce(
+            FunnelEvent.event_data["time_on_step_ms"].as_integer(),
+            FunnelEvent.event_data["time_to_action_ms"].as_integer(),
+        )
+        result = await db.execute(
+            select(func.avg(time_expr)).where(
+                *filters,
+                FunnelEvent.event_type == "answer_selected",
+                FunnelEvent.step_id == step_id,
+                time_expr.isnot(None),
+            )
+        )
+        value = result.scalar()
+        return int(value) if value is not None else None
+
     async def _messenger_metrics(self, db: AsyncSession, filters: list[Any]) -> list[MessengerMetric]:
         rows: list[MessengerMetric] = []
         configs = [
@@ -354,6 +398,46 @@ class AnalyticsService:
             )
             for event, session_token in result.all()
         ]
+
+    def _posthog_properties(
+        self,
+        session: FunnelSession,
+        event: FunnelEvent,
+        step_id: str | None,
+        event_data: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        data = event_data or {}
+        properties = {
+            "session_token": session.session_token,
+            "funnel_name": session.funnel_name,
+            "org_id": str(session.org_id),
+            "lead_id": str(event.lead_id) if event.lead_id else None,
+            "step_id": step_id,
+            "step_label": QUIZ_STEP_LABELS.get(step_id or "", step_id),
+            "source": session.source,
+            "channel": session.channel,
+            "utm_source": session.utm_source,
+            "utm_medium": session.utm_medium,
+            "utm_campaign": session.utm_campaign,
+            "utm_content": session.utm_content,
+            "utm_term": session.utm_term,
+            "event_data": data,
+        }
+        for key in (
+            "question_index",
+            "question_total",
+            "value",
+            "label",
+            "time_on_step_ms",
+            "time_to_action_ms",
+            "answers_count",
+            "messenger",
+            "copy_id",
+            "cta_id",
+        ):
+            if key in data:
+                properties[key] = data[key]
+        return properties
 
 
 analytics_service = AnalyticsService()

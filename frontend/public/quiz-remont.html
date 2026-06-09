@@ -942,40 +942,19 @@
         </div>
       </div>
 
-      <div class="gift-banner">
-        <div class="gift-icon">🎁</div>
-        <div class="gift-text">
-          <div class="gift-title">Бонус к ремонту</div>
-          <div class="gift-sub">Дизайн-проект можем включить бесплатно при заключении договора</div>
-        </div>
-        <div class="gift-tag">Дар</div>
-      </div>
-
       <div class="start-tag">Бесплатный расчёт · около 2 минут</div>
-      <div class="start-title">Узнайте стоимость ремонта<br>без долгих созвонов</div>
-      <div class="start-sub">Сначала зададим 2 быстрых вопроса и сохраним расчёт, дальше уточним детали объекта. Бесплатно и без обязательств.</div>
+      <div class="start-title">Узнайте ориентир стоимости ремонта</div>
+      <div class="start-sub">Ответьте на несколько вопросов — покажем вилку по работам без материалов и подскажем следующий шаг для точной сметы.</div>
 
       <div class="start-points">
         <div class="start-point">
           <div class="start-point-icon">📊</div>
-          Понятный ориентир по стоимости
-        </div>
-        <div class="start-point">
-          <div class="start-point-icon">⚡</div>
-          Перезвоним в течение 30 минут
-        </div>
-        <div class="start-point">
-          <div class="start-point-icon">🏠</div>
-          Выезд на замер бесплатно
-        </div>
-        <div class="start-point">
-          <div class="start-point-icon">🎁</div>
-          Дизайн-проект в подарок
+          Ориентир по работам без материалов
         </div>
       </div>
 
       <button class="btn-next" onclick="startQuiz()">Рассчитать стоимость →</button>
-      <div class="start-time">⏱ Первые 2 вопроса — меньше минуты</div>
+      <div class="start-time">Без звонка на первом шаге</div>
     </div>
 
     <!-- QUESTION -->
@@ -1590,14 +1569,20 @@ function selectOption(qId, val, el) {
   trackEvent('answer_selected', qId, {
     value: val,
     label: labels[qId]?.[val] || val,
+    question_index: step + 1,
+    question_total: questions.length,
     time_to_action_ms: timeToActionMs,
+    time_on_step_ms: timeToActionMs,
     copy_id: `question_${qId}_text`,
     copy_variant: COPY_VARIANT
   });
   trackEvent('quiz_step_answered', qId, {
     value: val,
     label: labels[qId]?.[val] || val,
+    question_index: step + 1,
+    question_total: questions.length,
     time_to_action_ms: timeToActionMs,
+    time_on_step_ms: timeToActionMs,
     copy_id: `question_${qId}_text`,
     copy_variant: COPY_VARIANT
   });

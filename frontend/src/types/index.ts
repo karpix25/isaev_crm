@@ -181,6 +181,20 @@ export interface QuizAnswerBreakdown {
     options: BreakdownItem[]
 }
 
+export interface QuizStepMetric {
+    step_id: string
+    label: string
+    index: number
+    viewed: number
+    answered: number
+    dropoffs_after_view: number
+    answer_rate: number
+    conversion_from_start?: number | null
+    hesitations: number
+    back_clicks: number
+    avg_time_on_step_ms?: number | null
+}
+
 export interface MessengerMetric {
     messenger: string
     label: string
@@ -211,6 +225,7 @@ export interface AnalyticsSummary {
     campaigns: BreakdownItem[]
     channels: BreakdownItem[]
     quiz_answers: QuizAnswerBreakdown[]
+    quiz_steps: QuizStepMetric[]
     messenger_metrics: MessengerMetric[]
     recent_events: AnalyticsEventItem[]
 }
