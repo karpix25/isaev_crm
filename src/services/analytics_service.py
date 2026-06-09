@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -20,21 +21,6 @@ from src.schemas.analytics import (
 from src.services.posthog_service import posthog_service
 
 
-FUNNEL_STEPS: list[tuple[str, str]] = [
-    ("quiz_opened", "Открыл квиз"),
-    ("quiz_started", "Начал квиз"),
-    ("answer_selected", "Ответил на вопросы"),
-    ("contact_gate_viewed", "Увидел сохранение расчета"),
-    ("contact_gate_submitted", "Сохранил контакт в квизе"),
-    ("contact_viewed", "Дошел до контактов"),
-    ("contact_submitted", "Оставил контакты"),
-    ("lead_created", "Создан лид"),
-    ("measurement_booking_requested", "Выбрал время замера"),
-    ("measurement_booked", "Замер записан"),
-    ("messenger_clicked", "Нажал мессенджер"),
-    ("messenger_message_received", "Написал в мессенджер"),
-]
-
 QUIZ_STEP_LABELS = {
     "type": "Объект",
     "area": "Площадь",
@@ -54,6 +40,40 @@ MESSENGER_CLICK_EVENTS: dict[str, tuple[str, ...]] = {
 
 def messenger_click_event_names(messenger: str) -> tuple[str, ...]:
     return MESSENGER_CLICK_EVENTS.get(messenger, (f"{messenger}_clicked",))
+
+
+@dataclass(frozen=True)
+class FunnelStepDefinition:
+    key: str
+    label: str
+    event_types: tuple[str, ...]
+    step_id: str | None = None
+
+
+FUNNEL_STEPS: list[FunnelStepDefinition] = [
+    FunnelStepDefinition("quiz_opened", "Открыл квиз", ("quiz_opened",)),
+    FunnelStepDefinition(
+        "quiz_started",
+        "Начал квиз",
+        ("quiz_started", "quiz_step_viewed", "answer_selected"),
+    ),
+    FunnelStepDefinition("quiz_questions_completed", "Прошел вопросы", ("answer_selected",), "budget"),
+    FunnelStepDefinition("contact_viewed", "Дошел до отправки", ("contact_viewed",)),
+    FunnelStepDefinition("contact_submitted", "Оставил контакт", ("contact_submitted",)),
+    FunnelStepDefinition("lead_created", "Создан / обновлен лид", ("lead_created", "lead_updated")),
+    FunnelStepDefinition(
+        "messenger_clicked",
+        "Нажал мессенджер",
+        (*messenger_click_event_names("telegram"), *messenger_click_event_names("whatsapp")),
+    ),
+    FunnelStepDefinition(
+        "messenger_message_received",
+        "Написал в мессенджер",
+        ("messenger_message_received", "telegram_message_received", "whatsapp_message_received"),
+    ),
+    FunnelStepDefinition("measurement_booking_requested", "Выбрал время замера", ("measurement_booking_requested",)),
+    FunnelStepDefinition("measurement_booked", "Замер записан", ("measurement_booked",)),
+]
 
 
 class AnalyticsService:
@@ -220,20 +240,10 @@ class AnalyticsService:
         previous = None
         start = None
         rows: list[FunnelStepMetric] = []
-        for event_type, label in FUNNEL_STEPS:
-            if event_type == "messenger_clicked":
-                event_filter = FunnelEvent.event_type.in_([
-                    *messenger_click_event_names("telegram"),
-                    *messenger_click_event_names("whatsapp"),
-                ])
-            elif event_type == "messenger_message_received":
-                event_filter = FunnelEvent.event_type.in_([
-                    "messenger_message_received",
-                    "telegram_message_received",
-                    "whatsapp_message_received",
-                ])
-            else:
-                event_filter = FunnelEvent.event_type == event_type
+        for step in FUNNEL_STEPS:
+            event_filter = FunnelEvent.event_type.in_(step.event_types)
+            if step.step_id:
+                event_filter = event_filter & (FunnelEvent.step_id == step.step_id)
             count = await self._scalar_count(
                 db,
                 select(func.count(distinct(FunnelEvent.session_id))).where(*filters, event_filter),
@@ -242,8 +252,8 @@ class AnalyticsService:
                 start = count
             rows.append(
                 FunnelStepMetric(
-                    key=event_type,
-                    label=label,
+                    key=step.key,
+                    label=step.label,
                     count=count,
                     conversion_from_previous=round((count / previous) * 100, 1) if previous else None,
                     conversion_from_start=round((count / start) * 100, 1) if start else None,

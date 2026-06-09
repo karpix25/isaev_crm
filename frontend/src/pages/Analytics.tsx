@@ -104,7 +104,7 @@ export function Analytics() {
                 <MetricCard title="Сессии" value={data.sessions_total} hint={`Потери: ${abandonedRate}%`} icon={MousePointerClick} tone="bg-blue-600" />
                 <MetricCard title="Лиды" value={data.leads_linked} hint={`${leadRate}% от сессий`} icon={Link2} tone="bg-emerald-600" />
                 <MetricCard title="Мессенджер" value={`${messengerRate}%`} hint={`${messengerWritten}/${messengerClicks} написали`} icon={MessageCircle} tone="bg-amber-600" />
-                <MetricCard title="Завершение" value={`${data.completion_rate}%`} hint={`${contactSubmitted} оставили контакты`} icon={TrendingUp} tone="bg-violet-600" />
+                <MetricCard title="Завершение" value={`${data.completion_rate}%`} hint={`${contactSubmitted} оставили контакт`} icon={TrendingUp} tone="bg-violet-600" />
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.85fr)]">
