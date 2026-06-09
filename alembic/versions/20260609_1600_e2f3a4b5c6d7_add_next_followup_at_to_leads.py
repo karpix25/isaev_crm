@@ -29,7 +29,7 @@ def upgrade() -> None:
                     cm.content,
                     cm.created_at
                 FROM chat_messages cm
-                WHERE cm.direction = 'inbound'
+                WHERE cm.direction = 'INBOUND'
                   AND (
                     replace(lower(cm.content), 'ё', 'е') ~ 'не\\s+сдан'
                     OR replace(lower(cm.content), 'ё', 'е') ~ 'ждем\\s+.*(сдач|ключ)'
