@@ -102,7 +102,7 @@ class QuizService:
         await self._notify_quiz_hot_lead_if_needed(db=db, lead=lead, payload=payload)
 
         slots = []
-        if self.should_offer_measurement(payload.answers):
+        if self.should_offer_measurement(payload.answers) and not payload.contact.preferred_messenger:
             slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
         return lead, session_token, slots
 

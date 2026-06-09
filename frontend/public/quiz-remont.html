@@ -1458,6 +1458,10 @@ async function trackMessengerClick(messenger, stepId = 'messenger', extra = {}) 
   });
 }
 
+function trackMessengerClickInBackground(messenger, stepId = 'messenger', extra = {}) {
+  trackMessengerClick(messenger, stepId, extra).catch(e => console.warn('Messenger tracking failed', e));
+}
+
 function elapsedFrom(timestamp) {
   return timestamp ? Math.max(0, Date.now() - timestamp) : null;
 }
@@ -1489,7 +1493,7 @@ function showScreen(id) {
   goingBack = false;
 }
 
-function startQuiz() {
+function startQuiz(options = {}) {
   localStorage.removeItem('isaev_quiz_progress');
   answers = {};
   currentLeadId = '';
@@ -1507,8 +1511,13 @@ function startQuiz() {
   showScreen('screen-q');
   renderQuestion();
   ensureSession().then(() => {
-    trackCtaClick('start_quiz', 'start', { copy_id: 'start_button' });
-    trackEvent('quiz_started', 'start', { copy_variant: COPY_VARIANT });
+    trackCtaClick(options.auto ? 'auto_start_quiz' : 'start_quiz', 'start', {
+      copy_id: options.auto ? 'auto_first_question' : 'start_button'
+    });
+    trackEvent('quiz_started', 'start', {
+      copy_variant: COPY_VARIANT,
+      auto_start: Boolean(options.auto)
+    });
   });
 }
 
@@ -2053,7 +2062,7 @@ async function submitFinalQuiz(contactOverride = null) {
 
   if (selectedMessenger) {
     const messengerUrl = buildMessengerUrl(selectedMessenger, buildMessengerMessage(contact.name));
-    await trackMessengerClick(selectedMessenger, 'messenger', {
+    trackMessengerClickInBackground(selectedMessenger, 'messenger', {
       cta_id: 'open_messenger_after_submit',
       copy_id: 'messenger_after_submit',
     });
@@ -2120,7 +2129,7 @@ async function submitFinalQuizToMessenger(contact, messenger) {
 
   if (statusEl) statusEl.textContent = 'Открываем мессенджер...';
   const messengerUrl = buildMessengerUrl(messenger, buildMessengerMessage(contact.name));
-  await trackMessengerClick(messenger, 'messenger', {
+  trackMessengerClickInBackground(messenger, 'messenger', {
     cta_id: 'open_messenger_after_submit',
     copy_id: 'messenger_after_submit'
   });
@@ -2186,7 +2195,7 @@ async function captureExitContact(messenger) {
     rememberLeadContactHints(result);
     localStorage.setItem('isaev_quiz_session_token', sessionToken);
     statusEl.textContent = 'Готово, открываем мессенджер...';
-    await trackMessengerClick(messenger, 'exit_capture', {
+    trackMessengerClickInBackground(messenger, 'exit_capture', {
       cta_id: 'open_messenger_from_exit_capture',
       copy_id: 'exit_capture'
     });
@@ -2377,7 +2386,7 @@ function renderMessengerActions(name) {
 
 async function trackMessengerResultClick(messenger, event) {
   if (event) event.preventDefault();
-  await trackMessengerClick(messenger, 'messenger', {
+  trackMessengerClickInBackground(messenger, 'messenger', {
     cta_id: 'open_messenger_from_result',
     copy_id: 'result_messenger_actions',
     has_measurement_slot: Boolean(selectedMeasurementSlot)
@@ -2439,6 +2448,15 @@ function escapeHtml(value) {
 initPostHog();
 ensureSession();
 
+function initializeQuizEntry() {
+  const saved = getSavedProgress();
+  if (saved && saved.step >= 0 && Object.keys(saved.answers || {}).length > 0) {
+    showResumeBoxIfNeeded();
+    return;
+  }
+  startQuiz({ auto: true });
+}
+
 function shake(id) {
   const el = document.getElementById(id);
   el.style.animation = 'none';
@@ -2455,7 +2473,7 @@ style.textContent = `@keyframes shake {
   40%{transform:translateX(8px)} 60%{transform:translateX(-5px)}
   80%{transform:translateX(5px)}}`;
 document.head.appendChild(style);
-showResumeBoxIfNeeded();
+initializeQuizEntry();
 resetInactivityTimer();
 </script>
 </body>

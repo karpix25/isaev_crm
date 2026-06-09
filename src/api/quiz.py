@@ -93,13 +93,14 @@ async def submit_quiz(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    await quiz_whatsapp_activation_service.maybe_send_after_quiz(
-        db=db,
-        lead=lead,
-        session_token=session_token,
-        preferred_messenger=payload.contact.preferred_messenger,
-        source="quiz_submit_whatsapp",
-    )
+    if not payload.contact.preferred_messenger:
+        await quiz_whatsapp_activation_service.maybe_send_after_quiz(
+            db=db,
+            lead=lead,
+            session_token=session_token,
+            preferred_messenger=payload.contact.preferred_messenger,
+            source="quiz_submit_whatsapp",
+        )
     presence = _lead_messenger_presence(lead)
     return QuizSubmitResponse(
         lead_id=lead.id,
@@ -124,13 +125,14 @@ async def capture_quiz_contact(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    await quiz_whatsapp_activation_service.maybe_send_after_quiz(
-        db=db,
-        lead=lead,
-        session_token=session_token,
-        preferred_messenger=payload.contact.preferred_messenger,
-        source="quiz_capture_whatsapp",
-    )
+    if not payload.contact.preferred_messenger:
+        await quiz_whatsapp_activation_service.maybe_send_after_quiz(
+            db=db,
+            lead=lead,
+            session_token=session_token,
+            preferred_messenger=payload.contact.preferred_messenger,
+            source="quiz_capture_whatsapp",
+        )
     presence = _lead_messenger_presence(lead)
     return QuizContactCaptureResponse(
         lead_id=lead.id,
