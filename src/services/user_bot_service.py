@@ -238,6 +238,10 @@ class UserBotService:
             content = event.message.message
             is_voice = False
             image_base64 = None
+            media_url = None
+            media_filename = None
+            media_mimetype = None
+            media_size = None
             photo_caption = ""
             
             # 2. Check for voice/audio/video note
@@ -282,6 +286,7 @@ class UserBotService:
                     content = "[Клиент прислал фото без текста (возможно, фото объекта для ремонта)]"
                 
                 # Download and encode for vision
+                temp_path = None
                 try:
                     import base64
                     import tempfile
@@ -290,11 +295,21 @@ class UserBotService:
                         temp_path = tmp.name
                     await client.download_media(event.message, file=temp_path)
                     with open(temp_path, "rb") as f:
-                        image_base64 = base64.b64encode(f.read()).decode("utf-8")
-                    os.remove(temp_path)
+                        image_bytes = f.read()
+                        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                    from src.services.telegram_chat_media_storage import telegram_chat_media_storage
+                    stored_media = telegram_chat_media_storage.save_photo_file(temp_path)
+                    if stored_media:
+                        media_url = stored_media.url
+                        media_filename = stored_media.filename
+                        media_mimetype = stored_media.mimetype
+                        media_size = stored_media.size
                     logger.info(f"[USERBOT] Photo downloaded and encoded for vision from {sender_id}")
                 except Exception as e:
                     logger.error(f"[USERBOT] Failed to download photo for vision: {e}")
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        os.remove(temp_path)
 
                 logger.info(f"[USERBOT] Photo received from {sender_id}: {content}")
             
@@ -306,11 +321,15 @@ class UserBotService:
             asyncio.create_task(self._process_message(
                 org_id, sender_id, sender, content, 
                 is_voice=is_voice, image_base64=image_base64, photo_caption=photo_caption,
+                media_url=media_url, media_filename=media_filename,
+                media_mimetype=media_mimetype, media_size=media_size,
                 telegram_message_id=getattr(event.message, "id", None),
             ))
 
     async def _process_message(self, org_id: uuid.UUID, tg_user_id: int, sender, content: str, 
                                is_voice: bool = False, image_base64: str = None, photo_caption: str = "",
+                               media_url: str | None = None, media_filename: str | None = None,
+                               media_mimetype: str | None = None, media_size: int | None = None,
                                telegram_message_id: int | None = None):
         """Logic to generate AI response and save to CRM with RAG"""
         import json
@@ -355,8 +374,12 @@ class UserBotService:
                     lead_id=lead.id, 
                     content=content,
                     telegram_message_id=telegram_message_id,
+                    media_url=media_url,
+                    media_filename=media_filename,
+                    media_mimetype=media_mimetype,
+                    media_size=media_size,
                     sender_name=full_name,
-                    ai_metadata={"is_voice": True} if is_voice else None
+                    ai_metadata={"is_voice": True} if is_voice else ({"is_photo": True} if media_url else None)
                 )
                 
                 # 2.5 Wait a bit to simulate human reading and typing (5-15 seconds)

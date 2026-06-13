@@ -28,6 +28,10 @@ export declare enum MessageDirection {
     INBOUND = "inbound",
     OUTBOUND = "outbound"
 }
+export declare enum MessageTransport {
+    TELEGRAM = "telegram",
+    WHATSAPP = "whatsapp"
+}
 export interface Lead {
     id: string;
     org_id: string;
@@ -55,13 +59,20 @@ export interface ChatMessage {
     id: string;
     lead_id: string;
     direction: MessageDirection;
+    transport?: MessageTransport;
     content: string;
     media_url: string | null;
+    media_filename?: string | null;
+    media_mimetype?: string | null;
+    media_size?: number | null;
     telegram_message_id: number | null;
+    external_provider?: string | null;
+    external_message_id?: string | null;
+    external_chat_id?: string | null;
     is_read: boolean;
     sender_name: string | null;
     created_at: string;
-    ai_metadata?: any;
+    ai_metadata?: Record<string, any>;
 }
 export interface ActivityChartItem {
     day: string;

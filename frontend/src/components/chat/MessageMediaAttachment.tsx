@@ -1,17 +1,19 @@
 import { FileText } from 'lucide-react'
 
-import { getMediaFileName, getMediaUrl, isImageMediaUrl } from './mediaUtils'
+import { getMediaFileName, getMediaUrl, isImageMedia } from './mediaUtils'
 
 type MessageMediaAttachmentProps = {
     mediaUrl?: string | null
+    mediaFilename?: string | null
+    mediaMimetype?: string | null
     isOutbound: boolean
 }
 
-export function MessageMediaAttachment({ mediaUrl, isOutbound }: MessageMediaAttachmentProps) {
+export function MessageMediaAttachment({ mediaUrl, mediaFilename, mediaMimetype, isOutbound }: MessageMediaAttachmentProps) {
     const resolvedUrl = getMediaUrl(mediaUrl)
     if (!resolvedUrl) return null
 
-    if (isImageMediaUrl(resolvedUrl)) {
+    if (isImageMedia(resolvedUrl, mediaMimetype)) {
         return (
             <a href={resolvedUrl} target="_blank" rel="noreferrer" className="mb-2 block overflow-hidden rounded-xl">
                 <img
@@ -35,7 +37,7 @@ export function MessageMediaAttachment({ mediaUrl, isOutbound }: MessageMediaAtt
                 }`}
         >
             <FileText className="h-4 w-4 shrink-0" />
-            <span className="truncate">{getMediaFileName(resolvedUrl)}</span>
+            <span className="truncate">{mediaFilename || getMediaFileName(resolvedUrl)}</span>
         </a>
     )
 }

@@ -28,7 +28,12 @@ export function ChatMessageBubble({ message, leadSource }: ChatMessageBubbleProp
                         Голосовое сообщение
                     </div>
                 )}
-                <MessageMediaAttachment mediaUrl={message.media_url} isOutbound={isOutbound} />
+                <MessageMediaAttachment
+                    mediaUrl={message.media_url}
+                    mediaFilename={message.media_filename}
+                    mediaMimetype={message.media_mimetype}
+                    isOutbound={isOutbound}
+                />
                 {hasContent && <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>}
             </div>
 

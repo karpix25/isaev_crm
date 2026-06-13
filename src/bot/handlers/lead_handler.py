@@ -4024,6 +4024,34 @@ async def handle_lead_photo(message: Message):
                 username=message.from_user.username
             )
         
+        # Download photo and convert to base64
+        image_base64 = None
+        media_url = None
+        media_filename = None
+        media_mimetype = None
+        media_size = None
+        temp_path = None
+        try:
+            file_info = await bot.get_file(photo.file_id)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                temp_path = tmp.name
+            await bot.download_file(file_info.file_path, destination=temp_path)
+            
+            with open(temp_path, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            from src.services.telegram_chat_media_storage import telegram_chat_media_storage
+            stored_media = telegram_chat_media_storage.save_photo_file(temp_path)
+            if stored_media:
+                media_url = stored_media.url
+                media_filename = stored_media.filename
+                media_mimetype = stored_media.mimetype
+                media_size = stored_media.size
+        except Exception as e:
+            logger.error(f"Failed to download photo: {e}", exc_info=True)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+
         # Save incoming message
         caption = message.caption or ""
         content_for_db = f"[Фото] {caption}" if caption else "[Фото]"
@@ -4033,24 +4061,12 @@ async def handle_lead_photo(message: Message):
             lead_id=lead.id,
             content=content_for_db,
             telegram_message_id=message.message_id,
-            media_url=f"tg://photo/{photo.file_id}",
+            media_url=media_url,
+            media_filename=media_filename,
+            media_mimetype=media_mimetype,
+            media_size=media_size,
             sender_name=message.from_user.full_name
         )
-        
-        # Download photo and convert to base64
-        image_base64 = None
-        try:
-            file_info = await bot.get_file(photo.file_id)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                temp_path = tmp.name
-            await bot.download_file(file_info.file_path, destination=temp_path)
-            
-            with open(temp_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode("utf-8")
-            
-            os.remove(temp_path)
-        except Exception as e:
-            logger.error(f"Failed to download photo: {e}", exc_info=True)
         
         # Build system prompt
         config = await prompt_service.get_active_config(db, org_id)
