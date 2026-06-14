@@ -30,6 +30,7 @@ FOLLOWUP_THRESHOLDS = {
 MAX_FOLLOWUPS = 3
 MAX_FOLLOWUP_AGE_DAYS = 21
 AUTO_COOL_AFTER_FINAL_FOLLOWUP = True
+AUTOMATED_OUTBOUND_SENDERS = {"AI", "AI Agent", "Bot"}
 
 # ONLY these statuses should receive follow-ups
 # If the lead progressed further (QUALIFIED, MEASUREMENT, etc.) — the deal is moving, no need to nag
@@ -143,6 +144,7 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
         select(
             ChatMessage.lead_id,
             ChatMessage.direction,
+            ChatMessage.sender_name,
             func.row_number()
             .over(
                 partition_by=ChatMessage.lead_id,
@@ -161,6 +163,7 @@ async def get_leads_needing_followup(db: AsyncSession) -> list[Lead]:
                 latest_message_subquery.c.lead_id == Lead.id,
                 latest_message_subquery.c.row_number == 1,
                 latest_message_subquery.c.direction == MessageDirection.OUTBOUND,
+                latest_message_subquery.c.sender_name.in_(AUTOMATED_OUTBOUND_SENDERS),
             ),
         )
         .where(

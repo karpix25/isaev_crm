@@ -46,7 +46,7 @@ export function Chat() {
 
     const getMessageLabel = (msg: any) => {
         if (msg.direction === MessageDirection.INBOUND) return 'Клиент'
-        if (msg.sender_name === 'AI' || msg.sender_name === 'Bot') return 'ИИ Ассистент'
+        if (msg.sender_name === 'AI' || msg.sender_name === 'AI Agent' || msg.sender_name === 'Bot') return 'ИИ Ассистент'
         return 'Вы'
     }
 
@@ -151,7 +151,7 @@ export function Chat() {
                                                     <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
 
                                                     {/* AI Trace Icon */}
-                                                    {msg.sender_name === 'AI' && msg.ai_metadata && (
+                                                    {(msg.sender_name === 'AI' || msg.sender_name === 'AI Agent') && msg.ai_metadata && (
                                                         <button
                                                             onClick={() => setActiveTrace(msg.ai_metadata)}
                                                             className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 bg-background border rounded-full text-primary opacity-0 group-hover:opacity-100 transition-all shadow-sm hover:scale-110"

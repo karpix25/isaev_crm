@@ -18,6 +18,15 @@ class StoredTelegramChatMedia:
 
 class TelegramChatMediaStorage:
     def save_photo_file(self, source_path: str | os.PathLike[str]) -> StoredTelegramChatMedia | None:
+        return self.save_file(source_path, filename="telegram-photo.jpg", mimetype="image/jpeg")
+
+    def save_file(
+        self,
+        source_path: str | os.PathLike[str],
+        *,
+        filename: str = "telegram-file",
+        mimetype: str | None = None,
+    ) -> StoredTelegramChatMedia | None:
         source = Path(source_path)
         if not source.exists() or not source.is_file():
             return None
@@ -32,10 +41,16 @@ class TelegramChatMediaStorage:
 
         return StoredTelegramChatMedia(
             url=f"/media/telegram_chat/{stored_name}",
-            filename="telegram-photo.jpg" if ext in {".jpg", ".jpeg"} else f"telegram-photo{ext}",
-            mimetype=mimetypes.guess_type(destination.name)[0] or "image/jpeg",
+            filename=self._display_name(filename, ext),
+            mimetype=mimetype or mimetypes.guess_type(destination.name)[0],
             size=destination.stat().st_size,
         )
+
+    def _display_name(self, filename: str, ext: str) -> str:
+        clean_name = Path(filename or "").name.strip()
+        if clean_name and Path(clean_name).suffix:
+            return clean_name[:180]
+        return f"{clean_name or 'telegram-file'}{ext}"[:180]
 
 
 telegram_chat_media_storage = TelegramChatMediaStorage()

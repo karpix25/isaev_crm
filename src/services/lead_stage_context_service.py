@@ -344,6 +344,7 @@ class LeadStageContextService:
         policy_lines = "\n".join(f"- {line}" for line in response_policy)
         missing_line = ", ".join(missing) if missing else "нет критичных пропусков"
         followup_pause_block = self._format_followup_pause(followup_pause)
+        known_request_block = self._format_known_request_facts(extracted)
 
         return f"""
 CRM_STAGE_CONTEXT:
@@ -366,6 +367,7 @@ measurement_address: {measurement_address}
 measurement_data_source: {measurement_source}
 preliminary_estimate: {price_label or "не рассчитан"}
 followup_pause: {followup_pause_block}
+known_client_request: {known_request_block}
 missing_quiz_fields: {missing_line}
 personal_quiz_url: {personal_quiz_url or "none"}
 
@@ -378,6 +380,7 @@ RECENT_CRM_MESSAGES:
 STAGE_AWARE_RESPONSE_RULES:
 - Сначала учитывай CRM_STAGE_CONTEXT и QUIZ_ANSWERS.
 - Если данные уже есть в квизе, не спрашивай их повторно.
+- Если known_client_request содержит зоны/комнаты ремонта, запрещено спрашивать "какие комнаты" или "что ремонтируем" повторно. Подтверди эти зоны и спроси другой недостающий параметр.
 - Если клиент пришел после квиза, отвечай коротко и веди к next_action.
 - Тон: спокойный живой менеджер, который помогает навести порядок в ремонте. Без давления, срочности, рекламных лозунгов и ощущения скрипта.
 - Не выравнивай ответы под один шаблон. Меняй длину сообщений и структуру: иногда 1 фраза, иногда 2 коротких абзаца, иногда сразу вопрос.
@@ -437,6 +440,19 @@ RESPONSE_POLICY:
             parts.append(f"запланировано на: {pause['next_followup_at']}")
 
         return " | ".join(parts) if parts else "есть отложенный follow-up"
+
+    def _format_known_request_facts(self, extracted: dict[str, Any]) -> str:
+        parts: list[str] = []
+        zones = extracted.get("renovation_zones")
+        if isinstance(zones, list) and zones:
+            parts.append(f"зоны ремонта: {', '.join(str(zone) for zone in zones)}")
+        if extracted.get("rooms_description"):
+            parts.append(f"описание клиента: {extracted['rooms_description']}")
+        if extracted.get("design_reference_provided"):
+            parts.append("клиент прислал/упомянул референсы дизайна")
+        if extracted.get("client_request_summary"):
+            parts.append(str(extracted["client_request_summary"]))
+        return " | ".join(parts) if parts else "нет"
 
     def _extract_measurement_from_messages(self, messages: list[ChatMessage]) -> tuple[str | None, str | None]:
         measurement_start = None

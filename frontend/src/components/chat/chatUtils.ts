@@ -61,7 +61,7 @@ export function getDefaultTransport(lead: Lead): MessageTransport {
 
 export function getChatMessageLabel(message: ChatMessage): string {
     if (message.direction === MessageDirection.INBOUND) return 'Клиент'
-    if (message.sender_name === 'AI' || message.sender_name === 'Bot') return 'ИИ Ассистент'
+    if (message.sender_name === 'AI' || message.sender_name === 'AI Agent' || message.sender_name === 'Bot') return 'ИИ Ассистент'
     return 'Вы'
 }
 

@@ -31,6 +31,8 @@ from src.services.knowledge_service import knowledge_service
 from src.services.measurement_analytics_service import measurement_analytics_service
 from src.services.sales_orchestration_service import sales_orchestration_service
 from src.services.sales_reply_guardrail_service import sales_reply_guardrail_service
+from src.services.telegram_business_author_message_service import telegram_business_author_message_service
+from src.services.lead_request_fact_extractor import lead_request_fact_extractor
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 from src.services.direct_qualification_service import (
     build_next_prompt,
@@ -3407,8 +3409,10 @@ async def handle_lead_message(message: Message):
     Groups messages sent within the debounce window into a single AI request.
     """
     if _is_business_author_message(message):
+        saved = await telegram_business_author_message_service.save_text_message(message)
         logger.info(
-            "Ignoring Telegram business author message: chat_id=%s user_id=%s connection=%s",
+            "Telegram business author message handled: saved=%s chat_id=%s user_id=%s connection=%s",
+            saved,
             getattr(message.chat, "id", None),
             getattr(message.from_user, "id", None),
             getattr(message, "business_connection_id", None),
@@ -3517,6 +3521,10 @@ async def process_debounced_message(conversation_key: str):
             lead_id=lead.id,
             content=combined_text,
             telegram_message_id=message.message_id,
+            media_url=getattr(message, "crm_media_url", None),
+            media_filename=getattr(message, "crm_media_filename", None),
+            media_mimetype=getattr(message, "crm_media_mimetype", None),
+            media_size=getattr(message, "crm_media_size", None),
             sender_name=message.from_user.full_name,
             ai_metadata=metadata or None,
         )
@@ -3534,6 +3542,12 @@ async def process_debounced_message(conversation_key: str):
             lead.extracted_data = json.dumps(data, ensure_ascii=False)
             if not lead.source or lead.source == "telegram":
                 lead.source = "telegram_business"
+            await db.commit()
+
+        request_facts = lead_request_fact_extractor.extract(combined_text)
+        if request_facts:
+            data = lead_request_fact_extractor.merge(_lead_extracted_data(lead), request_facts)
+            lead.extracted_data = json.dumps(data, ensure_ascii=False)
             await db.commit()
 
         session_token = quiz_service.extract_session_token(combined_text)
@@ -3958,6 +3972,43 @@ async def handle_lead_voice(message: Message):
         
     except Exception as e:
         logger.error(f"Error handling voice message: {e}", exc_info=True)
+
+
+@router.business_message(F.video)
+@router.message(F.video)
+async def handle_lead_video(message: Message):
+    """Save regular Telegram videos and pass their captions into the AI text flow."""
+    if _is_business_author_message(message):
+        logger.info(
+            "Ignoring Telegram business author video: chat_id=%s user_id=%s connection=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.from_user, "id", None),
+            getattr(message, "business_connection_id", None),
+        )
+        return
+    if _is_non_private_bot_message(message):
+        logger.info(
+            "Ignoring non-private Telegram lead video: chat_id=%s chat_type=%s user_id=%s",
+            getattr(message.chat, "id", None),
+            getattr(message.chat, "type", None),
+            getattr(message.from_user, "id", None),
+        )
+        return
+
+    try:
+        from src.services.telegram_chat_video_storage import telegram_chat_video_storage
+        stored_media = await telegram_chat_video_storage.save_from_message(bot, message)
+        if stored_media:
+            message.crm_media_url = stored_media.url
+            message.crm_media_filename = stored_media.filename
+            message.crm_media_mimetype = stored_media.mimetype
+            message.crm_media_size = stored_media.size
+    except Exception as exc:
+        logger.error("Failed to download Telegram video: %s", exc, exc_info=True)
+
+    caption = (message.caption or "").strip()
+    message.text = f"[Видео] {caption}" if caption else "[Клиент прислал видео]"
+    await handle_lead_message(message)
 
 
 
