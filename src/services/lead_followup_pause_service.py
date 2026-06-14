@@ -54,9 +54,13 @@ class LeadFollowupPauseService:
         now = self._aware(now or datetime.now(timezone.utc))
         text = (message_text or "").strip()
         normalized = text.lower().replace("ё", "е")
+        keys_context_text = re.sub(r"\bпод\s+ключ\b", " ", normalized)
 
         delay_days = self._extract_delay_days(normalized)
-        has_keys_context = any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in self._KEYS_PATTERNS)
+        has_keys_context = any(
+            re.search(pattern, keys_context_text, flags=re.IGNORECASE)
+            for pattern in self._KEYS_PATTERNS
+        )
 
         if not has_keys_context and delay_days is None:
             return FollowupPauseDecision(None, None, None, {})
@@ -79,7 +83,7 @@ class LeadFollowupPauseService:
                     "detected_at": now.isoformat(),
                     "next_followup_at": next_followup_at.isoformat(),
                     "delay_days": delay_days,
-                    "client_context": self._build_client_context(normalized),
+                    "client_context": self._build_client_context(keys_context_text),
                     "followup_goal": (
                         "Мягко узнать, появились ли новости по сдаче объекта или получению ключей. "
                         "Если ключи уже близко, предложить заранее подобрать удобное окно бесплатного замера."

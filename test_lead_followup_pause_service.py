@@ -43,6 +43,18 @@ def test_ignores_neutral_client_reply():
     assert decision.extracted_patch == {}
 
 
+def test_ignores_renovation_type_pod_klyuch_as_keys_wait():
+    lead = Lead(status=LeadStatus.MEASUREMENT_PENDING.value)
+
+    decision = lead_followup_pause_service.build_decision(
+        lead,
+        "Нужен ремонт под ключ, квартира уже готова к замеру",
+    )
+
+    assert not decision.should_pause
+    assert decision.extracted_patch == {}
+
+
 def test_keeps_existing_pause_on_short_acknowledgement():
     lead = Lead(status=LeadStatus.KEYS_PENDING.value)
     lead.next_followup_at = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)

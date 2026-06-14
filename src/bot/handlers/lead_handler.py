@@ -33,6 +33,7 @@ from src.services.sales_orchestration_service import sales_orchestration_service
 from src.services.sales_reply_guardrail_service import sales_reply_guardrail_service
 from src.services.telegram_business_author_message_service import telegram_business_author_message_service
 from src.services.lead_request_fact_extractor import lead_request_fact_extractor
+from src.services.telegram_turn_buffer import TelegramTurnBuffer
 from src.services.quiz_value_normalizer import normalize_quiz_design_answer
 from src.services.direct_qualification_service import (
     build_next_prompt,
@@ -2634,8 +2635,7 @@ async def _try_route_scenario_before_ai(
     return False
 
 
-# Debouncing state: {conversation_key: (task, [messages], original_message, has_voice)}
-pending_updates = {}
+pending_updates = TelegramTurnBuffer()
 
 AUTH_SESSION_TTL_SECONDS = 5 * 60
 PROTECTED_EXTRACTED_DATA_KEYS = {
@@ -3429,11 +3429,6 @@ async def handle_lead_message(message: Message):
 
     user_id = message.from_user.id
     business_connection_id = getattr(message, "business_connection_id", None)
-    conversation_key = (
-        f"business:{business_connection_id}:{message.chat.id}:{user_id}"
-        if business_connection_id
-        else f"bot:{user_id}"
-    )
     if business_connection_id:
         logger.info(
             "Telegram business message queued: chat_id=%s user_id=%s connection=%s text=%s",
@@ -3442,35 +3437,59 @@ async def handle_lead_message(message: Message):
             business_connection_id,
             (message.text or "")[:120],
         )
+
+    _queue_lead_turn(
+        message,
+        {
+            "content": message.text or "",
+            "telegram_message_id": message.message_id,
+            "is_voice": bool(getattr(message, "is_voice", False)),
+            "media_url": getattr(message, "crm_media_url", None),
+            "media_filename": getattr(message, "crm_media_filename", None),
+            "media_mimetype": getattr(message, "crm_media_mimetype", None),
+            "media_size": getattr(message, "crm_media_size", None),
+            "image_base64": getattr(message, "crm_image_base64", None),
+            "media_kind": getattr(message, "crm_media_kind", None),
+        },
+    )
+
+
+def _conversation_key(message: Message) -> str:
+    business_connection_id = getattr(message, "business_connection_id", None)
+    if business_connection_id:
+        return f"business:{business_connection_id}:{message.chat.id}:{message.from_user.id}"
+    return f"bot:{message.from_user.id}"
+
+
+def _queue_lead_turn(message: Message, item: dict) -> None:
+    conversation_key = _conversation_key(message)
     typing_once_task = asyncio.create_task(_send_typing_action(message))
     typing_once_task.add_done_callback(_drain_background_task)
-    is_voice = getattr(message, "is_voice", False)
-    
-    # Add message to pending list
-    if conversation_key in pending_updates:
-        task, msgs, saved_message, has_voice = pending_updates[conversation_key]
-        task.cancel() # Cancel previous timer
-        msgs.append(message.text)
-        has_voice = has_voice or is_voice
-    else:
-        msgs = [message.text]
-        saved_message = message
-        has_voice = is_voice
-    
-    # Start new timer task
-    task = asyncio.create_task(process_debounced_message(conversation_key))
-    task.add_done_callback(_drain_background_task)
-    pending_updates[conversation_key] = (task, msgs, saved_message, has_voice)
+    def make_task():
+        task = asyncio.create_task(process_debounced_message(conversation_key))
+        task.add_done_callback(_drain_background_task)
+        return task
+
+    pending_updates.add(
+        conversation_key,
+        item=item,
+        message=message,
+        task_factory=make_task,
+    )
 
 async def process_debounced_message(conversation_key: str):
     """Wait for quiet period and then process all accumulated messages."""
     await asyncio.sleep(LEAD_MESSAGE_DEBOUNCE_SECONDS)
     
-    if conversation_key not in pending_updates:
+    turn = pending_updates.pop(conversation_key)
+    if not turn:
         return
-        
-    _, msgs, message, has_voice = pending_updates.pop(conversation_key)
-    combined_text = " ".join(msgs)
+
+    items = turn.items
+    message = turn.message
+    has_voice = turn.has_voice
+    combined_text = " ".join(str(item.get("content") or "").strip() for item in items if str(item.get("content") or "").strip())
+    images_base64 = [item.get("image_base64") for item in items if item.get("image_base64")]
     user_id = message.from_user.id
     business_connection_id = getattr(message, "business_connection_id", None)
     _start_typing_indicator(message)
@@ -3505,7 +3524,7 @@ async def process_debounced_message(conversation_key: str):
                 username=message.from_user.username
             )
         
-        # Save incoming message (using combined text as one entry for AI context)
+        # Save every inbound item, but generate only one AI response for the whole turn.
         metadata = {"is_voice": True} if has_voice else {}
         if business_connection_id:
             metadata.update(
@@ -3515,19 +3534,28 @@ async def process_debounced_message(conversation_key: str):
                     "business_chat_id": message.chat.id,
                 }
             )
-        
-        await chat_service.save_incoming_message(
-            db=db,
-            lead_id=lead.id,
-            content=combined_text,
-            telegram_message_id=message.message_id,
-            media_url=getattr(message, "crm_media_url", None),
-            media_filename=getattr(message, "crm_media_filename", None),
-            media_mimetype=getattr(message, "crm_media_mimetype", None),
-            media_size=getattr(message, "crm_media_size", None),
-            sender_name=message.from_user.full_name,
-            ai_metadata=metadata or None,
-        )
+
+        batch_id = str(uuid.uuid4()) if len(items) > 1 else None
+        for index, item in enumerate(items):
+            item_metadata = dict(metadata)
+            if batch_id:
+                item_metadata["turn_batch_id"] = batch_id
+                item_metadata["turn_batch_index"] = index
+                item_metadata["turn_batch_size"] = len(items)
+            if item.get("media_kind"):
+                item_metadata["media_kind"] = item["media_kind"]
+            await chat_service.save_incoming_message(
+                db=db,
+                lead_id=lead.id,
+                content=str(item.get("content") or "").strip() or combined_text,
+                telegram_message_id=item.get("telegram_message_id"),
+                media_url=item.get("media_url"),
+                media_filename=item.get("media_filename"),
+                media_mimetype=item.get("media_mimetype"),
+                media_size=item.get("media_size"),
+                sender_name=message.from_user.full_name,
+                ai_metadata=item_metadata or None,
+            )
 
         if business_connection_id:
             data = _lead_extracted_data(lead)
@@ -3738,13 +3766,22 @@ async def process_debounced_message(conversation_key: str):
                 ]
             
             # Generate AI response
-            ai_response = await openrouter_service.generate_response(
-                conversation_history=conversation,
-                system_prompt=system_prompt,
-                model=config.llm_model if config else None,
-                trace_id=trace_id,
-                user_id=str(message.from_user.id)
-            )
+            if images_base64:
+                ai_response = await openrouter_service.generate_vision_response(
+                    conversation_history=conversation,
+                    system_prompt=system_prompt,
+                    image_base64=images_base64,
+                    image_caption=combined_text,
+                    model=config.llm_model if config else None,
+                )
+            else:
+                ai_response = await openrouter_service.generate_response(
+                    conversation_history=conversation,
+                    system_prompt=system_prompt,
+                    model=config.llm_model if config else None,
+                    trace_id=trace_id,
+                    user_id=str(message.from_user.id)
+                )
 
             is_support_question = _looks_like_support_question(combined_text)
             requested_tool_action = _extract_ai_tool_action(ai_response.get("extracted_data"))
@@ -4003,6 +4040,7 @@ async def handle_lead_video(message: Message):
             message.crm_media_filename = stored_media.filename
             message.crm_media_mimetype = stored_media.mimetype
             message.crm_media_size = stored_media.size
+            message.crm_media_kind = "video"
     except Exception as exc:
         logger.error("Failed to download Telegram video: %s", exc, exc_info=True)
 
@@ -4036,220 +4074,22 @@ async def handle_lead_photo(message: Message):
         )
         return
 
-    import base64
-    import tempfile
-    import os
-    from src.models import MessageDirection
-    
-    # Get photo file_id (largest size)
-    photo = message.photo[-1]
-    
-    async with AsyncSessionLocal() as db:
-        # Get default organization ID
-        org_id = await get_default_org_id(db)
-        
-        # Get or create lead
-        from src.services.quiz_service import quiz_service
-        lead = await quiz_service.link_telegram_message(
-            db=db,
-            org_id=org_id,
-            text=message.caption or "",
-            telegram_id=message.from_user.id,
-            full_name=message.from_user.full_name,
-            username=message.from_user.username,
-        )
-        if not lead:
-            lead = await quiz_service.link_telegram_identity(
-                db=db,
-                org_id=org_id,
-                telegram_id=message.from_user.id,
-                full_name=message.from_user.full_name,
-                username=message.from_user.username,
-            )
-        if not lead:
-            lead = await lead_service.create_or_get_lead(
-                db=db,
-                org_id=org_id,
-                telegram_id=message.from_user.id,
-                full_name=message.from_user.full_name,
-                username=message.from_user.username
-            )
-        
-        # Download photo and convert to base64
-        image_base64 = None
-        media_url = None
-        media_filename = None
-        media_mimetype = None
-        media_size = None
-        temp_path = None
-        try:
-            file_info = await bot.get_file(photo.file_id)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                temp_path = tmp.name
-            await bot.download_file(file_info.file_path, destination=temp_path)
-            
-            with open(temp_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode("utf-8")
-            from src.services.telegram_chat_media_storage import telegram_chat_media_storage
-            stored_media = telegram_chat_media_storage.save_photo_file(temp_path)
-            if stored_media:
-                media_url = stored_media.url
-                media_filename = stored_media.filename
-                media_mimetype = stored_media.mimetype
-                media_size = stored_media.size
-        except Exception as e:
-            logger.error(f"Failed to download photo: {e}", exc_info=True)
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
+    try:
+        from src.services.telegram_chat_photo_storage import telegram_chat_photo_storage
+        stored_photo = await telegram_chat_photo_storage.save_from_message(bot, message)
+        if stored_photo.media:
+            message.crm_media_url = stored_photo.media.url
+            message.crm_media_filename = stored_photo.media.filename
+            message.crm_media_mimetype = stored_photo.media.mimetype
+            message.crm_media_size = stored_photo.media.size
+        message.crm_image_base64 = stored_photo.image_base64
+        message.crm_media_kind = "photo"
+    except Exception as exc:
+        logger.error("Failed to download Telegram photo: %s", exc, exc_info=True)
 
-        # Save incoming message
-        caption = message.caption or ""
-        content_for_db = f"[Фото] {caption}" if caption else "[Фото]"
-        
-        await chat_service.save_incoming_message(
-            db=db,
-            lead_id=lead.id,
-            content=content_for_db,
-            telegram_message_id=message.message_id,
-            media_url=media_url,
-            media_filename=media_filename,
-            media_mimetype=media_mimetype,
-            media_size=media_size,
-            sender_name=message.from_user.full_name
-        )
-        
-        # Build system prompt
-        config = await prompt_service.get_active_config(db, org_id)
-
-        outside_business_hours = not is_business_hours()
-        if outside_business_hours:
-            logger.info(
-                "Outside business hours at %s, continuing photo reply for lead %s with after-hours context",
-                get_business_now().isoformat(),
-                lead.id
-            )
-
-        from src.models.organization import Organization
-        org_result = await db.execute(select(Organization).where(Organization.id == org_id))
-        org = org_result.scalar_one_or_none()
-        company_name = _display_company_name(org)
-        
-        if config and config.system_prompt:
-            base_prompt = config.system_prompt
-            if "{company_name}" in base_prompt:
-                base_prompt = base_prompt.replace("{company_name}", company_name)
-            
-            from src.services.custom_field_service import enrich_system_prompt
-            system_prompt = await enrich_system_prompt(db, org_id, base_prompt)
-        else:
-            system_prompt = await build_system_prompt(db, org_id, company_name)
-        
-        system_prompt = normalize_system_prompt_template(system_prompt)
-        technical_rules = (
-            "\n\nCRITICAL: Always respond in valid JSON format. "
-            "If you need to speak to the user, put your text in the \"message\" field of the JSON. "
-            "Keep user-facing message concise: normally 1-4 short sentences."
-        )
-        identity_rules = IDENTITY_GUARDRAILS.format(company_name=company_name)
-        system_prompt = f"{system_prompt}\n\n{identity_rules}{technical_rules}"
-        if outside_business_hours:
-            system_prompt = (
-                f"{system_prompt}\n\n"
-                "AFTER-HOURS CONTEXT: Сейчас команда не на связи. Все равно ответь клиенту полезно и по делу. "
-                "Если нужен менеджер, скажи, что команда вернется в рабочее время; не исчезай и не отказывайся отвечать."
-            )
-
-        from src.services.lead_stage_context_service import lead_stage_context_service
-        stage_context = await lead_stage_context_service.build_context(db=db, lead=lead)
-        system_prompt = f"{system_prompt}\n\n{stage_context.prompt_block}\n\n{_build_ai_support_tools_prompt(stage_context)}"
-        
-        # Get conversation history (exclude the photo message we just saved — it's sent separately via vision)
-        history_msgs, _ = await chat_service.get_chat_history(db, lead.id, page_size=20)
-        
-        formatted_history = []
-        for m in reversed(history_msgs):
-            # Skip the photo message we just saved (it'll be sent as an image)
-            if m.telegram_message_id == message.message_id:
-                continue
-            role = "user" if m.direction == MessageDirection.INBOUND else "assistant"
-            formatted_history.append({"role": role, "content": m.content})
-        
-        # Generate AI response — use vision if photo downloaded, fallback to text
-        try:
-            if image_base64:
-                ai_response = await openrouter_service.generate_vision_response(
-                    conversation_history=formatted_history,
-                    system_prompt=system_prompt,
-                    image_base64=image_base64,
-                    image_caption=caption,
-                    model=config.llm_model if config else None
-                )
-            else:
-                # Fallback: tell AI about the photo via text
-                formatted_history.append({
-                    "role": "user",
-                    "content": f"[Клиент прислал фото] {caption}" if caption else "[Клиент прислал фото объекта]"
-                })
-                ai_response = await openrouter_service.generate_response(
-                    formatted_history,
-                    system_prompt,
-                    model=config.llm_model if config else None
-                )
-        except Exception as e:
-            logger.error(f"Vision API failed, trying text fallback: {e}")
-            formatted_history.append({
-                "role": "user",
-                "content": f"[Клиент прислал фото] {caption}" if caption else "[Клиент прислал фото объекта]"
-            })
-            ai_response = await openrouter_service.generate_response(
-                formatted_history,
-                system_prompt,
-                model=config.llm_model if config else None
-            )
-
-        requested_tool_action = _extract_ai_tool_action(ai_response.get("extracted_data"))
-        if requested_tool_action:
-            if not _looks_like_support_question(caption) and await _execute_ai_tool_action(db, message, lead, requested_tool_action):
-                return
-        
-        reply_text = ai_response["text"]
-        await message.answer(reply_text)
-        
-        # Extract data and save
-        extracted_data = ai_response.get("extracted_data")
-        ai_metadata = {
-            "usage": ai_response.get("usage"),
-            "has_vision": bool(image_base64),
-            "stage_context": stage_context.metadata,
-        }
-        update_fields = {}
-        if extracted_data:
-            if extracted_data.get("client_name") and not lead.full_name:
-                update_fields["full_name"] = extracted_data.get("client_name")
-            if extracted_data.get("phone") and not lead.phone:
-                update_fields["phone"] = extracted_data.get("phone")
-            
-            ai_status = extracted_data.get("status")
-            if ai_status and ai_status in [s.value for s in LeadStatus]:
-                update_fields["status"] = ai_status
-            
-            if extracted_data.get("is_hot_lead"):
-                update_fields["ai_qualification_status"] = "qualified"
-                
-            readiness_score = extracted_data.get("readiness_score")
-            if readiness_score in ["A", "B", "C"]:
-                update_fields["readiness_score"] = readiness_score
-            
-            update_fields["extracted_data"] = _merge_ai_extracted_data(lead.extracted_data, extracted_data)
-        
-        await chat_service.send_outbound_message(
-            db, lead_id=lead.id, content=reply_text,
-            sender_name="AI Agent", ai_metadata=ai_metadata
-        )
-        
-        if update_fields:
-            await lead_service.update_lead(db=db, lead_id=lead.id, **update_fields)
+    caption = (message.caption or "").strip()
+    message.text = f"[Фото] {caption}" if caption else "[Фото]"
+    await handle_lead_message(message)
 
 
 @router.business_message(F.document)

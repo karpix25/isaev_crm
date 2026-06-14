@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 
 import httpx
+import pytest
 
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
@@ -119,3 +120,41 @@ def test_resolve_chat_model_maps_expensive_gemini_flash_to_lite_default():
     assert service.resolve_chat_model("") == "google/gemini-3.1-flash-lite"
     assert service.resolve_chat_model("google/gemini-3.5-flash") == "google/gemini-3.1-flash-lite"
     assert service.resolve_chat_model("deepseek/deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_generate_vision_response_sends_multiple_images_in_one_turn():
+    service = OpenRouterService()
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": '{"message": "Ок"}'}}],
+                "usage": {},
+            }
+
+    class FakeClient:
+        async def post(self, *args, **kwargs):
+            captured["json"] = kwargs["json"]
+            return FakeResponse()
+
+    service.client = FakeClient()
+
+    await service.generate_vision_response(
+        conversation_history=[],
+        system_prompt="system",
+        image_base64=["image-1", "image-2", "image-3"],
+        image_caption="[Фото] [Фото] в таком стиле",
+        model="deepseek/deepseek-v4-flash",
+    )
+
+    content = captured["json"]["messages"][-1]["content"]
+    image_items = [item for item in content if item["type"] == "image_url"]
+
+    assert len(image_items) == 3
+    assert content[-1]["type"] == "text"
+    assert "в таком стиле" in content[-1]["text"]

@@ -183,7 +183,7 @@ class OpenRouterService:
         self,
         conversation_history: List[Dict],
         system_prompt: str,
-        image_base64: str,
+        image_base64: str | list[str],
         image_caption: str = "",
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -206,19 +206,22 @@ class OpenRouterService:
             # Build the user message with image
             user_content = []
             
-            # Add the image
-            user_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{image_base64}"
-                }
-            })
+            images = image_base64 if isinstance(image_base64, list) else [image_base64]
+            for image in images[:4]:
+                if not image:
+                    continue
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{image}"
+                    }
+                })
             
             # Add text context
             if image_caption:
                 user_content.append({
                     "type": "text",
-                    "text": f"Клиент прислал фото с подписью: {image_caption}"
+                    "text": f"Клиент прислал фото/медиа с подписью или сообщением: {image_caption}"
                 })
             else:
                 user_content.append({

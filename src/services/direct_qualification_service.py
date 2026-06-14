@@ -258,9 +258,7 @@ def _prompt_text_for_step(
     company_name: str,
 ) -> str:
     if not completed_fields and step.field == "area":
-        display_name = (company_name or "Исаев Групп").strip()
         return (
-            f"Здравствуйте. Я Александр, менеджер {display_name}.\n\n"
             "Чтобы дать нормальную вилку по работам, начнем с площади. "
             "Какая ближе?"
         )
