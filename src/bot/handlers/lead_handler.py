@@ -31,6 +31,7 @@ from src.services.knowledge_service import knowledge_service
 from src.services.measurement_analytics_service import measurement_analytics_service
 from src.services.sales_orchestration_service import sales_orchestration_service
 from src.services.sales_reply_guardrail_service import sales_reply_guardrail_service
+from src.services.ai_reply_quality_gate_service import ai_reply_quality_gate_service
 from src.services.telegram_business_author_message_service import telegram_business_author_message_service
 from src.services.lead_request_fact_extractor import lead_request_fact_extractor
 from src.services.telegram_turn_buffer import TelegramTurnBuffer
@@ -3842,6 +3843,27 @@ async def process_debounced_message(conversation_key: str):
                         },
                     )
                 outbound_text = guardrail.text
+            quality_gate = ai_reply_quality_gate_service.validate(
+                text=outbound_text,
+                client_text=combined_text,
+                extracted_data=effective_extracted_data,
+                stage_next_action=stage_context.next_action,
+            )
+            if quality_gate.blocked:
+                ai_metadata["reply_quality_gate"] = {
+                    **quality_gate.metadata,
+                    "original_text": outbound_text[:500],
+                }
+                await measurement_analytics_service.record_event(
+                    db=db,
+                    lead=lead,
+                    event_type="ai_reply_quality_gate_blocked",
+                    source="telegram_ai_reply_quality_gate",
+                    event_data=quality_gate.metadata,
+                )
+            else:
+                ai_metadata["reply_quality_gate"] = quality_gate.metadata
+            outbound_text = quality_gate.text
             sent_message = await message.answer(
                 outbound_text,
                 reply_markup=direct_prompt.keyboard if direct_prompt else None,
