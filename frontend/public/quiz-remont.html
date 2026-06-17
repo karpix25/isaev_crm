@@ -6,10 +6,10 @@
 <title>Квиз — ISAEV GROUP</title>
 <script>
   (function redirectTrackedTelegramEntry() {
-    const match = window.location.pathname.match(/^\/tg\/([^/?#]+)/);
+    const match = window.location.pathname.match(/^\/tg(?:\/([^/?#]+))?\/?$/);
     if (!match) return;
 
-    const campaign = encodeURIComponent(decodeURIComponent(match[1] || 'telegram-direct'));
+    const campaign = encodeURIComponent(decodeURIComponent(match[1] || 'tg'));
     window.location.replace(`/api/tg/${campaign}${window.location.search || ''}`);
   })();
 </script>
@@ -1123,10 +1123,10 @@ const WHATSAPP_PHONE = window.QUIZ_WHATSAPP_PHONE || '79212271279';
 let posthogReady = false;
 
 (function handleTelegramEntryFallback() {
-  const match = window.location.pathname.match(/^\/tg\/([^/?#]+)/);
+  const match = window.location.pathname.match(/^\/tg(?:\/([^/?#]+))?\/?$/);
   if (!match) return;
 
-  const campaign = decodeURIComponent(match[1] || 'telegram-direct')
+  const campaign = decodeURIComponent(match[1] || 'tg')
     .replace(/[^a-zA-Z0-9_-]+/g, '-')
     .replace(/^[-_]+|[-_]+$/g, '')
     .toLowerCase()

@@ -14,6 +14,23 @@ from src.services.telegram_entry_link_service import create_tracked_telegram_ent
 router = APIRouter(prefix="/tg", tags=["Telegram Entry"])
 
 
+@router.get("")
+@router.get("/")
+async def default_telegram_entry_redirect(
+    request: Request,
+    content: str | None = Query(None, max_length=120),
+    term: str | None = Query(None, max_length=120),
+    db: AsyncSession = Depends(get_db),
+):
+    return await telegram_entry_redirect(
+        campaign="tg",
+        request=request,
+        content=content,
+        term=term,
+        db=db,
+    )
+
+
 @router.get("/{campaign}")
 async def telegram_entry_redirect(
     campaign: str,
