@@ -52,6 +52,13 @@ from src.bot.measurement_slots import (
     slot_local_datetime as _slot_local_datetime,
     slot_time_label as _slot_time_label,
 )
+from src.services.measurement_text_intents import (
+    build_etiquette_recovery_reply,
+    build_measurement_day_prompt,
+    build_measurement_time_prompt,
+    looks_like_etiquette_complaint,
+    resolve_measurement_date_from_text,
+)
 from src.bot.telegram_file_service import save_telegram_document
 from src.bot.direct_qualification_entry import maybe_start_direct_qualification
 from src.bot.crm_agent_router import choose_crm_tool
@@ -848,8 +855,8 @@ def _build_quiz_estimate_text(lead) -> str:
         )
     else:
         text += (
-            "\n\n📍 Чтобы не считать вслепую, лучше выбрать удобное время бесплатного замера. "
-            "Инженер посмотрит объект, замерит нюансы и после этого мы точнее посчитаем работы."
+            "\n\n📍 Чтобы не гадать по деталям, лучше спокойно посмотреть объект на бесплатном замере. "
+            "Это ни к чему не обязывает, зато после выезда мы точнее посчитаем работы."
         )
     return text
 
@@ -927,10 +934,7 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
         )
         return True
 
-    text = (
-        "Выберите удобный день бесплатного замера. "
-        "Так мы спокойно посмотрим объект и посчитаем работы без догадок 📍"
-    )
+    text = build_measurement_day_prompt()
     _mark_measurement_slots_offered(lead)
     await db.commit()
     sent = await message.answer(text, reply_markup=_build_measurement_date_keyboard(slots))
@@ -941,6 +945,41 @@ async def _send_measurement_slot_dates(message: Message, db: AsyncSession, lead)
         telegram_message_id=sent.message_id,
         sender_name="Bot",
         ai_metadata={"source": "quiz_deep_link", "engine": "bot_template", "type": "measurement_slot_dates"},
+    )
+    return True
+
+
+async def _send_measurement_time_choices_from_text(message: Message, db: AsyncSession, lead, text: str) -> bool:
+    if not cal_pro_service.is_configured():
+        return False
+
+    try:
+        slots = await cal_pro_service.get_slots(days_ahead=7, limit=80)
+    except Exception:
+        logger.warning("Failed to load measurement slots for text date reply on lead %s", lead.id, exc_info=True)
+        return False
+
+    date_match = resolve_measurement_date_from_text(text, slots)
+    if not date_match:
+        return False
+
+    date_label = _slot_date_button_label(date_match.date_key)
+    text_reply = build_measurement_time_prompt(date_match, date_label)
+    sent = await message.answer(text_reply, reply_markup=_build_measurement_time_keyboard(slots, date_match.date_key))
+    await chat_service.send_outbound_message(
+        db=db,
+        lead_id=lead.id,
+        content=text_reply,
+        telegram_message_id=sent.message_id,
+        sender_name="Bot",
+        ai_metadata={
+            "source": "bot_scenario",
+            "engine": "bot_template",
+            "type": "measurement_time_choices_from_text",
+            "date_key": date_match.date_key,
+            "date_source": date_match.source,
+            "skip_knowledge_index": True,
+        },
     )
     return True
 
@@ -2558,6 +2597,23 @@ async def _try_route_scenario_before_ai(
     if _looks_like_measurement_reschedule_request(text) and measurement_data.get("start"):
         return await _send_measurement_reschedule_slot_dates(message, db, lead)
 
+    if next_action == "awaiting_measurement_slot" and looks_like_etiquette_complaint(text):
+        text_reply = build_etiquette_recovery_reply()
+        sent = await message.answer(text_reply)
+        await chat_service.send_outbound_message(
+            db=db,
+            lead_id=lead.id,
+            content=text_reply,
+            telegram_message_id=sent.message_id,
+            sender_name="AI",
+            ai_metadata={
+                "source": "bot_scenario",
+                "type": "etiquette_recovery",
+                "skip_knowledge_index": True,
+            },
+        )
+        return True
+
     if _looks_like_measurement_booking_request(text):
         return await _send_measurement_slot_dates(message, db, lead)
 
@@ -2583,6 +2639,8 @@ async def _try_route_scenario_before_ai(
         return True
 
     if next_action == "awaiting_measurement_slot" and _looks_like_measurement_slot_reply(text):
+        if await _send_measurement_time_choices_from_text(message, db, lead, text):
+            return True
         if _measurement_slots_recently_offered(lead) and not _looks_like_repeat_slots_request(text):
             text_reply = "Свободные дни уже отправил выше. Выберите подходящий день — после этого покажу доступное время."
             sent = await message.answer(text_reply)
@@ -3335,7 +3393,7 @@ async def quiz_measure_back_callback(query: CallbackQuery):
         text = (
             "Выберите новый удобный день замера 📍"
             if measurement.get("status") == "awaiting_reschedule_slot"
-            else "Выберите удобный день бесплатного замера. Он поможет точно посчитать работы без стройматериалов 📍"
+            else build_measurement_day_prompt()
         )
         await query.message.edit_text(
             text,
