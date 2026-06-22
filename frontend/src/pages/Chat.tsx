@@ -6,6 +6,7 @@ import { useChatHistory, useSendMessage } from '@/hooks/useChat'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { MessageDirection, MessageTransport, type Lead } from '@/types'
 import { MessageToolCallBadge } from '@/components/chat/MessageToolCallBadge'
+import { formatChatMessageDateTime } from '@/components/chat/chatUtils'
 import { formatTimeAgo } from '@/lib/utils'
 import { Send, Phone, Settings2, CheckCircle2, Sparkles, Info, X, Mic, ShieldCheck } from 'lucide-react'
 
@@ -186,7 +187,7 @@ export function Chat() {
                                                         leadSource={selectedLead?.source}
                                                     />
                                                     <span className="px-1 text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                                        {getMessageLabel(msg)} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        {getMessageLabel(msg)} • {formatChatMessageDateTime(msg.created_at)}
                                                     </span>
                                                 </div>
                                             </div>

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.utils import get_default_org_id
@@ -15,12 +15,14 @@ from src.schemas.analytics import (
     FunnelSessionResponse,
 )
 from src.services.analytics_service import analytics_service
+from src.services.analytics_request_enrichment import enrich_funnel_metadata
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
 @router.post("/funnel/sessions", response_model=FunnelSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_funnel_session(
+    request: Request,
     payload: FunnelSessionCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -29,7 +31,10 @@ async def create_funnel_session(
     For now it attaches public traffic to the default organization.
     """
     org_id = await get_default_org_id(db)
-    session = await analytics_service.create_session(db=db, org_id=org_id, data=payload)
+    enriched_payload = payload.model_copy(
+        update={"metadata": enrich_funnel_metadata(request, payload.metadata)}
+    )
+    session = await analytics_service.create_session(db=db, org_id=org_id, data=enriched_payload)
     return session
 
 

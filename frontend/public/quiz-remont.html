@@ -1333,6 +1333,7 @@ const resultFields = [
 
 function collectTrackingParams() {
   const params = new URLSearchParams(window.location.search);
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   return {
     channel: params.get('channel') || 'web',
     source: params.get('utm_source') || params.get('source') || 'quiz',
@@ -1346,7 +1347,24 @@ function collectTrackingParams() {
     metadata: {
       quiz_token: params.get('q') || params.get('token'),
       messenger: params.get('messenger'),
-      design_upload_decision: designUploadDecision || null
+      design_upload_decision: designUploadDecision || null,
+      client_context: {
+        user_agent: navigator.userAgent || null,
+        language: navigator.language || null,
+        languages: Array.isArray(navigator.languages) ? navigator.languages.slice(0, 5) : null,
+        platform: navigator.platform || null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+        screen_width: window.screen ? window.screen.width : null,
+        screen_height: window.screen ? window.screen.height : null,
+        viewport_width: window.innerWidth || null,
+        viewport_height: window.innerHeight || null,
+        device_pixel_ratio: window.devicePixelRatio || null,
+        max_touch_points: navigator.maxTouchPoints || 0,
+        hardware_concurrency: navigator.hardwareConcurrency || null,
+        device_memory: navigator.deviceMemory || null,
+        connection_type: connection ? connection.effectiveType || connection.type || null : null,
+        save_data: connection ? Boolean(connection.saveData) : null,
+      }
     },
     lead_id: params.get('lead_id'),
     telegram_id: params.get('tg_id') ? Number(params.get('tg_id')) : null

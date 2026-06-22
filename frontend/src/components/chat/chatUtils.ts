@@ -74,6 +74,19 @@ export function getTransportShortLabel(transport?: MessageTransport): string {
     return 'TG'
 }
 
+export function formatChatMessageDateTime(value: string): string {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+
+    return date.toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    })
+}
+
 function normalizePhoneDigits(phone?: string | null): string | null {
     const digitsOnly = String(phone || '').replace(/\D/g, '')
     if (!digitsOnly) return null

@@ -1,6 +1,6 @@
 import { Mic, ShieldCheck, Sparkles } from 'lucide-react'
 
-import { getChatMessageLabel, getTransportShortLabel } from './chatUtils'
+import { formatChatMessageDateTime, getChatMessageLabel, getTransportShortLabel } from './chatUtils'
 import { MessageDirection, type ChatMessage } from '@/types'
 import { MessageMediaAttachment } from './MessageMediaAttachment'
 import { MessageToolCallBadge } from './MessageToolCallBadge'
@@ -57,7 +57,7 @@ export function ChatMessageBubble({ message, leadSource }: ChatMessageBubbleProp
                 )}
                 <MessageToolCallBadge message={message} leadSource={leadSource} />
                 <span className="px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                    {getChatMessageLabel(message)} • {getTransportShortLabel(message.transport)} • {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {getChatMessageLabel(message)} • {getTransportShortLabel(message.transport)} • {formatChatMessageDateTime(message.created_at)}
                 </span>
             </div>
         </div>

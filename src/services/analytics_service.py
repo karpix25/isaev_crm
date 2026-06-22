@@ -431,8 +431,30 @@ class AnalyticsService:
             "utm_campaign": session.utm_campaign,
             "utm_content": session.utm_content,
             "utm_term": session.utm_term,
+            "session_metadata": session.metadata_json or {},
             "event_data": data,
         }
+        metadata = session.metadata_json or {}
+        client_context = metadata.get("client_context") or {}
+        request_context = metadata.get("request_context") or {}
+        for key in (
+            "platform",
+            "language",
+            "timezone",
+            "screen_width",
+            "screen_height",
+            "viewport_width",
+            "viewport_height",
+            "device_pixel_ratio",
+            "max_touch_points",
+            "connection_type",
+            "save_data",
+        ):
+            if key in client_context:
+                properties[key] = client_context[key]
+        for key in ("cf_country", "host", "is_likely_bot"):
+            if key in request_context:
+                properties[key] = request_context[key]
         for key in (
             "question_index",
             "question_total",
