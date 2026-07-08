@@ -488,7 +488,7 @@
   }
   .form-group input {
     width: 100%;
-    padding: 16px 18px;
+    padding: 12px 14px;
     background: var(--card2);
     border: 1.5px solid var(--border);
     border-radius: 12px;
@@ -535,7 +535,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 15px;
+    padding: 10px 12px;
     background: var(--card2);
     border: 1.5px solid var(--border);
     border-radius: 12px;
@@ -634,20 +634,20 @@
   .result-item-val   { font-weight: 600; }
 
   .messenger-estimate-box {
-    padding: 18px 20px;
+    padding: 14px 16px;
     text-align: left;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
-  .messenger-estimate-box .price-label { margin-bottom: 8px; color: var(--gold); }
+  .messenger-estimate-box .price-label { margin-bottom: 6px; color: var(--gold); }
   .messenger-estimate-box .price-value {
     display: block;
     -webkit-text-fill-color: #fff;
     background: none;
-    font-size: 24px;
+    font-size: 20px;
     line-height: 1.15;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
-  .messenger-estimate-box .price-note { color: #a0a0a0; line-height: 1.55; }
+  .messenger-estimate-box .price-note { color: #a0a0a0; line-height: 1.4; font-size: 11px; }
   .contact-summary {
     display: flex;
     flex-wrap: wrap;
@@ -682,8 +682,8 @@
     background: #171717;
     border: 1px solid var(--gold)33;
     border-radius: 12px;
-    padding: 11px 14px;
-    margin-bottom: 12px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
   }
   .messenger-next-title { color: #fff; font-size: 14px; font-weight: 900; margin-bottom: 4px; }
   .messenger-next-sub { color: #999; font-size: 12px; line-height: 1.45; }
@@ -1374,6 +1374,7 @@ function collectTrackingParams() {
 async function apiFetch(path, options = {}) {
   const response = await fetch(API_BASE + path, {
     ...options,
+    keepalive: options.keepalive || false,
     headers: {
       ...(options.body instanceof FormData ? {} : {'Content-Type': 'application/json'}),
       ...(options.headers || {})
@@ -2025,12 +2026,79 @@ async function submitWithMessenger(messenger) {
     return;
   }
   const file = document.getElementById('designFile')?.files?.[0];
+  
+  // Мгновенный переход
+  const messengerUrl = buildMessengerUrl(messenger, buildMessengerMessage(contact.name));
+  window.location.href = messengerUrl;
+
+  // Отправка в фоне
   if (!file) {
-    await submitFinalQuizToMessenger(contact, messenger);
+    submitFinalQuizToMessengerBg(contact, messenger);
     return;
   }
-  await submitFinalQuiz(contact);
+  submitFinalQuizBg(contact);
 }
+
+async function submitFinalQuizToMessengerBg(contact, messenger) {
+  const { lo, hi } = calcPrice();
+  isSubmittingQuiz = true;
+  try {
+    await ensureSession();
+    await apiFetch('/quiz/submit', {
+      method: 'POST',
+      keepalive: true,
+      body: JSON.stringify({
+        session_token: sessionToken,
+        contact,
+        answers,
+        price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
+        ...collectTrackingParams()
+      })
+    });
+    trackMessengerClickInBackground(messenger, 'messenger', {
+      cta_id: 'open_messenger_immediately',
+      copy_id: 'messenger_immediately',
+    });
+  } catch (e) {
+    console.error("Background submit failed:", e);
+  }
+}
+
+async function submitFinalQuizBg(contact) {
+  const { lo, hi } = calcPrice();
+  isSubmittingQuiz = true;
+  try {
+    await ensureSession();
+    let designProjectFileUrl = null;
+    const file = document.getElementById('designFile').files[0];
+    if (file) {
+      const form = new FormData();
+      form.append('session_token', sessionToken);
+      form.append('file', file);
+      const uploaded = await apiFetch('/quiz/design-project', { method: 'POST', body: form, keepalive: true });
+      designProjectFileUrl = uploaded.url;
+    }
+    await apiFetch('/quiz/submit', {
+      method: 'POST',
+      keepalive: true,
+      body: JSON.stringify({
+        session_token: sessionToken,
+        contact,
+        answers,
+        price: { lo, hi, label: `${fmtPrice(lo)} – ${fmtPrice(hi)}` },
+        design_project_file_url: designProjectFileUrl,
+        ...collectTrackingParams()
+      })
+    });
+    trackMessengerClickInBackground(contact.preferred_messenger, 'messenger', {
+      cta_id: 'open_messenger_immediately',
+      copy_id: 'messenger_immediately',
+    });
+  } catch(e) {
+    console.error("Background submit failed:", e);
+  }
+}
+
 
 function readContactForm() {
   const name  = document.getElementById('fname').value.trim();
