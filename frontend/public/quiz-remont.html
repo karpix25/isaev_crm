@@ -706,6 +706,11 @@
 
   /* THANK YOU */
   .ty-wrap { text-align: center; }
+  .ty-wrap.result-compact { text-align: left; }
+  .result-compact-head { text-align: center; margin-bottom: 16px; }
+  .result-compact .ty-anim { font-size: 48px; margin-bottom: 12px; }
+  .result-compact .ty-title { font-size: 24px; margin-bottom: 6px; }
+  .result-compact .ty-sub { font-size: 14px; line-height: 1.45; margin-bottom: 0; }
   .ty-anim { font-size: 72px; display: block; margin-bottom: 20px; animation: popIn 0.6s cubic-bezier(0.34,1.56,0.64,1); }
   .ty-title { font-size: 28px; font-weight: 900; margin-bottom: 10px; }
   .ty-sub   { color: #999; font-size: 15px; line-height: 1.7; margin-bottom: 24px; }
@@ -786,13 +791,13 @@
   .messenger-link {
     display: block;
     text-align: center;
-    padding: 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1.5px solid var(--border);
     color: #ddd;
     text-decoration: none;
-    font-weight: 700;
-    background: #101010;
+    font-weight: 800;
+    background: var(--card2);
   }
   .messenger-link.recommended {
     border-color: var(--gold);
@@ -899,6 +904,7 @@
     .question-text { font-size: 18px; }
     .price-value { font-size: 32px; }
     .messenger-estimate-box .price-value { font-size: 24px; }
+    .result-compact .ty-anim { font-size: 44px; }
     .float-gift { display: none; }
     .messenger-actions { grid-template-columns: 1fr; }
     .contact-grid { grid-template-columns: 1fr; }
@@ -1044,23 +1050,27 @@
 
     <!-- RESULT (показывается после отправки заявки) -->
     <div class="screen" id="screen-result">
-      <div class="ty-wrap" style="text-align:left">
-        <div style="text-align:center;margin-bottom:20px">
+      <div class="ty-wrap result-compact">
+        <div class="result-compact-head">
           <span class="ty-anim">🎉</span>
           <div class="ty-title">Заявка принята!</div>
-          <div class="ty-sub" id="resultSubtitle" style="margin-bottom:20px">
+          <div class="ty-sub" id="resultSubtitle">
             <strong id="tyName"></strong>, нажмите кнопку ниже — откроется<br>
             <strong id="tyMessenger"></strong> с готовым сообщением
           </div>
         </div>
 
-        <div class="price-box" id="resultPriceBox" style="margin-bottom:16px">
-          <div class="price-label">Предварительная стоимость работ</div>
+        <div class="price-box messenger-estimate-box" id="resultPriceBox">
+          <div class="price-label" id="resultPriceLabel">Предварительный просчет готов</div>
           <div class="price-value" id="resultRange">—</div>
-          <div class="price-note">Без материалов · точная цена после выезда замерщика</div>
+          <div class="price-note" id="resultPriceNote">Без материалов · точная цена после выезда замерщика</div>
         </div>
 
-        <div class="result-items" id="resultItems" style="display:none"></div>
+        <div class="contact-summary" id="resultSummary"></div>
+        <div class="messenger-next-note" id="resultNextStep">
+          <div class="messenger-next-title" id="resultNextStepTitle">Следующий шаг в мессенджере</div>
+          <div class="messenger-next-sub" id="resultNextStepSub">Откройте чат, чтобы получить расчет и уточнить детали сметы.</div>
+        </div>
 
         <div class="slots-section" id="slotsSection">
           <div class="slots-title">Выберите время бесплатного замера</div>
@@ -1961,8 +1971,8 @@ function getFinalContactCopy() {
   };
 }
 
-function renderContactSummary() {
-  const summary = document.getElementById('contactSummary');
+function renderAnswerSummary(targetId) {
+  const summary = document.getElementById(targetId);
   if (!summary) return;
   const compactFields = resultFields.filter(([key]) => ['type', 'area', 'rtype', 'design'].includes(key));
   summary.innerHTML = compactFields.map(([key, title]) => `
@@ -1973,18 +1983,25 @@ function renderContactSummary() {
   `).join('');
 }
 
+function renderContactSummary() {
+  renderAnswerSummary('contactSummary');
+}
+
+function renderResultEstimate(lo, hi) {
+  const finalCopy = getFinalContactCopy();
+  document.getElementById('resultRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
+  document.getElementById('resultPriceLabel').textContent = finalCopy.label;
+  document.getElementById('resultPriceNote').textContent = finalCopy.note;
+  document.getElementById('resultNextStepTitle').textContent = finalCopy.nextTitle;
+  document.getElementById('resultNextStepSub').textContent = finalCopy.nextSub;
+  document.getElementById('resultPriceBox').style.display = 'block';
+  renderAnswerSummary('resultSummary');
+}
+
 function showResult() {
   document.getElementById('progressWrap').style.display = 'none';
   const { lo, hi } = calcPrice();
-
-  document.getElementById('resultRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
-
-  const el = document.getElementById('resultItems');
-  el.innerHTML = resultFields.map(([k, title]) => `
-    <div class="result-item">
-      <span class="result-item-label">${title}</span>
-      <span class="result-item-val">${labels[k]?.[answers[k]] || '—'}</span>
-    </div>`).join('');
+  renderResultEstimate(lo, hi);
 
   showScreen('screen-result');
 }
@@ -2234,17 +2251,11 @@ async function submitFinalQuiz(contactOverride = null) {
   }
 
   // Заполняем экран результата
-  document.getElementById('resultRange').textContent = `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
-  document.getElementById('resultItems').innerHTML = resultFields.map(([k, title]) => `
-    <div class="result-item">
-      <span class="result-item-label">${title}</span>
-      <span class="result-item-val">${labels[k]?.[answers[k]] || '—'}</span>
-    </div>`).join('');
+  renderResultEstimate(lo, hi);
 
   document.getElementById('tyName').textContent  = contact.name;
   const visibleMessenger = selectedMessenger || getRecommendedMessenger() || 'whatsapp';
   document.getElementById('tyMessenger').textContent = visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp';
-  document.getElementById('resultPriceBox').style.display = 'none';
   document.getElementById('resultSubtitle').innerHTML = hasDesignProjectIntent()
     ? `<strong>${escapeHtml(contact.name)}</strong>, предварительный ориентир готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там можно спокойно прислать дизайн-проект для более точного расчета.`
     : `<strong>${escapeHtml(contact.name)}</strong>, предварительный ориентир готов.<br>Откроем ${visibleMessenger === 'telegram' ? 'Telegram' : 'WhatsApp'}, там отправим расчет и подскажем понятный следующий шаг.`;
