@@ -549,6 +549,20 @@
     border-color: var(--gold);
     background: #1e1708;
   }
+  .messenger-choice-btn::after {
+    content: 'Открыть';
+    display: none;
+    margin-left: auto;
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: var(--gold);
+    color: #111;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
   .messenger-choice-btn.recommended {
     border-color: var(--gold);
     box-shadow: 0 0 0 1px var(--gold)33;
@@ -898,8 +912,21 @@
   }
   .float-gift-close:hover { color: #999; }
 
-  @media (max-width: 480px) {
-    .card { padding: 28px 20px; }
+  @media (max-width: 680px) {
+    body {
+      align-items: flex-start;
+      min-height: 100svh;
+    }
+    .quiz-wrap {
+      padding: 10px 12px;
+    }
+    .logo {
+      margin-bottom: 10px;
+    }
+    .logo img {
+      height: 46px !important;
+    }
+    .card { padding: 18px 16px; }
     .start-title { font-size: 24px; }
     .question-text { font-size: 18px; }
     .price-value { font-size: 32px; }
@@ -914,6 +941,99 @@
     .slot-time-grid { grid-template-columns: 1fr; }
     .messenger-choice { grid-template-columns: 1fr; }
     .resume-actions { grid-template-columns: 1fr; }
+    #screen-contact .messenger-estimate-box {
+      padding: 10px 12px;
+      margin-bottom: 8px !important;
+      border-radius: 14px;
+    }
+    #screen-contact .messenger-estimate-box .price-label { display: none; }
+    #screen-contact .messenger-estimate-box .price-value {
+      font-size: 20px;
+      font-weight: 900;
+      line-height: 1.12;
+      margin-bottom: 0;
+      white-space: normal;
+    }
+    #screen-contact .messenger-estimate-box .price-note { display: none; }
+    #contactTitle {
+      font-size: 17px !important;
+      line-height: 1.15;
+      margin-bottom: 8px;
+    }
+    #screen-contact .contact-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 5px;
+      margin: 5px 0 8px;
+    }
+    #screen-contact .contact-summary-item {
+      padding: 6px 8px;
+      min-height: 0;
+      border-radius: 999px;
+    }
+    #screen-contact .contact-summary-label {
+      display: none;
+    }
+    #screen-contact .contact-summary-val {
+      display: block;
+      font-size: 11px;
+      line-height: 1.1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #screen-contact .form-group { margin-bottom: 7px; }
+    #screen-contact .form-group label {
+      margin-bottom: 4px;
+      font-size: 9px;
+      letter-spacing: 1.1px;
+    }
+    #screen-contact .form-group input {
+      padding: 9px 11px;
+      font-size: 15px;
+      border-radius: 12px;
+    }
+    #screen-contact .contact-grid {
+      gap: 0;
+      margin-top: 0;
+    }
+    #screen-contact .messenger-choice {
+      gap: 7px;
+      margin: 5px 0 8px;
+    }
+    #screen-contact .messenger-choice-btn {
+      width: 100%;
+      min-width: 0;
+      min-height: 50px;
+      padding: 9px 11px;
+      border-radius: 13px;
+      border-color: var(--gold)55;
+      background: #1b1b1b;
+      overflow: hidden;
+    }
+    #screen-contact .messenger-choice-btn.active,
+    #screen-contact .messenger-choice-btn:active {
+      border-color: var(--gold);
+      background: #241c08;
+    }
+    #screen-contact .messenger-choice-btn::after {
+      display: none;
+    }
+    #screen-contact .messenger-choice-btn > span:not(.messenger-choice-icon) {
+      flex: 1;
+      min-width: 0;
+    }
+    #screen-contact .messenger-choice-icon { font-size: 24px; }
+    #screen-contact .messenger-choice-title {
+      display: block;
+      font-size: 18px;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #screen-contact .messenger-choice-sub { display: none; }
+    #screen-contact .messenger-next-note { display: none; }
+    #screen-contact .disclaimer { margin-top: 8px; font-size: 10px; line-height: 1.35; }
   }
 </style>
 </head>
@@ -1026,14 +1146,14 @@
         <button type="button" class="messenger-choice-btn" data-messenger="telegram" onclick="selectMessenger('telegram')">
           <span class="messenger-choice-icon">✈️</span>
           <span>
-            <span class="messenger-choice-title">Telegram</span>
+            <span class="messenger-choice-title">Открыть Telegram</span>
             <span class="messenger-choice-sub">Откроется чат с готовым текстом</span>
           </span>
         </button>
         <button type="button" class="messenger-choice-btn" data-messenger="whatsapp" onclick="selectMessenger('whatsapp')">
           <span class="messenger-choice-icon">☘️</span>
           <span>
-            <span class="messenger-choice-title">WhatsApp</span>
+            <span class="messenger-choice-title">Открыть WhatsApp</span>
             <span class="messenger-choice-sub">Откроется сообщение с кодом заявки</span>
           </span>
         </button>
@@ -1830,7 +1950,7 @@ function prevStep() {
 
 function showContactWithTeaser() {
   contactGateMode = 'final';
-  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressWrap').style.display = 'none';
   document.getElementById('progressFill').style.width = '100%';
   document.getElementById('pct').textContent = '100%';
   document.getElementById('stepLabel').textContent = 'Расчет готов';
@@ -1952,22 +2072,22 @@ function hasDesignProjectIntent() {
 function getFinalContactCopy() {
   if (hasDesignProjectIntent()) {
     return {
-      label: 'Предварительный просчет уже готов',
-      hero: 'Получите его в мессенджере',
-      title: 'Куда отправить просчет?',
-      note: 'В переписке покажем ориентир бюджета и попросим дизайн-проект для точной сметы.',
+      label: 'Просчет готов',
+      hero: 'Расчет готов',
+      title: 'Куда отправить?',
+      note: 'Откроем чат и уточним проект для точной сметы.',
       nextTitle: 'Точный расчет по проекту',
-      nextSub: 'В мессенджере попросим прислать проект или материалы, чтобы подготовить смету точнее.'
+      nextSub: 'В мессенджере попросим проект или материалы для точной сметы.'
     };
   }
 
   return {
-    label: 'Предварительный просчет готов',
-    hero: 'Отправим в удобный мессенджер',
-    title: 'Куда отправить данные?',
-    note: 'Покажем ориентир бюджета и предложим следующий шаг для точной сметы.',
+    label: 'Просчет готов',
+    hero: 'Расчет готов',
+    title: 'Куда отправить?',
+    note: 'Покажем ориентир бюджета и следующий шаг.',
     nextTitle: 'Точная смета после замера',
-    nextSub: 'Если проекта нет, в мессенджере предложим выбрать удобное время бесплатного замера.'
+    nextSub: 'В мессенджере предложим удобное время бесплатного замера.'
   };
 }
 
