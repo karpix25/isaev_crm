@@ -2162,18 +2162,9 @@ async function submitWithMessenger(messenger) {
     document.querySelectorAll('.messenger-choice-btn').forEach(btn => btn.classList.remove('active'));
     return;
   }
-  const file = document.getElementById('designFile')?.files?.[0];
-  
-  // Мгновенный переход
+  submitFinalQuizToMessengerBg(contact, messenger);
   const messengerUrl = buildMessengerUrl(messenger, buildMessengerMessage(contact.name));
   window.location.href = messengerUrl;
-
-  // Отправка в фоне
-  if (!file) {
-    submitFinalQuizToMessengerBg(contact, messenger);
-    return;
-  }
-  submitFinalQuizBg(contact);
 }
 
 async function submitFinalQuizToMessengerBg(contact, messenger) {

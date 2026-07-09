@@ -36,6 +36,11 @@ jobs:
             -o IdentitiesOnly=yes \
             frontend/public/quiz-remont.html \
             quizdeploy@45.130.43.211:/var/www/isaev-quiz/index.html
+          scp \
+            -i ~/.ssh/quiz_deploy_key \
+            -o IdentitiesOnly=yes \
+            frontend/public/quiz-remont.html \
+            quizdeploy@45.130.43.211:/var/www/isaev-quiz/quiz-remont.html
 
       - name: Verify quiz
-        run: curl --fail --silent --show-error --max-time 20 https://quiz.isaevremont.ru/ >/dev/null
+        run: curl --fail --silent --show-error --max-time 20 https://quiz.isaevremont.ru/quiz-remont.html >/dev/null
