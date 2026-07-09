@@ -1,10 +1,29 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+function quizHtmlFallback(): Plugin {
+  return {
+    name: 'quiz-html-fallback',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (!req.url?.match(/^\/quiz-remont(?:\/|$|\?)/)) {
+          next()
+          return
+        }
+
+        const queryIndex = req.url.indexOf('?')
+        const query = queryIndex >= 0 ? req.url.slice(queryIndex) : ''
+        req.url = `/quiz-remont.html${query}`
+        next()
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), quizHtmlFallback()],
   build: {
     rollupOptions: {
       output: {

@@ -1461,6 +1461,124 @@ const resultFields = [
   ['budget', 'Бюджет']
 ];
 
+const QUIZ_ROUTE_BASE = '/quiz-remont';
+const QUIZ_ROUTE_ALIASES = ['/quiz-remont.html', '/'];
+let isApplyingRoute = false;
+
+function hasSavedQuizAnswers(saved) {
+  return Boolean(saved && Object.keys(saved.answers || {}).length > 0);
+}
+
+function hasCompleteSavedQuizAnswers(saved) {
+  return Boolean(saved && questions.every(question => saved.answers?.[question.id]));
+}
+
+function routeWithSearch(path) {
+  return `${path}${window.location.search || ''}`;
+}
+
+function getCurrentQuizRoute() {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (QUIZ_ROUTE_ALIASES.includes(path)) return { screen: 'start' };
+  if (path === QUIZ_ROUTE_BASE) return { screen: 'start' };
+  if (path === `${QUIZ_ROUTE_BASE}/contact`) return { screen: 'contact' };
+  if (path === `${QUIZ_ROUTE_BASE}/thanks`) return { screen: 'thanks' };
+  const stepMatch = path.match(/^\/quiz-remont\/step\/(\d+)$/);
+  if (!stepMatch) return null;
+  const routeStep = Number(stepMatch[1]);
+  if (!Number.isInteger(routeStep) || routeStep < 1 || routeStep > questions.length) return null;
+  return { screen: 'step', step: routeStep - 1 };
+}
+
+function replaceQuizRoute(path) {
+  if (!window.history?.replaceState) return;
+  window.history.replaceState({ quizRoute: path }, '', routeWithSearch(path));
+}
+
+function pushQuizRoute(path) {
+  if (isApplyingRoute || !window.history?.pushState) return;
+  const nextUrl = routeWithSearch(path);
+  if (`${window.location.pathname}${window.location.search || ''}` === nextUrl) return;
+  window.history.pushState({ quizRoute: path }, '', nextUrl);
+}
+
+function syncRouteForScreen(id) {
+  if (id === 'screen-start') {
+    pushQuizRoute(QUIZ_ROUTE_BASE);
+    return;
+  }
+  if (id === 'screen-q' && step >= 0) {
+    pushQuizRoute(`${QUIZ_ROUTE_BASE}/step/${step + 1}`);
+    return;
+  }
+  if (id === 'screen-contact') {
+    if (contactGateMode === 'early') return;
+    pushQuizRoute(`${QUIZ_ROUTE_BASE}/contact`);
+    return;
+  }
+  if (id === 'screen-result') {
+    pushQuizRoute(`${QUIZ_ROUTE_BASE}/thanks`);
+  }
+}
+
+function restoreFromRoute() {
+  const route = getCurrentQuizRoute();
+  if (!route) {
+    replaceQuizRoute(QUIZ_ROUTE_BASE);
+    return false;
+  }
+  if (route.screen === 'start') {
+    replaceQuizRoute(QUIZ_ROUTE_BASE);
+    return false;
+  }
+
+  const saved = getSavedProgress();
+  if (!hasSavedQuizAnswers(saved)) {
+    replaceQuizRoute(QUIZ_ROUTE_BASE);
+    return false;
+  }
+  if ((route.screen === 'contact' || route.screen === 'thanks') && !hasCompleteSavedQuizAnswers(saved)) {
+    replaceQuizRoute(`${QUIZ_ROUTE_BASE}/step/${Math.min((saved.step || 0) + 1, questions.length)}`);
+    return false;
+  }
+
+  if (saved) {
+    answers = saved.answers || {};
+    sessionToken = saved.sessionToken || sessionToken;
+    currentLeadId = saved.currentLeadId || currentLeadId;
+    selectedMessenger = saved.selectedMessenger || selectedMessenger;
+    messengerPresence = saved.messengerPresence || messengerPresence;
+    recommendedMessenger = saved.recommendedMessenger || recommendedMessenger;
+    submittedContact = saved.submittedContact || submittedContact;
+    if (sessionToken) localStorage.setItem('isaev_quiz_session_token', sessionToken);
+  }
+
+  isApplyingRoute = true;
+  try {
+    if (route.screen === 'step') {
+      step = route.step;
+      document.getElementById('progressWrap').style.display = 'block';
+      showScreen('screen-q');
+      renderQuestion();
+      return true;
+    }
+    if (route.screen === 'contact') {
+      step = saved?.step ?? questions.length - 1;
+      showContactWithTeaser();
+      return true;
+    }
+    if (route.screen === 'thanks') {
+      step = saved?.step ?? questions.length - 1;
+      showResult();
+      return true;
+    }
+  } finally {
+    isApplyingRoute = false;
+  }
+
+  return false;
+}
+
 function collectTrackingParams() {
   const params = new URLSearchParams(window.location.search);
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -1711,6 +1829,7 @@ function showScreen(id) {
     : 'slideIn 0.35s cubic-bezier(0.4,0,0.2,1)';
   el.classList.add('active');
   goingBack = false;
+  syncRouteForScreen(id);
 }
 
 function startQuiz(options = {}) {
@@ -2734,6 +2853,8 @@ initPostHog();
 ensureSession();
 
 function initializeQuizEntry() {
+  const restoredFromRoute = restoreFromRoute();
+  if (restoredFromRoute) return;
   const saved = getSavedProgress();
   if (saved && saved.step >= 0 && Object.keys(saved.answers || {}).length > 0) {
     showResumeBoxIfNeeded();
@@ -2741,6 +2862,14 @@ function initializeQuizEntry() {
   }
   startQuiz({ auto: true });
 }
+
+window.addEventListener('popstate', () => {
+  if (restoreFromRoute()) return;
+  goingBack = true;
+  step = -1;
+  document.getElementById('progressWrap').style.display = 'none';
+  showScreen('screen-start');
+});
 
 function shake(id) {
   const el = document.getElementById(id);
