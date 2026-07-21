@@ -87,6 +87,16 @@ class TelegramWebhookInfoResponse(BaseModel):
     last_error_date: int | None = None
 
 
+def _telegram_last_error_timestamp(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
 class OperatorUserResponse(BaseModel):
     id: uuid.UUID
     telegram_id: int | None = None
@@ -263,7 +273,7 @@ async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
             current_url=getattr(info, "url", "") or "",
             pending_update_count=getattr(info, "pending_update_count", None),
             last_error_message=getattr(info, "last_error_message", None),
-            last_error_date=getattr(info, "last_error_date", None),
+            last_error_date=_telegram_last_error_timestamp(getattr(info, "last_error_date", None)),
         )
     if not configured_url:
         raise HTTPException(status_code=503, detail="TELEGRAM_WEBHOOK_URL is empty for webhook mode.")
@@ -287,7 +297,7 @@ async def _ensure_telegram_webhook() -> TelegramWebhookInfoResponse:
         current_url=current_url,
         pending_update_count=getattr(info, "pending_update_count", None),
         last_error_message=getattr(info, "last_error_message", None),
-        last_error_date=getattr(info, "last_error_date", None),
+        last_error_date=_telegram_last_error_timestamp(getattr(info, "last_error_date", None)),
     )
 
 
