@@ -14,7 +14,9 @@
   })();
 </script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  /* Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V4 */
+  /* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: custom Apple calm · tone: soft premium · anchor hue: blue · enrichment: none */
+  @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1035,13 +1037,1000 @@
     #screen-contact .messenger-next-note { display: none; }
     #screen-contact .disclaimer { margin-top: 8px; font-size: 10px; line-height: 1.35; }
   }
+
+  /* ISAEV quiz redesign · calm premium layer */
+  :root {
+    --color-paper: oklch(96.9% 0.004 286);
+    --color-panel: oklch(99.7% 0.002 286);
+    --color-panel-soft: oklch(98.2% 0.004 286);
+    --color-panel-blue: oklch(96.8% 0.018 255);
+    --color-ink: oklch(22% 0.006 286);
+    --color-ink-soft: oklch(39% 0.008 286);
+    --color-muted-strong: oklch(48% 0.009 286);
+    --color-muted-soft: oklch(64% 0.008 286);
+    --color-rule: oklch(88.5% 0.006 286);
+    --color-rule-strong: oklch(78% 0.011 286);
+    --color-accent: oklch(57% 0.205 255);
+    --color-accent-hover: oklch(52% 0.21 255);
+    --color-accent-soft: oklch(94% 0.028 255);
+    --color-accent-rule: oklch(84% 0.05 255);
+    --color-accent-ink: oklch(99% 0.002 255);
+    --color-success: oklch(56% 0.15 145);
+    --color-success-soft: oklch(94% 0.035 145);
+    --color-danger: oklch(58% 0.18 25);
+    --color-ink-inverse-soft: oklch(88% 0.006 286);
+    --color-overlay: oklch(22% 0.006 286 / 0.5);
+    --color-shadow: oklch(22% 0.006 286 / 0.05);
+    --font-display: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    --font-body: "Inter", "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --space-3xs: 0.125rem;
+    --space-2xs: 0.25rem;
+    --space-xs: 0.5rem;
+    --space-sm: 0.75rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2.5rem;
+    --space-2xl: 4rem;
+    --space-3xl: 6rem;
+    --text-xs: 0.75rem;
+    --text-sm: 0.875rem;
+    --text-base: 1rem;
+    --text-md: 1.125rem;
+    --text-lg: 1.375rem;
+    --text-xl: 1.75rem;
+    --text-2xl: 2.25rem;
+    --text-display: clamp(2rem, 4vw + 0.5rem, 3rem);
+    --radius: 24px;
+    --radius-control: 16px;
+    --radius-pill: 999px;
+    --shadow-panel: 0 10px 40px var(--color-shadow);
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --dur-micro: 120ms;
+    --dur-short: 220ms;
+    --dur-long: 420ms;
+    --gold: var(--color-accent);
+    --gold-light: var(--color-accent-hover);
+    --gold-dark: var(--color-accent);
+    --bg: var(--color-paper);
+    --card: var(--color-panel);
+    --card2: var(--color-panel-soft);
+    --border: var(--color-rule);
+    --text: var(--color-ink);
+    --muted: var(--color-muted-strong);
+    --muted2: var(--color-muted-soft);
+  }
+
+  html,
+  body {
+    overflow-x: clip;
+  }
+
+  body {
+    min-height: 100svh;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(var(--space-md), 3vw, var(--space-xl));
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    line-height: 1.55;
+    letter-spacing: 0;
+  }
+
+  body::before,
+  .card::before,
+  .gift-banner::before,
+  .price-box::before,
+  .btn-next::before,
+  .option::before {
+    display: none;
+  }
+
+  button,
+  input,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  input {
+    font-family: var(--font-body);
+  }
+
+  button {
+    min-height: 48px;
+    white-space: nowrap;
+  }
+
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: inherit;
+  }
+
+  .quiz-wrap {
+    width: min(100%, 720px);
+    max-width: 720px;
+    padding: 0;
+    display: grid;
+    gap: var(--space-lg);
+  }
+
+  .logo {
+    margin: 0;
+    text-align: left;
+    animation: none;
+  }
+
+  .logo img {
+    height: 58px !important;
+    width: auto;
+    margin: 0 !important;
+    object-fit: contain;
+    filter: saturate(0.88) contrast(1.05);
+  }
+
+  .logo-text {
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  .logo-text span,
+  .question-num,
+  .gift-title,
+  .resume-title,
+  .price-label,
+  .messenger-estimate-box .price-label,
+  .messenger-link-badge {
+    color: var(--color-accent);
+  }
+
+  .logo-line {
+    display: none;
+  }
+
+  .progress-wrap {
+    margin: 0;
+    animation: none;
+  }
+
+  .progress-label {
+    color: var(--color-muted-strong);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .progress-bar {
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--color-rule);
+  }
+
+  .progress-fill {
+    border-radius: var(--radius-pill);
+    background: var(--color-accent);
+    transition: width var(--dur-long) var(--ease-out);
+  }
+
+  .progress-fill::after {
+    width: 10px;
+    height: 10px;
+    background: var(--color-panel);
+    border: 2px solid var(--color-accent);
+    box-shadow: none;
+  }
+
+  .card {
+    overflow: hidden;
+    padding: clamp(var(--space-xl), 6vw, 3.5rem);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius);
+    background: var(--color-panel);
+    box-shadow: var(--shadow-panel);
+  }
+
+  .screen.active {
+    animation: screenIn var(--dur-long) var(--ease-out);
+  }
+
+  .screen.exit {
+    animation: screenOut 180ms var(--ease-in) forwards;
+  }
+
+  @keyframes screenIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes screenOut {
+    from { opacity: 1; transform: none; }
+    to { opacity: 0; transform: translateY(-4px); }
+  }
+
+  .start-tag {
+    margin-bottom: var(--space-lg);
+    padding: 8px 14px;
+    border: 1px solid var(--color-accent-rule);
+    border-radius: var(--radius-pill);
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    animation: none;
+  }
+
+  .start-tag::before {
+    color: var(--color-accent);
+    animation: none;
+  }
+
+  .start-title,
+  .question-text,
+  .result-title,
+  .ty-title,
+  .exit-title {
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+
+  .start-title {
+    max-width: 11ch;
+    margin-bottom: var(--space-md);
+    font-size: var(--text-display);
+    line-height: 1.08;
+    animation: none;
+  }
+
+  .start-title em {
+    color: var(--color-accent);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  .start-sub {
+    max-width: 58ch;
+    margin-bottom: var(--space-xl);
+    color: var(--color-ink-soft);
+    font-size: var(--text-base);
+    line-height: 1.65;
+    animation: none;
+  }
+
+  .start-points {
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xl);
+    animation: none;
+  }
+
+  .start-point {
+    align-items: flex-start;
+    gap: var(--space-md);
+    color: var(--color-ink);
+    font-size: var(--text-base);
+    font-weight: 600;
+  }
+
+  .start-point-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-size: var(--text-sm);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .start-time,
+  .disclaimer,
+  .inline-status,
+  .price-note,
+  .result-sub,
+  .ty-sub,
+  .slots-sub,
+  .exit-sub,
+  .design-upload-note,
+  .gift-sub,
+  .resume-sub,
+  .messenger-choice-sub,
+  .messenger-next-sub,
+  .gift-result-sub,
+  .float-gift-sub {
+    color: var(--color-muted-strong);
+  }
+
+  .start-time {
+    margin-top: var(--space-md);
+    font-size: var(--text-sm);
+    animation: none;
+  }
+
+  .resume-box,
+  .gift-banner,
+  .file-row,
+  .price-box,
+  .result-items,
+  .gift-result,
+  .ty-card,
+  .slots-section,
+  .messenger-next-note,
+  .contact-summary-item {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius);
+    background: var(--color-panel-soft);
+  }
+
+  .resume-box {
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+    animation: none;
+  }
+
+  .resume-actions,
+  .design-upload-actions,
+  .exit-grid,
+  .ty-cards,
+  .slot-picker {
+    gap: var(--space-sm);
+  }
+
+  .question-num {
+    margin-bottom: var(--space-sm);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .question-text {
+    margin-bottom: var(--space-lg);
+    font-size: clamp(1.35rem, 2vw + 0.6rem, 1.85rem);
+    line-height: 1.18;
+  }
+
+  .options {
+    gap: var(--space-sm);
+  }
+
+  .option {
+    gap: var(--space-md);
+    min-height: 72px;
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    transition: border-color var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+    animation: optionIn var(--dur-long) var(--ease-out) both;
+  }
+
+  @keyframes optionIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .option:hover,
+    .btn-small:hover,
+    .messenger-choice-btn:hover,
+    .slot-date-btn:hover,
+    .slot-btn:hover,
+    .messenger-link:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn-next:hover {
+      transform: translateY(-1px);
+      background: var(--color-accent-hover);
+      box-shadow: none;
+    }
+  }
+
+  .option:active,
+  .btn-next:active,
+  .btn-small:active,
+  .messenger-choice-btn:active,
+  .slot-date-btn:active,
+  .slot-btn:active,
+  .messenger-link:active {
+    transform: translateY(1px);
+  }
+
+  .option.selected {
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+
+  .option.selected .opt-icon,
+  .option.selected .check-mark {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .opt-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--color-panel-soft);
+    color: var(--color-ink);
+    font-size: var(--text-lg);
+    transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
+  }
+
+  .opt-label {
+    color: var(--color-ink);
+    font-size: var(--text-base);
+    font-weight: 700;
+  }
+
+  .opt-sub {
+    color: var(--color-muted-strong);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+
+  .check-mark {
+    border: 1px solid var(--color-rule-strong);
+    color: var(--color-accent-ink);
+  }
+
+  .btn-next,
+  .btn-small,
+  .messenger-choice-btn,
+  .slot-date-btn,
+  .slot-btn,
+  .messenger-link {
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    letter-spacing: 0;
+    transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+  }
+
+  .btn-next {
+    margin-top: var(--space-lg);
+    padding: 16px 18px;
+    border: 1px solid var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+    font-size: var(--text-base);
+    font-weight: 800;
+    box-shadow: none;
+  }
+
+  .btn-next:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-small {
+    padding: 12px 14px;
+    border: 1px solid var(--color-rule);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    font-size: var(--text-sm);
+    font-weight: 700;
+  }
+
+  .btn-small.primary {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  .btn-back,
+  .exit-close,
+  .float-gift-close {
+    color: var(--color-muted-strong);
+    transition: color var(--dur-short) var(--ease-out);
+  }
+
+  .btn-back {
+    min-height: 44px;
+    margin-top: var(--space-md);
+    font-size: var(--text-sm);
+  }
+
+  .btn-back:hover,
+  .exit-close:hover,
+  .float-gift-close:hover {
+    color: var(--color-ink);
+  }
+
+  .form-group {
+    margin-bottom: var(--space-md);
+  }
+
+  .form-group label {
+    margin-bottom: var(--space-xs);
+    color: var(--color-ink-soft);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .form-group input,
+  .exit-grid input {
+    min-height: 52px;
+    padding: 13px 15px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    font-size: var(--text-base);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
+  }
+
+  .form-group input:hover,
+  .exit-grid input:hover {
+    background: var(--color-panel-soft);
+  }
+
+  .form-group input:focus,
+  .exit-grid input:focus {
+    border-color: var(--color-accent);
+    box-shadow: none;
+    outline: 2px solid var(--color-accent);
+  }
+
+  .form-group input::placeholder,
+  .exit-grid input::placeholder {
+    color: var(--color-muted-soft);
+  }
+
+  .file-row {
+    padding: var(--space-lg);
+    border-style: dashed;
+  }
+
+  .file-row input {
+    color: var(--color-ink-soft);
+  }
+
+  .messenger-choice,
+  .contact-grid,
+  .messenger-actions,
+  .slot-time-grid {
+    gap: var(--space-sm);
+  }
+
+  .messenger-choice-btn {
+    min-height: 72px;
+    padding: var(--space-md);
+    border: 1px solid var(--color-rule);
+    background: var(--color-panel);
+    color: var(--color-ink);
+  }
+
+  .messenger-choice-btn.active,
+  .messenger-choice-btn.recommended,
+  .slot-date-btn.active,
+  .messenger-link.recommended {
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+    color: var(--color-ink);
+    box-shadow: none;
+  }
+
+  .messenger-choice-btn::after {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+    letter-spacing: 0;
+  }
+
+  .messenger-choice-icon {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: var(--color-panel-soft);
+    color: var(--color-accent);
+    font-size: var(--text-sm);
+    font-weight: 800;
+  }
+
+  .messenger-choice-icon--telegram {
+    background: oklch(96.5% 0.033 240);
+    color: #229ed9;
+  }
+
+  .messenger-choice-icon--whatsapp {
+    background: oklch(96.5% 0.045 145);
+    color: #25d366;
+  }
+
+  .messenger-logo {
+    display: block;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+  }
+
+  .messenger-logo--telegram {
+    color: #229ed9;
+  }
+
+  .messenger-logo--whatsapp {
+    color: #25d366;
+  }
+
+  .messenger-choice-title {
+    color: var(--color-ink);
+    font-size: var(--text-base);
+    font-weight: 800;
+  }
+
+  .messenger-choice-badge {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    letter-spacing: 0;
+  }
+
+  .contact-summary {
+    gap: var(--space-xs);
+  }
+
+  .contact-summary-item {
+    padding: 9px 12px;
+    border-radius: var(--radius-pill);
+  }
+
+  .contact-summary-label {
+    color: var(--color-muted-strong);
+    font-size: var(--text-xs);
+    letter-spacing: 0;
+  }
+
+  .contact-summary-val {
+    color: var(--color-ink);
+  }
+
+  .price-box {
+    padding: var(--space-lg);
+    background: var(--color-panel-blue);
+    text-align: left;
+    animation: none;
+  }
+
+  .price-label {
+    font-size: var(--text-sm);
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .price-value {
+    color: var(--color-ink);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4vw, 2.75rem);
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  .messenger-estimate-box .price-value {
+    color: var(--color-ink);
+    -webkit-text-fill-color: currentColor;
+    font-size: var(--text-xl);
+  }
+
+  .result-items {
+    padding: 0;
+    overflow: hidden;
+    animation: none;
+  }
+
+  .result-item {
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .result-item-label {
+    color: var(--color-muted-strong);
+  }
+
+  .result-item-val {
+    color: var(--color-ink);
+  }
+
+  .messenger-next-note {
+    padding: var(--space-lg);
+    background: var(--color-ink);
+    color: var(--color-panel);
+  }
+
+  .messenger-next-title {
+    color: var(--color-panel);
+    font-size: var(--text-base);
+  }
+
+  .messenger-next-note .messenger-next-sub {
+    color: var(--color-ink-inverse-soft);
+  }
+
+  .gift-result {
+    background: var(--color-success-soft);
+  }
+
+  .gift-result-title {
+    color: var(--color-success);
+  }
+
+  .ty-wrap,
+  .result-header {
+    text-align: left;
+  }
+
+  .result-compact-head {
+    text-align: left;
+  }
+
+  .ty-anim,
+  .result-emoji,
+  .gift-result-icon,
+  .float-gift-icon {
+    animation: none;
+  }
+
+  .ty-anim {
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--color-success-soft);
+    color: var(--color-success);
+    font-size: var(--text-xl);
+  }
+
+  .ty-title {
+    font-size: var(--text-xl);
+  }
+
+  .slots-section {
+    padding: var(--space-lg);
+  }
+
+  .slots-title {
+    color: var(--color-ink);
+  }
+
+  .slot-date-btn,
+  .slot-btn,
+  .messenger-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-rule);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+
+  .messenger-link {
+    flex-direction: column;
+    gap: 5px;
+    text-align: center;
+  }
+
+  .messenger-link-main {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .messenger-link .messenger-logo {
+    width: 21px;
+    height: 21px;
+  }
+
+  .slot-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+
+  .exit-overlay {
+    background: var(--color-overlay);
+    padding: var(--space-md);
+    z-index: 500;
+  }
+
+  .exit-modal {
+    max-width: 500px;
+    padding: var(--space-xl);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius);
+    background: var(--color-panel);
+    box-shadow: var(--shadow-panel);
+    animation: screenIn var(--dur-short) var(--ease-out);
+  }
+
+  .float-gift {
+    right: clamp(var(--space-md), 3vw, var(--space-xl));
+    bottom: clamp(var(--space-md), 3vw, var(--space-xl));
+    max-width: min(280px, calc(100vw - 32px));
+    padding: 12px 14px;
+    border: 1px solid var(--color-rule);
+    border-radius: 18px;
+    background: var(--color-panel);
+    box-shadow: var(--shadow-panel);
+    animation: screenIn var(--dur-long) var(--ease-out) 800ms both;
+  }
+
+  .float-gift-icon {
+    color: var(--color-accent);
+    font-size: var(--text-sm);
+    font-weight: 800;
+  }
+
+  .float-gift-title {
+    color: var(--color-ink);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 680px) {
+    body {
+      align-items: flex-start;
+      padding: var(--space-sm);
+    }
+
+    .quiz-wrap {
+      gap: var(--space-sm);
+      padding: 0;
+    }
+
+    .logo {
+      margin: var(--space-xs) 0 0;
+    }
+
+    .logo img {
+      height: 44px !important;
+    }
+
+    .card {
+      padding: var(--space-lg);
+      border-radius: 22px;
+    }
+
+    .start-title {
+      max-width: 12ch;
+      font-size: clamp(1.85rem, 10vw, 2.45rem);
+      line-height: 1.08;
+    }
+
+    .start-sub,
+    .question-text {
+      font-size: var(--text-base);
+    }
+
+    .start-points {
+      gap: var(--space-xs);
+    }
+
+    .start-point {
+      align-items: center;
+      font-size: var(--text-sm);
+    }
+
+    .option {
+      min-height: 64px;
+      padding: var(--space-sm);
+      border-radius: 18px;
+    }
+
+    .opt-icon,
+    .messenger-choice-icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .btn-next,
+    .btn-small,
+    .messenger-choice-btn,
+    .slot-date-btn,
+    .slot-btn,
+    .messenger-link {
+      min-height: 48px;
+      padding-inline: 12px;
+      font-size: var(--text-sm);
+    }
+
+    .contact-grid,
+    .messenger-choice,
+    .messenger-actions,
+    .slot-time-grid,
+    .resume-actions {
+      grid-template-columns: 1fr;
+    }
+
+    #screen-contact .contact-summary {
+      grid-template-columns: 1fr;
+      gap: var(--space-xs);
+      margin: var(--space-sm) 0;
+    }
+
+    #screen-contact .contact-summary-item {
+      border-radius: var(--radius-control);
+    }
+
+    #screen-contact .contact-summary-val {
+      white-space: normal;
+    }
+
+    #screen-contact .messenger-choice-btn {
+      border-color: var(--color-rule);
+      background: var(--color-panel);
+    }
+
+    #screen-contact .messenger-choice-btn.active,
+    #screen-contact .messenger-choice-btn:active {
+      border-color: var(--color-accent);
+      background: var(--color-accent-soft);
+    }
+
+    #screen-contact .messenger-choice-title {
+      font-size: var(--text-base);
+    }
+
+    #screen-contact .messenger-choice-sub {
+      display: block;
+      font-size: var(--text-xs);
+    }
+
+    #screen-contact .messenger-next-note {
+      display: block;
+    }
+
+    .price-value,
+    .messenger-estimate-box .price-value {
+      font-size: var(--text-lg);
+    }
+
+    .float-gift {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 150ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 150ms !important;
+    }
+  }
 </style>
 </head>
 <body>
 
 <!-- Floating gift notification -->
 <div class="float-gift" id="floatGift">
-  <div class="float-gift-icon">🎁</div>
+  <div class="float-gift-icon">PDF</div>
   <div class="float-gift-text">
     <div class="float-gift-title">Подарок за квиз</div>
     <div class="float-gift-sub">Дизайн-проект бесплатно</div>
@@ -1083,13 +2072,21 @@
 
       <div class="start-points">
         <div class="start-point">
-          <div class="start-point-icon">📊</div>
+          <div class="start-point-icon">01</div>
           Ориентир по работам без материалов
+        </div>
+        <div class="start-point">
+          <div class="start-point-icon">02</div>
+          Без звонка на первом шаге
+        </div>
+        <div class="start-point">
+          <div class="start-point-icon">03</div>
+          Расчет можно продолжить в Telegram или WhatsApp
         </div>
       </div>
 
-      <button class="btn-next" onclick="startQuiz()">Рассчитать стоимость →</button>
-      <div class="start-time">Без звонка на первом шаге</div>
+      <button class="btn-next" onclick="startQuiz()">Рассчитать стоимость</button>
+      <div class="start-time">Около двух минут</div>
     </div>
 
     <!-- QUESTION -->
@@ -1097,8 +2094,8 @@
       <div class="question-num" id="qNum">Вопрос 1</div>
       <div class="question-text" id="qText"></div>
       <div class="options" id="qOptions"></div>
-      <button class="btn-next" id="btnNext" disabled onclick="nextStep()">Далее →</button>
-      <button class="btn-back" id="btnBack" onclick="prevStep()" style="display:none">← Назад</button>
+      <button class="btn-next" id="btnNext" disabled onclick="nextStep()">Далее</button>
+      <button class="btn-back" id="btnBack" onclick="prevStep()" style="display:none">Назад</button>
     </div>
 
     <!-- DESIGN PROJECT UPLOAD -->
@@ -1114,9 +2111,9 @@
         <input type="file" id="designFile" accept=".pdf,.jpg,.jpeg,.png,.zip,.rar,.dwg" onchange="handleDesignFileSelected()">
       </div>
       <div class="design-upload-actions">
-        <button class="btn-next" id="designContinueBtn" onclick="continueAfterDesignUpload()" disabled>Продолжить →</button>
-        <button class="btn-small" onclick="skipDesignUpload()">Пришлю позже в мессенджере</button>
-        <button class="btn-back" onclick="backToDesignQuestion()">← Назад</button>
+        <button class="btn-next" id="designContinueBtn" onclick="continueAfterDesignUpload()" disabled>Продолжить</button>
+        <button class="btn-small" onclick="skipDesignUpload()">Пришлю позже</button>
+        <button class="btn-back" onclick="backToDesignQuestion()">Назад</button>
       </div>
       <div class="inline-status" id="designUploadStatus"></div>
     </div>
@@ -1124,7 +2121,7 @@
     <!-- CONTACT -->
     <div class="screen" id="screen-contact">
       <div class="price-box messenger-estimate-box" style="margin-bottom:18px">
-        <div class="price-label" id="contactPriceLabel">Ваш предварительный расчёт готов 🎉</div>
+        <div class="price-label" id="contactPriceLabel">Ваш предварительный расчёт готов</div>
         <div class="price-value" id="teaserRange">—</div>
         <div class="price-note" id="contactPriceNote">Стоимость работ (без материалов) · уточняется после замера</div>
       </div>
@@ -1144,14 +2141,14 @@
       </div>
       <div class="messenger-choice" id="messengerChoice">
         <button type="button" class="messenger-choice-btn" data-messenger="telegram" onclick="selectMessenger('telegram')">
-          <span class="messenger-choice-icon">✈️</span>
+          <span class="messenger-choice-icon messenger-choice-icon--telegram" data-messenger-logo="telegram" aria-hidden="true"></span>
           <span>
             <span class="messenger-choice-title">Открыть Telegram</span>
             <span class="messenger-choice-sub">Откроется чат с готовым текстом</span>
           </span>
         </button>
         <button type="button" class="messenger-choice-btn" data-messenger="whatsapp" onclick="selectMessenger('whatsapp')">
-          <span class="messenger-choice-icon">☘️</span>
+          <span class="messenger-choice-icon messenger-choice-icon--whatsapp" data-messenger-logo="whatsapp" aria-hidden="true"></span>
           <span>
             <span class="messenger-choice-title">Открыть WhatsApp</span>
             <span class="messenger-choice-sub">Откроется сообщение с кодом заявки</span>
@@ -1163,7 +2160,7 @@
         <div class="messenger-next-sub" id="contactNextStepSub">Отправим расчет и подскажем, что нужно для точной сметы</div>
       </div>
 
-      <button class="btn-back" onclick="prevStep()">← Назад</button>
+      <button class="btn-back" onclick="prevStep()">Назад</button>
       <div class="inline-status" id="submitStatus"></div>
       <div class="disclaimer">Нажимая кнопку, вы соглашаетесь на обработку персональных данных</div>
     </div>
@@ -1172,7 +2169,7 @@
     <div class="screen" id="screen-result">
       <div class="ty-wrap result-compact">
         <div class="result-compact-head">
-          <span class="ty-anim">🎉</span>
+          <span class="ty-anim">✓</span>
           <div class="ty-title">Заявка принята!</div>
           <div class="ty-sub" id="resultSubtitle">
             <strong id="tyName"></strong>, нажмите кнопку ниже — откроется<br>
@@ -1251,6 +2248,33 @@ let telegramBotUsername = (window.QUIZ_TELEGRAM_BOT_USERNAME || '').replace(/^@/
 let telegramBusinessProfileUrl = window.QUIZ_TELEGRAM_BUSINESS_PROFILE_URL || '';
 const WHATSAPP_PHONE = window.QUIZ_WHATSAPP_PHONE || '79212271279';
 let posthogReady = false;
+
+const MESSENGER_LOGOS = {
+  telegram: `
+    <svg class="messenger-logo messenger-logo--telegram" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M21.7 4.3 18.6 19c-.2 1.1-.8 1.4-1.7.9l-4.8-3.6-2.3 2.2c-.3.3-.5.5-1 .5l.4-5 9-8.1c.4-.4-.1-.6-.6-.2L6.4 12.8l-4.8-1.5c-1-.3-1-1 .2-1.5L20.4 2.6c.9-.3 1.6.2 1.3 1.7Z"/>
+    </svg>
+  `,
+  whatsapp: `
+    <svg class="messenger-logo messenger-logo--whatsapp" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M12 2a9.8 9.8 0 0 0-8.4 14.9L2.4 22l5.2-1.3A9.8 9.8 0 1 0 12 2Zm0 1.8a8 8 0 1 1-4.1 14.9l-.3-.2-3 .8.8-2.9-.2-.3A8 8 0 0 1 12 3.8Zm-3.2 3.9c-.2 0-.5.1-.7.4-.3.3-.9 1-.9 2.3 0 1.4 1 2.7 1.1 2.9.1.2 1.9 3.1 4.8 4.2 2.4.9 2.9.7 3.4.6.5-.1 1.6-.7 1.8-1.3.2-.6.2-1.2.2-1.3-.1-.1-.2-.2-.5-.4l-1.7-.8c-.3-.1-.5-.1-.7.2l-.7.9c-.1.2-.3.2-.6.1-.3-.1-1.1-.4-2.1-1.3-.8-.7-1.3-1.5-1.5-1.8-.1-.3 0-.4.1-.5l.4-.5c.1-.2.2-.3.3-.5.1-.2 0-.4 0-.5l-.8-1.9c-.2-.5-.4-.5-.7-.5h-.6Z"/>
+    </svg>
+  `
+};
+
+function getMessengerLogoSvg(messenger) {
+  return MESSENGER_LOGOS[messenger] || '';
+}
+
+function getMessengerName(messenger) {
+  return messenger === 'telegram' ? 'Telegram' : 'WhatsApp';
+}
+
+function hydrateMessengerLogos() {
+  document.querySelectorAll('[data-messenger-logo]').forEach((node) => {
+    node.innerHTML = getMessengerLogoSvg(node.dataset.messengerLogo);
+  });
+}
 
 function getPostHogBrowserHost(configuredHost) {
   const fallbackHost = configuredHost || 'https://us.i.posthog.com';
@@ -1476,6 +2500,7 @@ const resultFields = [
 
 const QUIZ_ROUTE_BASE = '/quiz-remont';
 const QUIZ_ROUTE_ALIASES = ['/quiz-remont.html', '/'];
+const IS_FILE_PREVIEW = window.location.protocol === 'file:';
 let isApplyingRoute = false;
 
 function hasSavedQuizAnswers(saved) {
@@ -1491,6 +2516,7 @@ function routeWithSearch(path) {
 }
 
 function getCurrentQuizRoute() {
+  if (IS_FILE_PREVIEW) return { screen: 'start' };
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   if (QUIZ_ROUTE_ALIASES.includes(path)) return { screen: 'start' };
   if (path === QUIZ_ROUTE_BASE) return { screen: 'start' };
@@ -1504,12 +2530,12 @@ function getCurrentQuizRoute() {
 }
 
 function replaceQuizRoute(path) {
-  if (!window.history?.replaceState) return;
+  if (IS_FILE_PREVIEW || !window.history?.replaceState) return;
   window.history.replaceState({ quizRoute: path }, '', routeWithSearch(path));
 }
 
 function pushQuizRoute(path) {
-  if (isApplyingRoute || !window.history?.pushState) return;
+  if (IS_FILE_PREVIEW || isApplyingRoute || !window.history?.pushState) return;
   const nextUrl = routeWithSearch(path);
   if (`${window.location.pathname}${window.location.search || ''}` === nextUrl) return;
   window.history.pushState({ quizRoute: path }, '', nextUrl);
@@ -1894,16 +2920,24 @@ function renderQuestion() {
   optEl.innerHTML = '';
   q.options.forEach((opt, i) => {
     const div = document.createElement('div');
+    const optionNumber = String(i + 1).padStart(2, '0');
     div.className = 'option' + (answers[q.id] === opt.val ? ' selected' : '');
+    div.setAttribute('role', 'button');
+    div.tabIndex = 0;
     div.style.setProperty('--delay', (i * 0.06) + 's');
     div.innerHTML = `
-      <div class="opt-icon">${opt.icon}</div>
+      <div class="opt-icon" aria-hidden="true">${optionNumber}</div>
       <div style="flex:1">
         <div class="opt-label">${opt.label}</div>
         <div class="opt-sub">${opt.sub}</div>
       </div>
       <div class="check-mark"></div>`;
     div.onclick = () => selectOption(q.id, opt.val, div);
+    div.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      selectOption(q.id, opt.val, div);
+    };
     optEl.appendChild(div);
   });
 
@@ -2796,11 +3830,11 @@ function renderMessengerActions(name) {
   actions.style.display = 'grid';
   actions.innerHTML = `
     <a class="messenger-link ${recommended === primary ? 'recommended' : ''}" href="${primaryUrl}" onclick="trackMessengerResultClick('${primary}', event)">
-      Открыть ${primary === 'telegram' ? 'Telegram' : 'WhatsApp'}
+      <span class="messenger-link-main">${getMessengerLogoSvg(primary)}<span>Открыть ${getMessengerName(primary)}</span></span>
       ${recommended === primary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
     <a class="messenger-link ${recommended === secondary ? 'recommended' : ''}" href="${secondaryUrl}" onclick="trackMessengerResultClick('${secondary}', event)">
-      Открыть ${secondary === 'telegram' ? 'Telegram' : 'WhatsApp'}
+      <span class="messenger-link-main">${getMessengerLogoSvg(secondary)}<span>Открыть ${getMessengerName(secondary)}</span></span>
       ${recommended === secondary ? '<span class="messenger-link-badge">Быстрее</span>' : ''}
     </a>
   `;
@@ -2905,6 +3939,7 @@ style.textContent = `@keyframes shake {
   40%{transform:translateX(8px)} 60%{transform:translateX(-5px)}
   80%{transform:translateX(5px)}}`;
 document.head.appendChild(style);
+hydrateMessengerLogos();
 initializeQuizEntry();
 resetInactivityTimer();
 </script>
